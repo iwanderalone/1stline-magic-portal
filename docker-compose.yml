@@ -1,0 +1,62 @@
+version: "3.9"
+
+services:
+  # ── PostgreSQL ──────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: portal
+      POSTGRES_PASSWORD: portal
+      POSTGRES_DB: portal
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U portal"]
+      interval: 5s
+      retries: 5
+
+  # ── Redis ───────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 5
+
+  # ── Backend API ─────────────────────────────────────────
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: "postgresql+asyncpg://portal:portal@db:5432/portal"
+      REDIS_URL: "redis://redis:6379/0"
+      SECRET_KEY: "${SECRET_KEY:-change-me-in-production}"
+      JWT_SECRET: "${JWT_SECRET:-change-me-in-production}"
+      TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN:-}"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Frontend ────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  pgdata:
