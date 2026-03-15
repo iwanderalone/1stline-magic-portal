@@ -507,64 +507,126 @@ function ShiftConfigCard({ config: c, onUpdate }) {
 // ─── Telegram Chats Tab ─────────────────────────────────
 function TelegramTab() {
   const { theme: t } = useTheme();
-  const [chats, setChats] = useState([]); const [show, setShow] = useState(false); const [toast, setToast] = useState(null);
+  const [chats, setChats] = useState([]);
+  const [show, setShow] = useState(false);
+  const [editTarget, setEditTarget] = useState(null);
+  const [toast, setToast] = useState(null);
+  const [testingShift, setTestingShift] = useState(null);
+
   const load = () => api('/admin/telegram-chats').then(d => setChats(d || []));
   useEffect(() => { load(); }, []);
+
   const create = async f => { try { await api('/admin/telegram-chats', { method: 'POST', body: JSON.stringify(f) }); setShow(false); load(); } catch (e) { setToast({ message: e.message, type: 'error' }); }};
   const update = async (id, data) => { try { await api(`/admin/telegram-chats/${id}`, { method: 'PATCH', body: JSON.stringify(data) }); load(); } catch (e) { setToast({ message: e.message, type: 'error' }); }};
-  const del = async id => { try { await api(`/admin/telegram-chats/${id}`, { method: 'DELETE' }); load(); } catch (e) { setToast({ message: e.message, type: 'error' }); }};
+  const del = async id => { if (!confirm('Delete this chat?')) return; try { await api(`/admin/telegram-chats/${id}`, { method: 'DELETE' }); load(); } catch (e) { setToast({ message: e.message, type: 'error' }); }};
+
+  const testChat = async (chatId) => {
+    try {
+      await api('/admin/test-notification', { method: 'POST', body: JSON.stringify({
+        title: 'Test message',
+        message: 'This is a test from the portal admin panel.',
+        send_telegram: false,
+        telegram_chat_db_ids: [chatId],
+      })});
+      setToast({ message: 'Test message sent to chat', type: 'success' });
+    } catch (e) { setToast({ message: e.message, type: 'error' }); }
+  };
+
+  const testShift = async (type) => {
+    setTestingShift(type);
+    try {
+      await api(`/admin/test-telegram-shift?shift_type=${type}`, { method: 'POST' });
+      setToast({ message: `${type} shift notification fired — check Telegram. Note: only sends if there are published shifts today.`, type: 'success' });
+    } catch (e) { setToast({ message: e.message, type: 'error' }); }
+    finally { setTestingShift(null); }
+  };
 
   const flags = ['notify_day_shift_start','notify_night_shift_start','notify_office_roster','notify_reminders','notify_general'];
   const flagLabels = { notify_day_shift_start: '☀️ Day', notify_night_shift_start: '🌙 Night', notify_office_roster: '🏢 Office', notify_reminders: '🔔 Reminders', notify_general: '📢 General' };
 
   return (
     <>
-      <div style={{ display: 'flex', justifyContent: 'flex-end' }}><Button size="sm" onClick={() => setShow(true)}>+ Add chat</Button></div>
-      {chats.length === 0 ? <Card><EmptyState icon="💬" title="No Telegram chats" subtitle="Add group chats to receive notifications" /></Card> :
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          {chats.map(c => (
-            <Card key={c.id} style={{ padding: '16px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
-                <div>
-                  <div style={{ fontWeight: 600, marginBottom: '4px' }}>{c.name}</div>
-                  <div style={{ fontSize: '12px', color: t.textMuted, fontFamily: t.fontMono, marginBottom: '8px' }}>
-                    ID: {c.chat_id} · {c.chat_type}{c.topic_id ? ` · topic: ${c.topic_id}` : ''}
-                  </div>
-                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                    {flags.map(f => (
-                      <Button key={f} size="sm" variant={c[f] ? 'primary' : 'secondary'} onClick={() => update(c.id, { [f]: !c[f] })}>
-                        {flagLabels[f]}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-                <Button size="sm" variant="danger" onClick={() => del(c.id)}>Delete</Button>
-              </div>
-            </Card>
+      {/* Shift notification test buttons */}
+      <div style={{ padding: '14px 16px', background: t.surfaceAlt, borderRadius: t.radiusSm, marginBottom: '12px' }}>
+        <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '8px' }}>Test shift notifications</div>
+        <div style={{ fontSize: '12px', color: t.textMuted, marginBottom: '10px' }}>
+          Fires the real notification now. Sends to all configured chats + personal DMs. Requires published shifts for today.
+        </div>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          {['day','night','office'].map(type => (
+            <Button key={type} size="sm" variant="secondary" disabled={testingShift === type}
+              onClick={() => testShift(type)}>
+              {testingShift === type ? 'Sending…' : { day: '☀️ Day shift', night: '🌙 Night shift', office: '🏢 Office roster' }[type]}
+            </Button>
           ))}
         </div>
+      </div>
+
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '8px' }}>
+        <Button size="sm" onClick={() => setShow(true)}>+ Add chat</Button>
+      </div>
+
+      {chats.length === 0
+        ? <Card><EmptyState icon="💬" title="No Telegram chats" subtitle="Add group chats to receive notifications" /></Card>
+        : <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {chats.map(c => (
+              <Card key={c.id} style={{ padding: '16px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 600, marginBottom: '4px' }}>{c.name}</div>
+                    <div style={{ fontSize: '12px', color: t.textMuted, fontFamily: t.fontMono, marginBottom: '10px' }}>
+                      ID: {c.chat_id} · {c.chat_type}{c.topic_id ? ` · topic: ${c.topic_id}` : ''}
+                    </div>
+                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                      {flags.map(f => (
+                        <Button key={f} size="sm" variant={c[f] ? 'primary' : 'secondary'} onClick={() => update(c.id, { [f]: !c[f] })}>
+                          {flagLabels[f]}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+                    <Button size="sm" variant="secondary" onClick={() => testChat(c.id)} title="Send a test message to this chat">Test</Button>
+                    <Button size="sm" variant="ghost" onClick={() => setEditTarget(c)}>Edit</Button>
+                    <Button size="sm" variant="danger" onClick={() => del(c.id)}>Delete</Button>
+                  </div>
+                </div>
+              </Card>
+            ))}
+          </div>
       }
-      {show && <CreateChatModal onClose={() => setShow(false)} onCreate={create} />}
+
+      {show && <ChatModal onClose={() => setShow(false)} onSave={create} />}
+      {editTarget && <ChatModal chat={editTarget} onClose={() => setEditTarget(null)} onSave={async f => { await update(editTarget.id, f); setEditTarget(null); }} />}
       {toast && <Toast {...toast} onClose={() => setToast(null)} />}
     </>
   );
 }
 
-function CreateChatModal({ onClose, onCreate }) {
-  const [f, setF] = useState({ chat_id: '', name: '', chat_type: 'group', topic_id: '', notify_general: true });
-  const s = (k,v) => setF(p => ({...p,[k]:v}));
+function ChatModal({ chat, onClose, onSave }) {
+  const [f, setF] = useState({
+    chat_id:  chat?.chat_id  ?? '',
+    name:     chat?.name     ?? '',
+    chat_type: chat?.chat_type ?? 'group',
+    topic_id: chat?.topic_id ?? '',
+  });
+  const s = (k, v) => setF(p => ({ ...p, [k]: v }));
+  const isEdit = !!chat;
   return (
-    <Overlay onClose={onClose} title="Add Telegram Chat">
+    <Overlay onClose={onClose} title={isEdit ? 'Edit Telegram Chat' : 'Add Telegram Chat'}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
         <Input label="Chat ID" value={f.chat_id} onChange={e => s('chat_id', e.target.value)} placeholder="-1001234567890" />
         <Input label="Name" value={f.name} onChange={e => s('name', e.target.value)} placeholder="Support Team Chat" />
         <Select label="Type" value={f.chat_type} onChange={e => s('chat_type', e.target.value)}>
-          <option value="group">Group</option><option value="channel">Channel</option>
+          <option value="group">Group</option>
+          <option value="channel">Channel</option>
         </Select>
         <Input label="Topic ID (optional)" value={f.topic_id} onChange={e => s('topic_id', e.target.value)} placeholder="For forum topics" />
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button onClick={() => onCreate({ ...f, topic_id: f.topic_id || null })} disabled={!f.chat_id || !f.name}>Add</Button>
+          <Button onClick={() => onSave({ ...f, topic_id: f.topic_id || null })} disabled={!f.chat_id || !f.name}>
+            {isEdit ? 'Save changes' : 'Add'}
+          </Button>
         </div>
       </div>
     </Overlay>
