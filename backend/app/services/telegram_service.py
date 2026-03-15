@@ -151,6 +151,28 @@ async def notify_office_roster():
         for chat in chats.scalars().all():
             await send_telegram_message(chat.chat_id, message, chat.topic_id)
 
+        # Personal DMs to office workers
+        for s in shift_list:
+            user_result = await db.execute(select(User).where(User.id == s.user_id))
+            u = user_result.scalar_one_or_none()
+            if u and u.telegram_chat_id and u.telegram_notify_shifts:
+                loc = f" ({s.location.value})" if s.location else ""
+                personal_msg = f"🏢 <b>Office shift today</b>\n{today.strftime('%A, %d %b %Y')}{loc}"
+                if s.start_time:
+                    try:
+                        user_tz = ZoneInfo(u.timezone or "UTC")
+                    except ZoneInfoNotFoundError:
+                        user_tz = ZoneInfo("UTC")
+                    from datetime import datetime as dt
+                    from app.core.config import get_settings as _gs
+                    try:
+                        portal_tz = ZoneInfo(_gs().PORTAL_TIMEZONE)
+                    except ZoneInfoNotFoundError:
+                        portal_tz = ZoneInfo("UTC")
+                    local_start = dt.combine(today, s.start_time).replace(tzinfo=portal_tz).astimezone(user_tz)
+                    personal_msg += f"\nStarts at {local_start.strftime('%H:%M')} ({u.timezone or 'UTC'})"
+                await send_telegram_message(u.telegram_chat_id, personal_msg)
+
 
 # ─── Bot update polling ──────────────────────────────────
 
