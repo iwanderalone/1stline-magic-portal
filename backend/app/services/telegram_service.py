@@ -1,6 +1,6 @@
 """Telegram bot service — personal + group chat notifications."""
 import logging
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timezone, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,73 +34,94 @@ async def send_telegram_message(chat_id: str, text: str, topic_id: str = None) -
         return False
 
 
-async def notify_shift_start(shift_type: ShiftType):
-    """Send shift start notification to configured group chats."""
-    today = date.today()
-    async with AsyncSessionFactory() as db:
-        # Get today's shifts of this type
-        shifts = await db.execute(
-            select(Shift).where(
-                and_(Shift.date == today, Shift.shift_type == shift_type, Shift.is_published == True)
-            )
+async def _get_roster(db, shift_type: ShiftType, on_date: date) -> list[str]:
+    """Return a list of display strings for published shifts of a given type on a given date."""
+    result = await db.execute(
+        select(Shift).where(
+            and_(Shift.date == on_date, Shift.shift_type == shift_type, Shift.is_published == True)
         )
-        shift_list = shifts.scalars().all()
-        if not shift_list:
+    )
+    lines = []
+    for s in result.scalars().all():
+        user_result = await db.execute(select(User).where(User.id == s.user_id))
+        u = user_result.scalar_one_or_none()
+        if u:
+            loc = f" ({s.location.value})" if s.location else ""
+            lines.append((u, s, f"  • {u.display_name}{loc}"))
+    return lines
+
+
+async def notify_shift_start(shift_type: ShiftType):
+    """Send shift start notification to configured group chats.
+
+    Day shift  (07:45): today's day roster   + tonight's night roster
+    Night shift (19:45): tonight's night roster + tomorrow's day roster
+    """
+    today = date.today()
+    tomorrow = today + timedelta(days=1)
+
+    async with AsyncSessionFactory() as db:
+        if shift_type == ShiftType.DAY:
+            title       = "☀️ <b>Day Shift Starting</b>"
+            flag_field  = "notify_day_shift_start"
+            primary     = await _get_roster(db, ShiftType.DAY,   today)
+            upcoming    = await _get_roster(db, ShiftType.NIGHT,  today)
+            upcoming_label = f"🌙 Tonight's night shift ({today.strftime('%d %b')})"
+        elif shift_type == ShiftType.NIGHT:
+            title       = "🌙 <b>Night Shift Starting</b>"
+            flag_field  = "notify_night_shift_start"
+            primary     = await _get_roster(db, ShiftType.NIGHT, today)
+            upcoming    = await _get_roster(db, ShiftType.DAY,   tomorrow)
+            upcoming_label = f"☀️ Tomorrow's day shift ({tomorrow.strftime('%d %b')})"
+        else:
+            # OFFICE handled by notify_office_roster
             return
 
-        # Build roster
-        lines = []
-        for s in shift_list:
-            user = await db.execute(select(User).where(User.id == s.user_id))
-            u = user.scalar_one_or_none()
-            if u:
-                loc = ""
-                if s.location:
-                    loc = f" ({s.location.value})"
-                lines.append(f"  • {u.display_name}{loc}")
+        if not primary:
+            return
 
-        if shift_type == ShiftType.DAY:
-            title = "☀️ <b>Day Shift Starting</b>"
-            flag_field = "notify_day_shift_start"
-        elif shift_type == ShiftType.NIGHT:
-            title = "🌙 <b>Night Shift Starting</b>"
-            flag_field = "notify_night_shift_start"
+        # ── Group chat message ──────────────────────────────
+        primary_lines   = [row[2] for row in primary]
+        upcoming_lines  = [row[2] for row in upcoming]
+
+        msg = f"{title}\n{today.strftime('%A, %d %b %Y')}\n\n"
+        msg += "\n".join(primary_lines)
+        if upcoming_lines:
+            msg += f"\n\n{upcoming_label}:\n" + "\n".join(upcoming_lines)
         else:
-            title = "🏢 <b>Office Roster</b>"
-            flag_field = "notify_office_roster"
+            msg += f"\n\n{upcoming_label}:\n  — not scheduled yet"
 
-        message = f"{title}\n{today.strftime('%A, %d %b %Y')}\n\n" + "\n".join(lines)
-
-        # Get group chats configured for this notification type
         chats = await db.execute(
             select(TelegramChat).where(
                 and_(TelegramChat.is_active == True, getattr(TelegramChat, flag_field) == True)
             )
         )
         for chat in chats.scalars().all():
-            await send_telegram_message(chat.chat_id, message, chat.topic_id)
+            await send_telegram_message(chat.chat_id, msg, chat.topic_id)
 
-        # Also notify individual users who have telegram linked and shift notifications on
-        for s in shift_list:
-            user = await db.execute(select(User).where(User.id == s.user_id))
-            u = user.scalar_one_or_none()
-            if u and u.telegram_chat_id and u.telegram_notify_shifts:
-                personal_msg = f"{title}\n\nYou're on shift today ({shift_type.value})"
-                if s.start_time:
-                    try:
-                        user_tz = ZoneInfo(u.timezone or "UTC")
-                    except ZoneInfoNotFoundError:
-                        user_tz = ZoneInfo("UTC")
-                    from datetime import datetime as dt
-                    from app.core.config import get_settings as _gs
-                    try:
-                        portal_tz = ZoneInfo(_gs().PORTAL_TIMEZONE)
-                    except ZoneInfoNotFoundError:
-                        portal_tz = ZoneInfo("UTC")
-                    # start_time is naive — interpret in portal timezone, display in user's timezone
-                    local_start = dt.combine(today, s.start_time).replace(tzinfo=portal_tz).astimezone(user_tz)
-                    personal_msg += f"\nStarts at {local_start.strftime('%H:%M')} ({u.timezone or 'UTC'})"
-                await send_telegram_message(u.telegram_chat_id, personal_msg)
+        # ── Personal DMs to workers on the current shift ────
+        try:
+            portal_tz = ZoneInfo(get_settings().PORTAL_TIMEZONE)
+        except ZoneInfoNotFoundError:
+            portal_tz = ZoneInfo("UTC")
+
+        for u, s, _ in primary:
+            if not (u.telegram_chat_id and u.telegram_notify_shifts):
+                continue
+            personal_msg = f"{title}\n\nYou're on shift today ({shift_type.value})"
+            if s.start_time:
+                try:
+                    user_tz = ZoneInfo(u.timezone or "UTC")
+                except ZoneInfoNotFoundError:
+                    user_tz = ZoneInfo("UTC")
+                local_start = datetime.combine(today, s.start_time).replace(tzinfo=portal_tz).astimezone(user_tz)
+                personal_msg += f"\nStarts at {local_start.strftime('%H:%M')} ({u.timezone or 'UTC'})"
+
+            # Append the upcoming roster so each worker knows who's next
+            if upcoming_lines:
+                personal_msg += f"\n\n{upcoming_label}:\n" + "\n".join(upcoming_lines)
+
+            await send_telegram_message(u.telegram_chat_id, personal_msg)
 
 
 async def notify_office_roster():
