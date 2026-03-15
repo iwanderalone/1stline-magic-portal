@@ -50,7 +50,7 @@ export default function ProfilePage({ user, onUserUpdate }) {
 
   // Auto-poll profile after link code is shown — detect when bot linking completes
   useEffect(() => {
-    if (!linkCode || profile.telegram_chat_id) return;
+    if (!linkCode || profile?.telegram_chat_id) return;
     const interval = setInterval(async () => {
       try {
         const updated = await api('/users/me/profile');
@@ -62,7 +62,7 @@ export default function ProfilePage({ user, onUserUpdate }) {
       } catch {}
     }, 3000);
     return () => clearInterval(interval);
-  }, [linkCode, profile.telegram_chat_id]);
+  }, [linkCode, profile?.telegram_chat_id]);
 
   const [otpSetup, setOtpSetup] = useState(null); // { qr_svg_base64, secret }
   const [otpCode, setOtpCode] = useState('');
