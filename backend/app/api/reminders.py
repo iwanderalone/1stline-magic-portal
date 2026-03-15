@@ -1,4 +1,5 @@
 """Reminder endpoints."""
+from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
@@ -54,7 +55,7 @@ async def create_reminder(
 
 @router.patch("/{reminder_id}", response_model=ReminderResponse)
 async def update_reminder(
-    reminder_id: str,
+    reminder_id: UUID,
     req: ReminderUpdate,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -78,7 +79,7 @@ async def update_reminder(
 
 @router.delete("/{reminder_id}")
 async def cancel_reminder(
-    reminder_id: str,
+    reminder_id: UUID,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):

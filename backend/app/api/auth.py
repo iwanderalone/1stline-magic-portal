@@ -1,4 +1,5 @@
 """Authentication endpoints."""
+from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -13,6 +14,7 @@ from app.schemas.schemas import (
     LoginRequest, OTPVerifyRequest, OTPSetupResponse,
     TokenResponse, RefreshRequest, UserResponse,
 )
+from app.services.audit import log_action
 import secrets
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -40,6 +42,7 @@ async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
     # No OTP — issue tokens directly
     access = create_access_token({"sub": str(user.id)})
     refresh = create_refresh_token({"sub": str(user.id)})
+    await log_action(db, user, "login", "Password auth")
     return TokenResponse(
         access_token=access,
         refresh_token=refresh,
@@ -50,12 +53,18 @@ async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
 @router.post("/verify-otp", response_model=TokenResponse)
 async def verify_otp_endpoint(req: OTPVerifyRequest, db: AsyncSession = Depends(get_db)):
     """Step 2: Verify OTP code and issue full tokens."""
+    if not req.temp_token:
+        raise HTTPException(status_code=400, detail="temp_token is required")
     payload = decode_token(req.temp_token)
     if not payload or not payload.get("otp_pending"):
         raise HTTPException(status_code=401, detail="Invalid temp token")
 
     user_id = payload.get("sub")
-    result = await db.execute(select(User).where(User.id == user_id))
+    try:
+        user_uuid = UUID(user_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=401, detail="Invalid temp token")
+    result = await db.execute(select(User).where(User.id == user_uuid))
     user = result.scalar_one_or_none()
 
     if not user or not user.otp_secret:
@@ -106,6 +115,23 @@ async def confirm_otp(
     return {"message": "OTP enabled successfully"}
 
 
+@router.post("/disable-otp")
+async def disable_otp(
+    req: OTPVerifyRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Disable OTP for the current user (requires valid OTP code as proof)."""
+    if not user.otp_enabled or not user.otp_secret:
+        raise HTTPException(status_code=400, detail="OTP is not enabled")
+    if not verify_otp(user.otp_secret, req.otp_code):
+        raise HTTPException(status_code=400, detail="Invalid OTP code")
+    user.otp_enabled = False
+    user.otp_secret = None
+    await db.flush()
+    return {"message": "OTP disabled"}
+
+
 @router.post("/refresh", response_model=TokenResponse)
 async def refresh_tokens(req: RefreshRequest, db: AsyncSession = Depends(get_db)):
     payload = decode_token(req.refresh_token)
@@ -113,7 +139,11 @@ async def refresh_tokens(req: RefreshRequest, db: AsyncSession = Depends(get_db)
         raise HTTPException(status_code=401, detail="Invalid refresh token")
 
     user_id = payload.get("sub")
-    result = await db.execute(select(User).where(User.id == user_id))
+    try:
+        user_uuid = UUID(user_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+    result = await db.execute(select(User).where(User.id == user_uuid))
     user = result.scalar_one_or_none()
     if not user or not user.is_active:
         raise HTTPException(status_code=401, detail="User not found")

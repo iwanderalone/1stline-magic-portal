@@ -2,12 +2,12 @@
 
 Runs every 30 seconds, checks for due reminders, fires notifications.
 """
-import asyncio
 import logging
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlalchemy import select, and_
 from app.core.database import AsyncSessionFactory
-from app.models.models import Reminder, Notification, ReminderStatus, User
+from app.models.models import Reminder, Notification, ReminderStatus, User, TelegramChat
 from app.services.telegram_service import send_telegram_message
 
 logger = logging.getLogger(__name__)
@@ -50,13 +50,34 @@ async def check_and_fire_reminders():
                     db.add(notif)
 
                 # Telegram notification
-                if reminder.notify_telegram and user.telegram_chat_id:
+                target = getattr(reminder, "telegram_target", "personal") or "personal"
+                if reminder.notify_telegram and target != "none":
+                    try:
+                        tz = ZoneInfo(user.timezone or "UTC")
+                    except ZoneInfoNotFoundError:
+                        tz = ZoneInfo("UTC")
+                    local_time = now.astimezone(tz).strftime("%H:%M, %d %b")
                     text = (
                         f"🔔 <b>Reminder</b>\n\n"
                         f"<b>{reminder.title}</b>\n"
-                        f"{reminder.description or ''}"
+                        f"{reminder.description or ''}\n"
+                        f"<i>{local_time} ({user.timezone or 'UTC'})</i>"
                     )
-                    await send_telegram_message(user.telegram_chat_id, text)
+
+                    # Personal chat
+                    if target in ("personal", "both") and user.telegram_chat_id and user.telegram_notify_reminders:
+                        await send_telegram_message(user.telegram_chat_id, text)
+
+                    # Group chats
+                    if target in ("groups", "both"):
+                        chats_result = await db.execute(
+                            select(TelegramChat).where(
+                                TelegramChat.is_active == True,
+                                TelegramChat.notify_reminders == True,
+                            )
+                        )
+                        for chat in chats_result.scalars().all():
+                            await send_telegram_message(chat.chat_id, text, chat.topic_id)
 
                 # Handle recurring
                 if reminder.is_recurring and reminder.recurrence_minutes:

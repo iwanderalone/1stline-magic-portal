@@ -1,9 +1,13 @@
-"""Pydantic schemas for request/response validation."""
-from pydantic import BaseModel, Field
+"""Pydantic schemas — expanded."""
+import json as _json
+from pydantic import BaseModel, Field, model_validator, field_validator
 from datetime import date, time, datetime
-from typing import Optional
+from typing import Optional, Any
 from uuid import UUID
-from app.models.models import UserRole, ShiftType, TimeOffStatus, TimeOffType, ReminderStatus
+from app.models.models import (
+    UserRole, ShiftType, WorkLocation, TimeOffStatus,
+    TimeOffType, ReminderStatus, TelegramChatType,
+)
 
 
 # ─── Auth ────────────────────────────────────────────────
@@ -13,7 +17,7 @@ class LoginRequest(BaseModel):
     password: str = Field(..., min_length=6)
 
 class OTPVerifyRequest(BaseModel):
-    temp_token: str
+    temp_token: Optional[str] = None
     otp_code: str = Field(..., min_length=6, max_length=6)
 
 class OTPSetupResponse(BaseModel):
@@ -31,7 +35,39 @@ class RefreshRequest(BaseModel):
     refresh_token: str
 
 
+# ─── Groups ──────────────────────────────────────────────
+
+class GroupCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    description: Optional[str] = None
+    color: str = Field(default="#6366f1", pattern=r"^#[0-9a-fA-F]{6}$")
+
+class GroupUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    color: Optional[str] = None
+
+class GroupResponse(BaseModel):
+    id: UUID
+    name: str
+    description: Optional[str]
+    color: str
+    member_ids: list[UUID] = []
+    created_at: datetime
+    class Config:
+        from_attributes = True
+
+class GroupMemberUpdate(BaseModel):
+    user_ids: list[UUID]
+
+
 # ─── Users ───────────────────────────────────────────────
+
+class AvailabilityPattern(BaseModel):
+    """Defines a repeating work/off cycle for users with external schedules."""
+    cycle_days: int = Field(..., ge=2, le=30, description="Total days in one cycle")
+    work_days: list[int] = Field(..., description="Which days of the cycle are available (1-indexed)")
+    blocked_weekdays: list[int] = Field(default=[], description="Weekdays never available (0=Mon, 6=Sun)")
 
 class UserCreate(BaseModel):
     username: str = Field(..., min_length=2, max_length=50)
@@ -40,31 +76,123 @@ class UserCreate(BaseModel):
     email: Optional[str] = None
     role: UserRole = UserRole.ENGINEER
     telegram_username: Optional[str] = None
+    timezone: str = Field(default="UTC", max_length=50)
     min_shift_gap_days: int = Field(default=2, ge=0, le=7)
     max_shifts_per_week: int = Field(default=3, ge=1, le=7)
+    group_ids: Optional[list[UUID]] = None
+    availability_pattern: Optional[AvailabilityPattern] = None
+    availability_anchor_date: Optional[date] = None
+    allowed_shift_types: Optional[list[str]] = None  # None = all types allowed
 
 class UserUpdate(BaseModel):
     display_name: Optional[str] = None
     email: Optional[str] = None
     telegram_username: Optional[str] = None
+    timezone: Optional[str] = Field(default=None, max_length=50)
     min_shift_gap_days: Optional[int] = Field(default=None, ge=0, le=7)
     max_shifts_per_week: Optional[int] = Field(default=None, ge=1, le=7)
     is_active: Optional[bool] = None
+    role: Optional[UserRole] = None
+    group_ids: Optional[list[UUID]] = None
+    availability_pattern: Optional[AvailabilityPattern] = None
+    availability_anchor_date: Optional[date] = None
+    allowed_shift_types: Optional[list[str]] = None
+
+class AdminResetPassword(BaseModel):
+    new_password: str = Field(..., min_length=8)
+
+class ProfileUpdate(BaseModel):
+    """User self-service profile update."""
+    display_name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    name_color: Optional[str] = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
+    avatar_url: Optional[str] = None
+    timezone: Optional[str] = Field(default=None, max_length=50)
+    telegram_username: Optional[str] = None
+    telegram_notify_shifts: Optional[bool] = None
+    telegram_notify_reminders: Optional[bool] = None
 
 class UserResponse(BaseModel):
     id: UUID
     username: str
     display_name: str
-    email: Optional[str]
+    email: Optional[str] = None
     role: UserRole
-    is_active: bool
-    otp_enabled: bool
-    telegram_username: Optional[str]
-    telegram_chat_id: Optional[str]
-    min_shift_gap_days: int
-    max_shifts_per_week: int
+    is_active: bool = True
+    otp_enabled: bool = False
+    avatar_url: Optional[str] = None
+    name_color: Optional[str] = None
+    timezone: Optional[str] = None
+    telegram_username: Optional[str] = None
+    telegram_chat_id: Optional[str] = None
+    telegram_notify_shifts: Optional[bool] = None
+    telegram_notify_reminders: Optional[bool] = None
+    min_shift_gap_days: int = 2
+    max_shifts_per_week: int = 3
+    availability_pattern: Optional[AvailabilityPattern] = None
+    availability_anchor_date: Optional[date] = None
+    allowed_shift_types: Optional[list[str]] = None
+    group_ids: list[UUID] = []
     created_at: datetime
 
+    @field_validator('availability_pattern', 'allowed_shift_types', mode='before')
+    @classmethod
+    def _parse_json_text(cls, v: object) -> object:
+        if isinstance(v, str):
+            try:
+                return _json.loads(v)
+            except Exception:
+                return None
+        return v
+
+    @model_validator(mode='after')
+    def apply_defaults(self) -> 'UserResponse':
+        if self.name_color is None:
+            self.name_color = "#2563eb"
+        if self.timezone is None:
+            self.timezone = "UTC"
+        if self.telegram_notify_shifts is None:
+            self.telegram_notify_shifts = True
+        if self.telegram_notify_reminders is None:
+            self.telegram_notify_reminders = True
+        return self
+
+    class Config:
+        from_attributes = True
+
+
+# ─── Shift Config ────────────────────────────────────────
+
+class ShiftConfigCreate(BaseModel):
+    shift_type: ShiftType
+    label: str = Field(..., min_length=1, max_length=50)
+    duration_hours: float = Field(default=12, gt=0, le=24)
+    default_start_time: Optional[time] = None
+    default_end_time: Optional[time] = None
+    color: str = Field(default="#3b82f6", pattern=r"^#[0-9a-fA-F]{6}$")
+    emoji: str = Field(default="☀️", max_length=4)
+    requires_location: bool = False
+
+class ShiftConfigUpdate(BaseModel):
+    label: Optional[str] = None
+    duration_hours: Optional[float] = None
+    default_start_time: Optional[time] = None
+    default_end_time: Optional[time] = None
+    color: Optional[str] = None
+    emoji: Optional[str] = None
+    requires_location: Optional[bool] = None
+    is_active: Optional[bool] = None
+
+class ShiftConfigResponse(BaseModel):
+    id: UUID
+    shift_type: ShiftType
+    label: str
+    duration_hours: float
+    default_start_time: Optional[time]
+    default_end_time: Optional[time]
+    color: str
+    emoji: str
+    requires_location: bool
+    is_active: bool
     class Config:
         from_attributes = True
 
@@ -77,6 +205,7 @@ class ShiftCreate(BaseModel):
     shift_type: ShiftType
     start_time: Optional[time] = None
     end_time: Optional[time] = None
+    location: Optional[WorkLocation] = None
     notes: Optional[str] = None
 
 class ShiftResponse(BaseModel):
@@ -86,18 +215,26 @@ class ShiftResponse(BaseModel):
     shift_type: ShiftType
     start_time: Optional[time]
     end_time: Optional[time]
+    location: Optional[WorkLocation]
     notes: Optional[str]
     is_published: bool
     user: Optional[UserResponse] = None
-
     class Config:
         from_attributes = True
+
+class ShiftUpdate(BaseModel):
+    shift_type: Optional[ShiftType] = None
+    location: Optional[WorkLocation] = None
+    start_time: Optional[time] = None
+    end_time: Optional[time] = None
+    notes: Optional[str] = None
+    is_published: Optional[bool] = None
 
 class ScheduleGenerateRequest(BaseModel):
     start_date: date
     end_date: date
-    shift_types: list[ShiftType] = [ShiftType.MORNING, ShiftType.AFTERNOON, ShiftType.NIGHT]
-    user_ids: Optional[list[UUID]] = None  # None = all active engineers
+    shift_types: list[ShiftType] = [ShiftType.DAY, ShiftType.NIGHT]
+    user_ids: Optional[list[UUID]] = None
 
 class TimeOffCreate(BaseModel):
     start_date: date
@@ -116,7 +253,6 @@ class TimeOffResponse(BaseModel):
     admin_comment: Optional[str]
     created_at: datetime
     user: Optional[UserResponse] = None
-
     class Config:
         from_attributes = True
 
@@ -135,6 +271,7 @@ class ReminderCreate(BaseModel):
     recurrence_minutes: Optional[int] = Field(default=None, ge=5)
     notify_telegram: bool = True
     notify_in_app: bool = True
+    telegram_target: str = "personal"  # none | personal | groups | both
 
 class ReminderUpdate(BaseModel):
     title: Optional[str] = None
@@ -153,9 +290,9 @@ class ReminderResponse(BaseModel):
     recurrence_minutes: Optional[int]
     notify_telegram: bool
     notify_in_app: bool
+    telegram_target: str = "personal"
     created_at: datetime
     fired_at: Optional[datetime]
-
     class Config:
         from_attributes = True
 
@@ -168,12 +305,68 @@ class NotificationResponse(BaseModel):
     message: str
     is_read: bool
     created_at: datetime
-
     class Config:
         from_attributes = True
 
 
-# ─── Telegram ────────────────────────────────────────────
+# ─── Activity Logs ───────────────────────────────────────
 
-class TelegramLinkRequest(BaseModel):
-    code: str
+class ActivityLogResponse(BaseModel):
+    id: UUID
+    user_id: Optional[UUID]
+    username: Optional[str]
+    action: str
+    details: Optional[str]
+    created_at: datetime
+    class Config:
+        from_attributes = True
+
+
+# ─── Admin / Test Notifications ─────────────────────────
+
+class TestNotificationRequest(BaseModel):
+    title: str = Field(default="Test Notification", min_length=1, max_length=255)
+    message: str = Field(default="This is a test notification from the admin panel.", min_length=1)
+    user_ids: Optional[list[UUID]] = None  # None = send to all active users
+    send_telegram: bool = False
+    telegram_chat_db_ids: Optional[list[UUID]] = None  # configured TelegramChat record IDs
+
+
+# ─── Telegram Chats ──────────────────────────────────────
+
+class TelegramChatCreate(BaseModel):
+    chat_id: str = Field(..., min_length=1)
+    name: str = Field(..., min_length=1, max_length=200)
+    chat_type: TelegramChatType = TelegramChatType.GROUP
+    topic_id: Optional[str] = None
+    notify_day_shift_start: bool = False
+    notify_night_shift_start: bool = False
+    notify_office_roster: bool = False
+    notify_reminders: bool = False
+    notify_general: bool = True
+
+class TelegramChatUpdate(BaseModel):
+    name: Optional[str] = None
+    topic_id: Optional[str] = None
+    is_active: Optional[bool] = None
+    notify_day_shift_start: Optional[bool] = None
+    notify_night_shift_start: Optional[bool] = None
+    notify_office_roster: Optional[bool] = None
+    notify_reminders: Optional[bool] = None
+    notify_general: Optional[bool] = None
+
+class TelegramChatResponse(BaseModel):
+    id: UUID
+    chat_id: str
+    name: str
+    chat_type: TelegramChatType
+    topic_id: Optional[str]
+    is_active: bool
+    notify_day_shift_start: bool
+    notify_night_shift_start: bool
+    notify_office_roster: bool
+    notify_reminders: bool
+    notify_general: bool
+    created_at: datetime
+    class Config:
+        from_attributes = True

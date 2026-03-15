@@ -19,5 +19,12 @@ dist/
 .DS_Store
 Thumbs.db
 
-# Docker
+# Docker / data
 pgdata/
+data/*.db
+data/*.db-wal
+data/*.db-shm
+
+# Claude Code AI assistant (personal memory, local instructions)
+.claude/
+CLAUDE.md

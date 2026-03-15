@@ -1,19 +1,35 @@
 """Schedule endpoints — shifts, auto-gen, time-off."""
+from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, delete
+from sqlalchemy import select, and_
 from sqlalchemy.orm import selectinload
 from datetime import date
 from app.core.database import get_db
 from app.core.deps import get_current_user, require_admin
-from app.models.models import User, Shift, TimeOffRequest, ShiftType
+from app.models.models import User, Shift, TimeOffRequest, ShiftType, ShiftConfig
 from app.schemas.schemas import (
-    ShiftCreate, ShiftResponse, ScheduleGenerateRequest,
+    ShiftCreate, ShiftUpdate, ShiftResponse, ScheduleGenerateRequest,
     TimeOffCreate, TimeOffResponse, TimeOffReviewRequest, UserResponse,
+    ShiftConfigResponse,
 )
 from app.services.schedule_service import generate_schedule
+from app.services.audit import log_action
 
 router = APIRouter(prefix="/schedule", tags=["schedule"])
+
+
+# ─── Public: shift configs for frontend rendering ───────
+
+@router.get("/shift-configs", response_model=list[ShiftConfigResponse])
+async def get_shift_configs(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(ShiftConfig).where(ShiftConfig.is_active == True)
+    )
+    return [ShiftConfigResponse.model_validate(c) for c in result.scalars().all()]
 
 
 # ─── Shifts ──────────────────────────────────────────────
@@ -41,7 +57,57 @@ async def create_shift(
     db: AsyncSession = Depends(get_db),
 ):
     shift = Shift(**req.model_dump())
+    # Auto-fill times from config
+    if not shift.start_time or not shift.end_time:
+        cfg = await db.execute(
+            select(ShiftConfig).where(ShiftConfig.shift_type == req.shift_type)
+        )
+        config = cfg.scalar_one_or_none()
+        if config:
+            if not shift.start_time:
+                shift.start_time = config.default_start_time
+            if not shift.end_time:
+                shift.end_time = config.default_end_time
     db.add(shift)
+    await db.flush()
+    await db.refresh(shift, ["user"])
+    return ShiftResponse.model_validate(shift)
+
+
+@router.delete("/shifts/drafts")
+async def clear_draft_shifts(
+    start_date: date = Query(...),
+    end_date: date = Query(...),
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Shift).where(
+            and_(Shift.date >= start_date, Shift.date <= end_date, Shift.is_published == False)
+        )
+    )
+    drafts = result.scalars().all()
+    for s in drafts:
+        await db.delete(s)
+    await log_action(db, admin, "drafts_cleared", f"{len(drafts)} drafts from {start_date} to {end_date}")
+    return {"deleted": len(drafts)}
+
+
+@router.patch("/shifts/{shift_id}", response_model=ShiftResponse)
+async def update_shift(
+    shift_id: UUID,
+    req: ShiftUpdate,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Shift).options(selectinload(Shift.user)).where(Shift.id == shift_id)
+    )
+    shift = result.scalar_one_or_none()
+    if not shift:
+        raise HTTPException(status_code=404)
+    for field, value in req.model_dump(exclude_unset=True).items():
+        setattr(shift, field, value)
     await db.flush()
     await db.refresh(shift, ["user"])
     return ShiftResponse.model_validate(shift)
@@ -49,7 +115,7 @@ async def create_shift(
 
 @router.delete("/shifts/{shift_id}")
 async def delete_shift(
-    shift_id: str,
+    shift_id: UUID,
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
@@ -67,10 +133,8 @@ async def auto_generate(
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    """Generate schedule with constraints. Does NOT delete existing shifts."""
-    user_ids = [str(uid) for uid in req.user_ids] if req.user_ids else None
     assignments = await generate_schedule(
-        db, req.start_date, req.end_date, req.shift_types, user_ids
+        db, req.start_date, req.end_date, req.shift_types, req.user_ids or None
     )
 
     shifts = []
@@ -79,6 +143,8 @@ async def auto_generate(
             user_id=a["user_id"],
             date=a["date"],
             shift_type=a["shift_type"],
+            start_time=a.get("start_time"),
+            end_time=a.get("end_time"),
             is_published=False,
         )
         db.add(shift)
@@ -88,6 +154,8 @@ async def auto_generate(
     for s in shifts:
         await db.refresh(s, ["user"])
 
+    await log_action(db, admin, "schedule_generated",
+        f"{len(shifts)} shifts from {req.start_date} to {req.end_date}")
     return [ShiftResponse.model_validate(s) for s in shifts]
 
 
@@ -107,6 +175,8 @@ async def publish_schedule(
     for s in shifts:
         s.is_published = True
     await db.flush()
+    await log_action(db, admin, "schedule_published",
+        f"{len(shifts)} shifts from {start_date} to {end_date}")
     return {"published": len(shifts)}
 
 
@@ -133,17 +203,18 @@ async def request_time_off(
 ):
     if req.end_date < req.start_date:
         raise HTTPException(status_code=400, detail="End date must be after start date")
-
     time_off = TimeOffRequest(user_id=user.id, **req.model_dump())
     db.add(time_off)
     await db.flush()
     await db.refresh(time_off, ["user"])
+    await log_action(db, user, "time_off_requested",
+        f"{req.off_type.value} from {req.start_date} to {req.end_date}")
     return TimeOffResponse.model_validate(time_off)
 
 
 @router.patch("/time-off/{request_id}", response_model=TimeOffResponse)
 async def review_time_off(
-    request_id: str,
+    request_id: UUID,
     req: TimeOffReviewRequest,
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
@@ -155,10 +226,27 @@ async def review_time_off(
     time_off = result.scalar_one_or_none()
     if not time_off:
         raise HTTPException(status_code=404)
-
     time_off.status = req.status
     if req.admin_comment:
         time_off.admin_comment = req.admin_comment
     await db.flush()
     await db.refresh(time_off)
+    await log_action(db, admin, "time_off_reviewed",
+        f"Request {request_id} → {req.status.value}" + (f" | {req.admin_comment}" if req.admin_comment else ""))
     return TimeOffResponse.model_validate(time_off)
+
+
+@router.delete("/time-off/{request_id}")
+async def delete_time_off(
+    request_id: UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(TimeOffRequest).where(TimeOffRequest.id == request_id))
+    time_off = result.scalar_one_or_none()
+    if not time_off:
+        raise HTTPException(status_code=404)
+    if user.role != "admin" and time_off.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Not allowed")
+    await db.delete(time_off)
+    return {"deleted": True}
