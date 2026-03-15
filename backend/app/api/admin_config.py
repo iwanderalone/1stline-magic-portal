@@ -194,6 +194,59 @@ async def trigger_shift_notification(
     return {"triggered": shift_type}
 
 
+# ─── Telegram diagnostics ────────────────────────────────
+
+@router.get("/telegram-diagnostics")
+async def telegram_diagnostics(
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Check bot token validity and send a probe message to every configured chat.
+    Returns detailed per-chat results so you can see exactly what is failing."""
+    import httpx
+    from app.core.config import get_settings as _gs
+    s = _gs()
+
+    result = {"bot": None, "chats": [], "personal_dms": []}
+
+    # 1. Verify bot token via getMe
+    if not s.TELEGRAM_BOT_TOKEN:
+        result["bot"] = {"ok": False, "error": "TELEGRAM_BOT_TOKEN is not set in .env"}
+        return result
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(f"https://api.telegram.org/bot{s.TELEGRAM_BOT_TOKEN}/getMe")
+            data = r.json()
+            if data.get("ok"):
+                b = data["result"]
+                result["bot"] = {"ok": True, "username": b.get("username"), "name": b.get("first_name")}
+            else:
+                result["bot"] = {"ok": False, "error": data.get("description", "Unknown error")}
+                return result  # No point testing chats if token is bad
+    except Exception as e:
+        result["bot"] = {"ok": False, "error": str(e)}
+        return result
+
+    # 2. Probe each configured chat
+    chats_result = await db.execute(select(TelegramChat).where(TelegramChat.is_active == True))
+    for chat in chats_result.scalars().all():
+        probe_text = f"🔧 Portal diagnostics probe — if you see this, the bot can post to <b>{chat.name}</b>."
+        ok = await send_telegram_message(chat.chat_id, probe_text, chat.topic_id)
+        result["chats"].append({"name": chat.name, "chat_id": chat.chat_id, "ok": ok})
+
+    # 3. Probe linked personal chats
+    users_result = await db.execute(
+        select(User).where(User.telegram_chat_id != None, User.is_active == True)
+    )
+    for user in users_result.scalars().all():
+        probe_text = f"🔧 Portal diagnostics probe — DM delivery to <b>{user.display_name}</b> works."
+        ok = await send_telegram_message(user.telegram_chat_id, probe_text)
+        result["personal_dms"].append({"display_name": user.display_name, "ok": ok})
+
+    return result
+
+
 # ─── Audit Logs ───────────────────────────────────────────
 
 @router.get("/audit-logs", response_model=list[ActivityLogResponse])

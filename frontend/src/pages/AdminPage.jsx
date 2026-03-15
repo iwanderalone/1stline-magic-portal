@@ -512,6 +512,8 @@ function TelegramTab() {
   const [editTarget, setEditTarget] = useState(null);
   const [toast, setToast] = useState(null);
   const [testingShift, setTestingShift] = useState(null);
+  const [diagResult, setDiagResult] = useState(null);
+  const [diagLoading, setDiagLoading] = useState(false);
 
   const load = () => api('/admin/telegram-chats').then(d => setChats(d || []));
   useEffect(() => { load(); }, []);
@@ -519,6 +521,13 @@ function TelegramTab() {
   const create = async f => { try { await api('/admin/telegram-chats', { method: 'POST', body: JSON.stringify(f) }); setShow(false); load(); } catch (e) { setToast({ message: e.message, type: 'error' }); }};
   const update = async (id, data) => { try { await api(`/admin/telegram-chats/${id}`, { method: 'PATCH', body: JSON.stringify(data) }); load(); } catch (e) { setToast({ message: e.message, type: 'error' }); }};
   const del = async id => { if (!confirm('Delete this chat?')) return; try { await api(`/admin/telegram-chats/${id}`, { method: 'DELETE' }); load(); } catch (e) { setToast({ message: e.message, type: 'error' }); }};
+
+  const runDiagnostics = async () => {
+    setDiagLoading(true); setDiagResult(null);
+    try { setDiagResult(await api('/admin/telegram-diagnostics')); }
+    catch (e) { setToast({ message: e.message, type: 'error' }); }
+    finally { setDiagLoading(false); }
+  };
 
   const testChat = async (chatId) => {
     try {
@@ -546,6 +555,44 @@ function TelegramTab() {
 
   return (
     <>
+      {/* Bot diagnostics */}
+      <div style={{ padding: '14px 16px', background: t.surfaceAlt, borderRadius: t.radiusSm, marginBottom: '12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: diagResult ? '12px' : '0' }}>
+          <div>
+            <div style={{ fontSize: '13px', fontWeight: 600 }}>Bot diagnostics</div>
+            <div style={{ fontSize: '12px', color: t.textMuted }}>Verifies token + sends a probe message to every chat and linked DM.</div>
+          </div>
+          <Button size="sm" variant="secondary" onClick={runDiagnostics} disabled={diagLoading} style={{ flexShrink: 0, marginLeft: '12px' }}>
+            {diagLoading ? 'Running…' : 'Run diagnostics'}
+          </Button>
+        </div>
+        {diagResult && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '10px' }}>
+            {/* Bot token */}
+            <div style={{ fontSize: '12px', padding: '6px 10px', borderRadius: t.radiusSm, background: diagResult.bot?.ok ? '#10b98120' : '#ef444420', color: diagResult.bot?.ok ? '#059669' : '#dc2626' }}>
+              {diagResult.bot?.ok
+                ? `✓ Bot token valid — @${diagResult.bot.username} (${diagResult.bot.name})`
+                : `✗ Bot token error: ${diagResult.bot?.error}`}
+            </div>
+            {/* Group chats */}
+            {diagResult.chats?.map((c, i) => (
+              <div key={i} style={{ fontSize: '12px', padding: '6px 10px', borderRadius: t.radiusSm, background: c.ok ? '#10b98120' : '#ef444420', color: c.ok ? '#059669' : '#dc2626' }}>
+                {c.ok ? `✓ ${c.name} (${c.chat_id}) — message delivered` : `✗ ${c.name} (${c.chat_id}) — delivery failed`}
+              </div>
+            ))}
+            {/* Personal DMs */}
+            {diagResult.personal_dms?.map((u, i) => (
+              <div key={i} style={{ fontSize: '12px', padding: '6px 10px', borderRadius: t.radiusSm, background: u.ok ? '#10b98120' : '#ef444420', color: u.ok ? '#059669' : '#dc2626' }}>
+                {u.ok ? `✓ DM to ${u.display_name} — delivered` : `✗ DM to ${u.display_name} — failed`}
+              </div>
+            ))}
+            {diagResult.chats?.length === 0 && diagResult.personal_dms?.length === 0 && (
+              <div style={{ fontSize: '12px', color: t.textMuted }}>No configured chats and no linked users to probe.</div>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* Shift notification test buttons */}
       <div style={{ padding: '14px 16px', background: t.surfaceAlt, borderRadius: t.radiusSm, marginBottom: '12px' }}>
         <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '8px' }}>Test shift notifications</div>
