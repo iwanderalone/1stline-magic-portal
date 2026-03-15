@@ -179,7 +179,8 @@ async def trigger_shift_notification(
     admin: User = Depends(require_admin),
 ):
     """Manually fire today's shift notification for a given type (day / night / office).
-    Useful for verifying bot token, group chats, and personal DM delivery."""
+    Always sends even if no shifts are published yet — shows 'no shifts scheduled' in that case.
+    Returns how many chats and DMs were reached."""
     mapping = {
         "day": ShiftType.DAY,
         "night": ShiftType.NIGHT,
@@ -189,9 +190,9 @@ async def trigger_shift_notification(
         raise HTTPException(status_code=400, detail="shift_type must be day, night, or office")
     if shift_type == "office":
         await notify_office_roster()
-    else:
-        await notify_shift_start(mapping[shift_type])
-    return {"triggered": shift_type}
+        return {"triggered": shift_type}
+    result = await notify_shift_start(mapping[shift_type], force_send=True)
+    return {"triggered": shift_type, **result}
 
 
 # ─── Telegram diagnostics ────────────────────────────────

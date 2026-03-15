@@ -60,11 +60,14 @@ async def _get_roster(db, shift_type: ShiftType, on_date: date) -> list[str]:
     return lines
 
 
-async def notify_shift_start(shift_type: ShiftType):
+async def notify_shift_start(shift_type: ShiftType, force_send: bool = False) -> dict:
     """Send shift start notification to configured group chats.
 
     Day shift  (07:45): today's day roster   + tonight's night roster
     Night shift (19:45): tonight's night roster + tomorrow's day roster
+
+    force_send=True skips the "no shifts" early-exit (used by admin test button).
+    Returns {"chats_sent": int, "dms_sent": int, "had_shifts": bool}.
     """
     today = date.today()
     tomorrow = today + timedelta(days=1)
@@ -84,29 +87,34 @@ async def notify_shift_start(shift_type: ShiftType):
             upcoming_label = f"☀️ Tomorrow's day shift ({tomorrow.strftime('%d %b')})"
         else:
             # OFFICE handled by notify_office_roster
-            return
+            return {"chats_sent": 0, "dms_sent": 0, "had_shifts": False}
 
-        if not primary:
-            return
+        if not primary and not force_send:
+            return {"chats_sent": 0, "dms_sent": 0, "had_shifts": False}
 
         # ── Group chat message ──────────────────────────────
         primary_lines   = [row[2] for row in primary]
         upcoming_lines  = [row[2] for row in upcoming]
 
         msg = f"{title}\n{today.strftime('%A, %d %b %Y')}\n\n"
-        msg += "\n".join(primary_lines)
+        if primary_lines:
+            msg += "\n".join(primary_lines)
+        else:
+            msg += "  — no shifts scheduled yet"
         if upcoming_lines:
             msg += f"\n\n{upcoming_label}:\n" + "\n".join(upcoming_lines)
         else:
             msg += f"\n\n{upcoming_label}:\n  — not scheduled yet"
 
-        chats = await db.execute(
+        chats_result = await db.execute(
             select(TelegramChat).where(
                 and_(TelegramChat.is_active == True, getattr(TelegramChat, flag_field) == True)
             )
         )
-        for chat in chats.scalars().all():
-            await send_telegram_message(chat.chat_id, msg, chat.topic_id)
+        chats_sent = 0
+        for chat in chats_result.scalars().all():
+            if await send_telegram_message(chat.chat_id, msg, chat.topic_id):
+                chats_sent += 1
 
         # ── Personal DMs to workers on the current shift ────
         try:
@@ -114,6 +122,7 @@ async def notify_shift_start(shift_type: ShiftType):
         except ZoneInfoNotFoundError:
             portal_tz = ZoneInfo("UTC")
 
+        dms_sent = 0
         for u, s, _ in primary:
             if not (u.telegram_chat_id and u.telegram_notify_shifts):
                 continue
@@ -130,7 +139,10 @@ async def notify_shift_start(shift_type: ShiftType):
             if upcoming_lines:
                 personal_msg += f"\n\n{upcoming_label}:\n" + "\n".join(upcoming_lines)
 
-            await send_telegram_message(u.telegram_chat_id, personal_msg)
+            if await send_telegram_message(u.telegram_chat_id, personal_msg):
+                dms_sent += 1
+
+        return {"chats_sent": chats_sent, "dms_sent": dms_sent, "had_shifts": bool(primary)}
 
 
 async def notify_office_roster():
@@ -210,21 +222,26 @@ _bot_offset = 0
 
 
 async def poll_telegram_updates():
-    """Poll for Telegram bot updates every few seconds via getUpdates long-polling."""
+    """Poll for Telegram bot updates via getUpdates short-polling (2s timeout).
+    APScheduler runs this every 5s with max_instances=1 so runs never overlap."""
     global _bot_offset
     if not settings.TELEGRAM_BOT_TOKEN:
         return
     import httpx
     url = f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}/getUpdates"
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
+        async with httpx.AsyncClient(timeout=8) as client:
             resp = await client.get(url, params={
                 "offset": _bot_offset,
-                "timeout": 3,
+                "timeout": 2,
                 "allowed_updates": ["message"],
             })
+            if not resp.is_success:
+                logger.error(f"Telegram poll error: HTTP {resp.status_code} — {resp.text}")
+                return
             data = resp.json()
             if not data.get("ok"):
+                logger.error(f"Telegram poll error: {data.get('description', data)}")
                 return
             for update in data.get("result", []):
                 _bot_offset = update["update_id"] + 1
@@ -241,8 +258,11 @@ async def poll_telegram_updates():
                 elif text.startswith("/myshift"):
                     reply = await handle_myshift_command(chat_id)
                     await send_telegram_message(chat_id, reply)
+    except httpx.TimeoutException:
+        # Normal when Telegram has no updates — not an error
+        pass
     except Exception as e:
-        logger.error(f"Telegram polling error: {e}")
+        logger.error(f"Telegram polling error: {type(e).__name__}: {e}")
 
 
 # ─── Bot command handlers ────────────────────────────────
