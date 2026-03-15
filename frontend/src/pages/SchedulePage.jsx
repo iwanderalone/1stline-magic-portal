@@ -4,7 +4,7 @@ import { useTheme } from '../components/ThemeContext';
 import { useLang } from '../components/LangContext';
 import { Card, Button, Input, Badge, EmptyState, Overlay, Toast, Tabs, Select } from '../components/UI';
 
-const fmt = d => d.toISOString().split('T')[0];
+const fmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const DAY_NAMES = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 
 function getWeekDates(offset) {
