@@ -185,5 +185,14 @@ async def health():
 
 @app.get("/api/config")
 async def public_config():
+    """Public config exposed to the frontend (no secrets)."""
+    return {
+        "telegram_bot_username": settings.TELEGRAM_BOT_USERNAME,
+        "portal_timezone": settings.PORTAL_TIMEZONE,
+    }
+
+
+@app.get("/api/config")
+async def public_config():
     """Public config values the frontend needs at runtime (no auth required)."""
     return {"telegram_bot_username": settings.TELEGRAM_BOT_USERNAME}

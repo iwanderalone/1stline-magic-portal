@@ -8,7 +8,7 @@ class Settings(BaseSettings):
 
     # App
     APP_NAME: str = "Support Portal"
-    APP_VERSION: str = "1.0.0"
+    APP_VERSION: str = "0.1.0"
     DEBUG: bool = False
     SECRET_KEY: str = "change-me-in-production-use-openssl-rand-hex-32"
 
@@ -28,6 +28,12 @@ class Settings(BaseSettings):
     # Telegram Bot
     TELEGRAM_BOT_TOKEN: str = ""
     TELEGRAM_BOT_USERNAME: str = ""
+
+    # Timezone used for shift times configured in the admin panel.
+    # All shift start/end times are stored and interpreted in this timezone.
+    # Users receive notifications with times converted to their own profile timezone.
+    # Use any IANA timezone name, e.g. "Europe/Moscow", "Asia/Dubai", "UTC"
+    PORTAL_TIMEZONE: str = "UTC"
 
     # CORS — comma-separated origins, e.g.:
     #   CORS_ORIGINS=https://portal.example.com,https://www.example.com

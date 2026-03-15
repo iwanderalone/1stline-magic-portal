@@ -66,16 +66,14 @@ function UsersTab() {
   const resetOtp = async id => { if (!confirm('Reset 2FA for this user?')) return; try { await api(`/users/${id}/reset-otp`, { method: 'POST' }); load(); setToast({ message: '2FA reset', type: 'success' }); } catch (e) { setToast({ message: e.message, type: 'error' }); }};
   const linkTg = async id => {
     try {
-      // Open window synchronously before any await to avoid browser popup blocking
-      if (botUsername) window.open(`https://t.me/${botUsername}`, '_blank');
       const r = await api(`/users/${id}/telegram-link-code`, { method: 'POST' });
       setLinkCodes(prev => ({ ...prev, [id]: r.code }));
-      try { await navigator.clipboard.writeText(r.code); } catch {}
-      setToast({ message: `Code ${r.code} copied! Send /link ${r.code} to the bot`, type: 'success' });
+      try { await navigator.clipboard.writeText(`/link ${r.code}`); } catch {}
+      setToast({ message: `Copied! Send to bot: /link ${r.code}`, type: 'success' });
     } catch (e) { setToast({ message: e.message, type: 'error' }); }
   };
   const copyCode = async (id) => {
-    try { await navigator.clipboard.writeText(linkCodes[id]); setToast({ message: 'Code copied!', type: 'success' }); } catch {}
+    try { await navigator.clipboard.writeText(`/link ${linkCodes[id]}`); setToast({ message: `Copied! Send to bot: /link ${linkCodes[id]}`, type: 'success' }); } catch {}
   };
   const groupMap = {}; groups.forEach(g => { groupMap[g.id] = g; });
 
@@ -396,8 +394,12 @@ function ShiftConfigTab() {
   const { theme: t } = useTheme();
   const [configs, setConfigs] = useState([]);
   const [toast, setToast] = useState(null);
+  const [portalTz, setPortalTz] = useState('UTC');
   const load = () => api('/admin/shift-configs').then(d => setConfigs(d || []));
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    getPublicConfig().then(c => setPortalTz(c.portal_timezone || 'UTC'));
+  }, []);
   const update = async (id, data) => {
     try {
       await api(`/admin/shift-configs/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
@@ -411,6 +413,10 @@ function ShiftConfigTab() {
       <p style={{ fontSize: '13px', color: t.textMuted, marginBottom: '4px' }}>
         Configure shift types, durations, and default times. Changes apply to newly generated schedules.
       </p>
+      <div style={{ fontSize: '12px', padding: '8px 12px', background: t.surfaceAlt, borderRadius: t.radiusSm, marginBottom: '12px', color: t.textSecondary }}>
+        Times are in <strong>{portalTz}</strong>. Users receive notifications converted to their own profile timezone.
+        To change, set <code>PORTAL_TIMEZONE</code> in your <code>.env</code>.
+      </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
         {configs.map(c => <ShiftConfigCard key={c.id} config={c} onUpdate={data => update(c.id, data)} />)}
       </div>
