@@ -88,12 +88,17 @@ async def notify_shift_start(shift_type: ShiftType):
                 personal_msg = f"{title}\n\nYou're on shift today ({shift_type.value})"
                 if s.start_time:
                     try:
-                        tz = ZoneInfo(u.timezone or "UTC")
+                        user_tz = ZoneInfo(u.timezone or "UTC")
                     except ZoneInfoNotFoundError:
-                        tz = ZoneInfo("UTC")
-                    # start_time is naive — attach user's timezone for display
+                        user_tz = ZoneInfo("UTC")
                     from datetime import datetime as dt
-                    local_start = dt.combine(today, s.start_time).replace(tzinfo=ZoneInfo("UTC")).astimezone(tz)
+                    from app.core.config import get_settings as _gs
+                    try:
+                        portal_tz = ZoneInfo(_gs().PORTAL_TIMEZONE)
+                    except ZoneInfoNotFoundError:
+                        portal_tz = ZoneInfo("UTC")
+                    # start_time is naive — interpret in portal timezone, display in user's timezone
+                    local_start = dt.combine(today, s.start_time).replace(tzinfo=portal_tz).astimezone(user_tz)
                     personal_msg += f"\nStarts at {local_start.strftime('%H:%M')} ({u.timezone or 'UTC'})"
                 await send_telegram_message(u.telegram_chat_id, personal_msg)
 

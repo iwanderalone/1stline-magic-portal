@@ -5,7 +5,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     environment:
       DATABASE_URL: "sqlite+aiosqlite:////app/data/portal.db"
       SECRET_KEY: "${SECRET_KEY:-change-me-in-production}"
@@ -13,6 +13,7 @@ services:
       TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN:-}"
       TELEGRAM_BOT_USERNAME: "${TELEGRAM_BOT_USERNAME:-}"
       CORS_ORIGINS: "${CORS_ORIGINS:-http://localhost:3000,http://localhost:5173}"
+      PORTAL_TIMEZONE: "${PORTAL_TIMEZONE:-UTC}"
     volumes:
       - ./data:/app/data
     restart: unless-stopped
@@ -23,7 +24,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     ports:
-      - "3000:80"
+      - "127.0.0.1:3000:80"
     depends_on:
       - api
     restart: unless-stopped

@@ -37,12 +37,10 @@ export default function ProfilePage({ user, onUserUpdate }) {
 
   const getLinkCode = async () => {
     try {
-      // Open window synchronously before any await — browsers block popups in async callbacks
-      if (botUsername) window.open(`https://t.me/${botUsername}`, '_blank');
       const r = await api('/users/me/telegram-link-code', { method: 'POST' });
       setLinkCode(r.code);
-      try { await navigator.clipboard.writeText(r.code); } catch {}
-      setToast({ message: `Code ${r.code} copied! Send /link ${r.code} to the bot`, type: 'success' });
+      try { await navigator.clipboard.writeText(`/link ${r.code}`); } catch {}
+      setToast({ message: `Copied! Now open the bot and send: /link ${r.code}`, type: 'success' });
     } catch (e) { setToast({ message: e.message, type: 'error' }); }
   };
 
@@ -192,17 +190,32 @@ export default function ProfilePage({ user, onUserUpdate }) {
             </label>
           </div>
 
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <Button onClick={() => save({
-              telegram_username: profile.telegram_username,
-              telegram_notify_shifts: profile.telegram_notify_shifts,
-              telegram_notify_reminders: profile.telegram_notify_reminders,
-            })}>{tr('saveTelegramSettings')}</Button>
+          <Button onClick={() => save({
+            telegram_username: profile.telegram_username,
+            telegram_notify_shifts: profile.telegram_notify_shifts,
+            telegram_notify_reminders: profile.telegram_notify_reminders,
+          })}>{tr('saveTelegramSettings')}</Button>
 
-            <Button variant="secondary" onClick={getLinkCode}>
-              {linkCode ? `Code: ${linkCode}` : tr('getLinkCode')}
-            </Button>
-          </div>
+          {!profile.telegram_chat_id && (
+            <div style={{ padding: '14px', background: t.surfaceAlt, borderRadius: t.radiusSm, display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div style={{ fontSize: '13px', fontWeight: 600 }}>Link your Telegram account</div>
+              <div style={{ fontSize: '13px', color: t.textSecondary }}>
+                1. Click <strong>Get link code</strong> — the command is copied to your clipboard.<br />
+                2. Open the bot and paste the command.
+              </div>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                <Button variant="secondary" onClick={getLinkCode}>
+                  {linkCode ? `📋 /link ${linkCode} — copied!` : tr('getLinkCode')}
+                </Button>
+                {botUsername && (
+                  <a href={`https://t.me/${botUsername}`} target="_blank" rel="noreferrer"
+                    style={{ fontSize: '13px', color: t.accent, textDecoration: 'none' }}>
+                    Open @{botUsername} →
+                  </a>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </Card>
 

@@ -18,7 +18,12 @@ export default function App() {
     const tk = getTokens();
     return tk ? { loggedIn: true, user: tk.user } : { loggedIn: false, user: null };
   });
-  const [page, setPage] = useState('schedule');
+  const PAGES = ['schedule', 'reminders', 'profile', 'admin'];
+  const [page, setPage] = useState(() => {
+    const hash = window.location.hash.slice(1);
+    return PAGES.includes(hash) ? hash : 'schedule';
+  });
+  const navigate = (p) => { setPage(p); window.location.hash = p; setSidebarOpen(false); };
   const [showNotifs, setShowNotifs] = useState(false);
   const [unread, setUnread] = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -61,14 +66,14 @@ export default function App() {
               <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: t.accent, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px', color: '#fff' }}>⚡</div>
               <div>
                 <div style={{ fontWeight: 700, fontSize: '14px' }}>Portal</div>
-                <div style={{ fontSize: '11px', color: t.textMuted }}>v2.0</div>
+                <div style={{ fontSize: '11px', color: t.textMuted }}>v0.1</div>
               </div>
             </div>
           </div>
 
           <nav style={{ flex: 1, padding: '12px 8px' }}>
             {nav.map(item => (
-              <button key={item.id} onClick={() => { setPage(item.id); setSidebarOpen(false); }} style={{
+              <button key={item.id} onClick={() => navigate(item.id)} style={{
                 display: 'flex', alignItems: 'center', gap: '10px',
                 width: '100%', padding: '10px 12px', border: 'none', borderRadius: t.radiusSm,
                 background: page === item.id ? t.accentLight : 'transparent',
