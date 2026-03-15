@@ -1,5 +1,4 @@
 """Application configuration with security best practices."""
-from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
 
@@ -30,16 +29,13 @@ class Settings(BaseSettings):
     TELEGRAM_BOT_TOKEN: str = ""
     TELEGRAM_BOT_USERNAME: str = ""
 
-    # CORS — comma-separated origins in env var, e.g.:
+    # CORS — comma-separated origins, e.g.:
     #   CORS_ORIGINS=https://portal.example.com,https://www.example.com
-    CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:3000"]
+    CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
 
-    @field_validator("CORS_ORIGINS", mode="before")
-    @classmethod
-    def parse_cors(cls, v: str | list) -> list[str]:
-        if isinstance(v, list):
-            return v
-        return [o.strip() for o in v.split(",") if o.strip()]
+    @property
+    def cors_origins_list(self) -> list[str]:
+        return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
 
 
 @lru_cache
