@@ -143,7 +143,7 @@ async def lifespan(app: FastAPI):
 
     if settings.TELEGRAM_BOT_TOKEN:
         scheduler.add_job(
-            poll_telegram_updates, "interval", seconds=5,
+            poll_telegram_updates, "interval", seconds=20,
             id="telegram_poll", max_instances=1, coalesce=True,
         )
 

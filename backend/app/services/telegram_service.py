@@ -92,19 +92,21 @@ async def notify_shift_start(shift_type: ShiftType, force_send: bool = False) ->
         if not primary and not force_send:
             return {"chats_sent": 0, "dms_sent": 0, "had_shifts": False}
 
-        # ── Group chat message ──────────────────────────────
-        primary_lines   = [row[2] for row in primary]
-        upcoming_lines  = [row[2] for row in upcoming]
+        # ── Build shared roster lines ───────────────────────
+        primary_lines  = [row[2] for row in primary]
+        upcoming_lines = [row[2] for row in upcoming]
 
-        msg = f"{title}\n{today.strftime('%A, %d %b %Y')}\n\n"
-        if primary_lines:
-            msg += "\n".join(primary_lines)
-        else:
-            msg += "  — no shifts scheduled yet"
-        if upcoming_lines:
-            msg += f"\n\n{upcoming_label}:\n" + "\n".join(upcoming_lines)
-        else:
-            msg += f"\n\n{upcoming_label}:\n  — not scheduled yet"
+        # ── Group chat message ──────────────────────────────
+        lines = [
+            title,
+            f"<i>{today.strftime('%A, %d %b %Y')}</i>",
+            "",
+            "<b>👥 On duty:</b>",
+        ]
+        lines += primary_lines if primary_lines else ["  <i>— no shifts scheduled yet</i>"]
+        lines += ["", f"<b>{upcoming_label}:</b>"]
+        lines += upcoming_lines if upcoming_lines else ["  <i>— not scheduled yet</i>"]
+        msg = "\n".join(lines)
 
         chats_result = await db.execute(
             select(TelegramChat).where(
@@ -126,21 +128,30 @@ async def notify_shift_start(shift_type: ShiftType, force_send: bool = False) ->
         for u, s, _ in primary:
             if not (u.telegram_chat_id and u.telegram_notify_shifts):
                 continue
-            personal_msg = f"{title}\n\nYou're on shift today ({shift_type.value})"
+            dm_lines = [
+                title,
+                f"<i>{today.strftime('%A, %d %b %Y')}</i>",
+                "",
+                "You are on shift today.",
+            ]
             if s.start_time:
                 try:
                     user_tz = ZoneInfo(u.timezone or "UTC")
                 except ZoneInfoNotFoundError:
                     user_tz = ZoneInfo("UTC")
                 local_start = datetime.combine(today, s.start_time).replace(tzinfo=portal_tz).astimezone(user_tz)
-                personal_msg += f"\nStarts at {local_start.strftime('%H:%M')} ({u.timezone or 'UTC'})"
-
-            # Append the upcoming roster so each worker knows who's next
+                dm_lines.append(f"⏰ Starts at <b>{local_start.strftime('%H:%M')}</b> ({u.timezone or 'UTC'})")
             if upcoming_lines:
-                personal_msg += f"\n\n{upcoming_label}:\n" + "\n".join(upcoming_lines)
+                dm_lines += ["", f"<b>{upcoming_label}:</b>"] + upcoming_lines
+            personal_msg = "\n".join(dm_lines)
 
             if await send_telegram_message(u.telegram_chat_id, personal_msg):
                 dms_sent += 1
+            else:
+                logger.warning(
+                    f"DM failed → {u.display_name} (chat_id={u.telegram_chat_id!r}). "
+                    "User may not have started the bot yet."
+                )
 
         return {"chats_sent": chats_sent, "dms_sent": dms_sent, "had_shifts": bool(primary)}
 
@@ -173,13 +184,19 @@ async def notify_office_roster():
                 else:
                     remote.append(u.display_name)
 
-        lines = [f"🏢 <b>Office Roster</b>", f"{today.strftime('%A, %d %b %Y')}", ""]
+        lines = [
+            "🏢 <b>Office Roster</b>",
+            f"<i>{today.strftime('%A, %d %b %Y')}</i>",
+            "",
+        ]
         if onsite:
-            lines.append("<b>In Office:</b>")
+            lines.append("<b>🏢 In Office:</b>")
             for name in onsite:
                 lines.append(f"  • {name}")
         if remote:
-            lines.append("<b>Remote:</b>")
+            if onsite:
+                lines.append("")
+            lines.append("<b>💻 Remote:</b>")
             for name in remote:
                 lines.append(f"  • {name}")
 
@@ -194,26 +211,36 @@ async def notify_office_roster():
             await send_telegram_message(chat.chat_id, message, chat.topic_id)
 
         # Personal DMs to office workers
+        try:
+            portal_tz = ZoneInfo(get_settings().PORTAL_TIMEZONE)
+        except ZoneInfoNotFoundError:
+            portal_tz = ZoneInfo("UTC")
+
         for s in shift_list:
             user_result = await db.execute(select(User).where(User.id == s.user_id))
             u = user_result.scalar_one_or_none()
-            if u and u.telegram_chat_id and u.telegram_notify_shifts:
-                loc = f" ({s.location.value})" if s.location else ""
-                personal_msg = f"🏢 <b>Office shift today</b>\n{today.strftime('%A, %d %b %Y')}{loc}"
-                if s.start_time:
-                    try:
-                        user_tz = ZoneInfo(u.timezone or "UTC")
-                    except ZoneInfoNotFoundError:
-                        user_tz = ZoneInfo("UTC")
-                    from datetime import datetime as dt
-                    from app.core.config import get_settings as _gs
-                    try:
-                        portal_tz = ZoneInfo(_gs().PORTAL_TIMEZONE)
-                    except ZoneInfoNotFoundError:
-                        portal_tz = ZoneInfo("UTC")
-                    local_start = dt.combine(today, s.start_time).replace(tzinfo=portal_tz).astimezone(user_tz)
-                    personal_msg += f"\nStarts at {local_start.strftime('%H:%M')} ({u.timezone or 'UTC'})"
-                await send_telegram_message(u.telegram_chat_id, personal_msg)
+            if not (u and u.telegram_chat_id and u.telegram_notify_shifts):
+                continue
+            loc_label = f" ({s.location.value})" if s.location else ""
+            dm_lines = [
+                "🏢 <b>Office Shift Today</b>",
+                f"<i>{today.strftime('%A, %d %b %Y')}</i>",
+                "",
+                f"You are on office shift today{loc_label}.",
+            ]
+            if s.start_time:
+                try:
+                    user_tz = ZoneInfo(u.timezone or "UTC")
+                except ZoneInfoNotFoundError:
+                    user_tz = ZoneInfo("UTC")
+                local_start = datetime.combine(today, s.start_time).replace(tzinfo=portal_tz).astimezone(user_tz)
+                dm_lines.append(f"⏰ Starts at <b>{local_start.strftime('%H:%M')}</b> ({u.timezone or 'UTC'})")
+            personal_msg = "\n".join(dm_lines)
+            if not await send_telegram_message(u.telegram_chat_id, personal_msg):
+                logger.warning(
+                    f"Office DM failed → {u.display_name} (chat_id={u.telegram_chat_id!r}). "
+                    "User may not have started the bot yet."
+                )
 
 
 # ─── Bot update polling ──────────────────────────────────
@@ -230,10 +257,10 @@ async def poll_telegram_updates():
     import httpx
     url = f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}/getUpdates"
     try:
-        async with httpx.AsyncClient(timeout=8) as client:
+        async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.get(url, params={
                 "offset": _bot_offset,
-                "timeout": 2,
+                "timeout": 10,
                 "allowed_updates": ["message"],
             })
             if not resp.is_success:
