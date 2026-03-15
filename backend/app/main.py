@@ -2,6 +2,7 @@
 import logging
 import os
 from datetime import time as dtime
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,7 +20,11 @@ from app.models.models import ShiftType
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 settings = get_settings()
-scheduler = AsyncIOScheduler()
+try:
+    _sched_tz = ZoneInfo(os.getenv("PORTAL_TIMEZONE", "UTC"))
+except ZoneInfoNotFoundError:
+    _sched_tz = ZoneInfo("UTC")
+scheduler = AsyncIOScheduler(timezone=_sched_tz)
 
 
 async def seed_defaults():
@@ -128,19 +133,13 @@ async def lifespan(app: FastAPI):
     # Reminder worker
     scheduler.add_job(check_and_fire_reminders, "interval", seconds=30)
 
-    # Shift start notifications (configurable times)
-    scheduler.add_job(
-        lambda: notify_shift_start(ShiftType.DAY),
-        "cron", hour=7, minute=45, id="day_shift_notify"
-    )
-    scheduler.add_job(
-        lambda: notify_shift_start(ShiftType.NIGHT),
-        "cron", hour=19, minute=45, id="night_shift_notify"
-    )
-    scheduler.add_job(
-        notify_office_roster,
-        "cron", hour=8, minute=50, id="office_roster_notify"
-    )
+    # Shift start notifications — times are in PORTAL_TIMEZONE
+    scheduler.add_job(notify_shift_start, "cron", hour=7, minute=45,
+                      id="day_shift_notify", args=[ShiftType.DAY])
+    scheduler.add_job(notify_shift_start, "cron", hour=19, minute=45,
+                      id="night_shift_notify", args=[ShiftType.NIGHT])
+    scheduler.add_job(notify_office_roster, "cron", hour=8, minute=50,
+                      id="office_roster_notify")
 
     if settings.TELEGRAM_BOT_TOKEN:
         scheduler.add_job(poll_telegram_updates, "interval", seconds=3, id="telegram_poll")
@@ -192,7 +191,3 @@ async def public_config():
     }
 
 
-@app.get("/api/config")
-async def public_config():
-    """Public config values the frontend needs at runtime (no auth required)."""
-    return {"telegram_bot_username": settings.TELEGRAM_BOT_USERNAME}

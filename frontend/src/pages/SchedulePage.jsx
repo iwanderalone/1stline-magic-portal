@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../api';
 import { useTheme } from '../components/ThemeContext';
 import { useLang } from '../components/LangContext';
@@ -209,6 +209,8 @@ export default function SchedulePage({ user }) {
           {isAdmin && <Button variant="danger" size="sm" onClick={handleClearDrafts}>Clear drafts</Button>}
         </div>
       </div>
+
+      <WorldClock />
 
       <Card style={{ overflow: 'auto' }}>
         {loading ? <div style={{ padding: '48px', textAlign: 'center', color: t.textMuted, animation: 'pulse 1.5s infinite' }}>{tr('loading')}</div> : (
@@ -490,5 +492,57 @@ function TimeOffDetailModal({ entry, isAdmin, onClose, onReview, onDelete }) {
         </div>
       </div>
     </Overlay>
+  );
+}
+
+// ─── World Clock ─────────────────────────────────────────
+const CLOCKS = [
+  { label: 'Berlin',      tz: 'Europe/Berlin'       },
+  { label: 'Moscow',      tz: 'Europe/Moscow'       },
+  { label: 'Abu Dhabi',   tz: 'Asia/Dubai'          },
+  { label: 'Mexico City', tz: 'America/Mexico_City' },
+  { label: 'Bishkek',     tz: 'Asia/Bishkek'        },
+];
+
+export function WorldClock() {
+  const { theme: t } = useTheme();
+  const [now, setNow] = useState(new Date());
+  const timerRef = useRef(null);
+
+  useEffect(() => {
+    const msToNext = 1000 - (Date.now() % 1000);
+    const timeout = setTimeout(() => {
+      setNow(new Date());
+      timerRef.current = setInterval(() => setNow(new Date()), 1000);
+    }, msToNext);
+    return () => { clearTimeout(timeout); clearInterval(timerRef.current); };
+  }, []);
+
+  return (
+    <div style={{
+      display: 'flex', overflow: 'hidden',
+      borderRadius: t.radius, border: `1px solid ${t.border}`,
+      background: t.surface,
+    }}>
+      {CLOCKS.map((c, i) => {
+        const time = now.toLocaleTimeString('en-GB', { timeZone: c.tz, hour: '2-digit', minute: '2-digit' });
+        const h = parseInt(now.toLocaleString('en-GB', { timeZone: c.tz, hour: 'numeric', hour12: false }));
+        const isNight = h < 7 || h >= 20;
+        return (
+          <div key={c.tz} style={{
+            flex: 1, padding: '10px 12px', textAlign: 'center',
+            borderRight: i < CLOCKS.length - 1 ? `1px solid ${t.borderLight}` : 'none',
+            background: isNight ? t.surfaceAlt : 'transparent',
+          }}>
+            <div style={{ fontSize: '10px', fontWeight: 600, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '3px' }}>
+              {isNight ? '🌙' : '☀️'} {c.label}
+            </div>
+            <div style={{ fontSize: '16px', fontWeight: 700, fontFamily: t.fontMono, color: t.text, letterSpacing: '1px' }}>
+              {time}
+            </div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
