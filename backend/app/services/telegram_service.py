@@ -25,12 +25,21 @@ async def send_telegram_message(chat_id: str, text: str, topic_id: str = None) -
     if topic_id:
         payload["message_thread_id"] = int(topic_id)
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.post(url, json=payload)
-            resp.raise_for_status()
+            if not resp.is_success:
+                logger.error(
+                    f"Telegram send failed: HTTP {resp.status_code} — {resp.text}"
+                )
+                return False
             return True
+    except httpx.HTTPStatusError as e:
+        logger.error(
+            f"Telegram send failed: HTTP {e.response.status_code} — {e.response.text}"
+        )
+        return False
     except Exception as e:
-        logger.error(f"Telegram send failed: {e}")
+        logger.error(f"Telegram send failed (network/timeout): {type(e).__name__}: {e}")
         return False
 
 

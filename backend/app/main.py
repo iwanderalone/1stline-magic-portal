@@ -142,7 +142,10 @@ async def lifespan(app: FastAPI):
                       id="office_roster_notify")
 
     if settings.TELEGRAM_BOT_TOKEN:
-        scheduler.add_job(poll_telegram_updates, "interval", seconds=3, id="telegram_poll")
+        scheduler.add_job(
+            poll_telegram_updates, "interval", seconds=5,
+            id="telegram_poll", max_instances=1, coalesce=True,
+        )
 
     scheduler.start()
     logger.info("Scheduler started: reminders (30s), shift notifications (daily)")
