@@ -36,6 +36,10 @@ export default function ProfilePage({ user, onUserUpdate }) {
   };
 
   const getLinkCode = async () => {
+    if (!profile.telegram_username) {
+      setToast({ message: 'Enter your Telegram username first', type: 'error' });
+      return;
+    }
     try {
       const r = await api('/users/me/telegram-link-code', { method: 'POST' });
       setLinkCode(r.code);
@@ -43,6 +47,22 @@ export default function ProfilePage({ user, onUserUpdate }) {
       setToast({ message: `Copied! Now open the bot and send: /link ${r.code}`, type: 'success' });
     } catch (e) { setToast({ message: e.message, type: 'error' }); }
   };
+
+  // Auto-poll profile after link code is shown — detect when bot linking completes
+  useEffect(() => {
+    if (!linkCode || profile.telegram_chat_id) return;
+    const interval = setInterval(async () => {
+      try {
+        const updated = await api('/users/me/profile');
+        if (updated?.telegram_chat_id) {
+          setProfile(updated);
+          setLinkCode(null);
+          setToast({ message: 'Telegram linked successfully!', type: 'success' });
+        }
+      } catch {}
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [linkCode, profile.telegram_chat_id]);
 
   const [otpSetup, setOtpSetup] = useState(null); // { qr_svg_base64, secret }
   const [otpCode, setOtpCode] = useState('');
@@ -190,11 +210,14 @@ export default function ProfilePage({ user, onUserUpdate }) {
             </label>
           </div>
 
-          <Button onClick={() => save({
-            telegram_username: profile.telegram_username,
-            telegram_notify_shifts: profile.telegram_notify_shifts,
-            telegram_notify_reminders: profile.telegram_notify_reminders,
-          })}>{tr('saveTelegramSettings')}</Button>
+          <Button
+            disabled={!profile.telegram_username}
+            title={!profile.telegram_username ? 'Enter your Telegram username first' : ''}
+            onClick={() => save({
+              telegram_username: profile.telegram_username,
+              telegram_notify_shifts: profile.telegram_notify_shifts,
+              telegram_notify_reminders: profile.telegram_notify_reminders,
+            })}>{tr('saveTelegramSettings')}</Button>
 
           {!profile.telegram_chat_id && (
             <div style={{ padding: '14px', background: t.surfaceAlt, borderRadius: t.radiusSm, display: 'flex', flexDirection: 'column', gap: '10px' }}>
