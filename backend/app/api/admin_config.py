@@ -5,13 +5,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.core.database import get_db
 from app.core.deps import require_admin
-from app.models.models import User, ShiftConfig, TelegramChat, Notification, ActivityLog
+from app.models.models import User, ShiftConfig, TelegramChat, Notification, ActivityLog, ShiftType
 from app.schemas.schemas import (
     ShiftConfigCreate, ShiftConfigUpdate, ShiftConfigResponse,
     TelegramChatCreate, TelegramChatUpdate, TelegramChatResponse,
     TestNotificationRequest, ActivityLogResponse,
 )
-from app.services.telegram_service import send_telegram_message
+from app.services.telegram_service import send_telegram_message, notify_shift_start, notify_office_roster
 from app.services.audit import log_action
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -169,6 +169,29 @@ async def send_test_notification(
         details += f", {sent_channels} channels"
     await log_action(db, admin, "test_notification_sent", details)
     return {"sent_in_app": sent_in_app, "sent_telegram": sent_telegram, "sent_channels": sent_channels}
+
+
+# ─── Test Telegram shift notification ────────────────────
+
+@router.post("/test-telegram-shift")
+async def trigger_shift_notification(
+    shift_type: str,
+    admin: User = Depends(require_admin),
+):
+    """Manually fire today's shift notification for a given type (day / night / office).
+    Useful for verifying bot token, group chats, and personal DM delivery."""
+    mapping = {
+        "day": ShiftType.DAY,
+        "night": ShiftType.NIGHT,
+        "office": None,
+    }
+    if shift_type not in mapping:
+        raise HTTPException(status_code=400, detail="shift_type must be day, night, or office")
+    if shift_type == "office":
+        await notify_office_roster()
+    else:
+        await notify_shift_start(mapping[shift_type])
+    return {"triggered": shift_type}
 
 
 # ─── Audit Logs ───────────────────────────────────────────
