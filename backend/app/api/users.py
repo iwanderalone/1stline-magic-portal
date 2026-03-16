@@ -8,10 +8,10 @@ from sqlalchemy.orm import selectinload
 from app.core.database import get_db
 from app.core.deps import get_current_user, require_admin
 from app.core.security import hash_password
-from app.models.models import User, Group, user_groups
+from app.models.models import User, Group, UserRole, user_groups
 from app.schemas.schemas import (
-    UserCreate, UserUpdate, UserResponse, AdminResetPassword, ProfileUpdate,
-    AvailabilityPattern,
+    UserCreate, UserUpdate, UserResponse, PublicUserResponse,
+    AdminResetPassword, ProfileUpdate, AvailabilityPattern,
 )
 import secrets
 
@@ -34,7 +34,13 @@ def user_to_response(u: User) -> UserResponse:
     return data
 
 
-@router.get("/", response_model=list[UserResponse])
+def user_to_public(u: User) -> PublicUserResponse:
+    data = PublicUserResponse.model_validate(u)
+    data.group_ids = [g.id for g in u.groups] if u.groups else []
+    return data
+
+
+@router.get("/", response_model=list[UserResponse] | list[PublicUserResponse])
 async def list_users(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -42,7 +48,11 @@ async def list_users(
     result = await db.execute(
         select(User).options(selectinload(User.groups)).order_by(User.display_name)
     )
-    return [user_to_response(u) for u in result.scalars().all()]
+    users = result.scalars().all()
+    if user.role == UserRole.ADMIN:
+        return [user_to_response(u) for u in users]
+    # Engineers get only the fields needed for schedule rendering
+    return [user_to_public(u) for u in users]
 
 
 @router.post("/", response_model=UserResponse)

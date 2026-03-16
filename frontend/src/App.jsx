@@ -18,12 +18,20 @@ export default function App() {
     const tk = getTokens();
     return tk ? { loggedIn: true, user: tk.user } : { loggedIn: false, user: null };
   });
+  const isAdmin = (u) => u?.role === 'admin';
   const PAGES = ['schedule', 'reminders', 'profile', 'admin'];
   const [page, setPage] = useState(() => {
     const hash = window.location.hash.slice(1);
-    return PAGES.includes(hash) ? hash : 'schedule';
+    if (!PAGES.includes(hash)) return 'schedule';
+    // Don't let the hash pre-select admin for non-admins — resolved after login
+    return hash;
   });
   const navigate = (p) => { setPage(p); window.location.hash = p; setSidebarOpen(false); };
+
+  // Kick non-admins off the admin page if they somehow navigate there
+  useEffect(() => {
+    if (page === 'admin' && !isAdmin(auth.user)) navigate('schedule');
+  }, [page, auth.user]);
   const [showNotifs, setShowNotifs] = useState(false);
   const [unread, setUnread] = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -141,7 +149,7 @@ export default function App() {
             {page === 'schedule' && <SchedulePage user={auth.user} />}
             {page === 'reminders' && <RemindersPage />}
             {page === 'profile' && <ProfilePage user={auth.user} onUserUpdate={onUserUpdate} />}
-            {page === 'admin' && <AdminPage />}
+            {page === 'admin' && isAdmin(auth.user) && <AdminPage />}
           </div>
         </main>
 
