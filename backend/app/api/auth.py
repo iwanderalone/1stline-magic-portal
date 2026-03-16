@@ -1,6 +1,6 @@
 """Authentication endpoints."""
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.core.database import get_db
@@ -16,17 +16,50 @@ from app.schemas.schemas import (
 )
 from app.services.audit import log_action
 import secrets
+import time as _time
+from collections import defaultdict
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
+# ─── In-process brute-force tracking ─────────────────────
+# Keyed by IP. Resets after LOCKOUT_SECONDS.
+# Not shared across restarts — acceptable for a single-worker setup.
+_FAIL_MAX = 10          # max failures before lockout
+_LOCKOUT_SECONDS = 300  # 5 minutes
+_fail_counts: dict[str, list[float]] = defaultdict(list)
+
+
+def _check_rate_limit(ip: str):
+    now = _time.monotonic()
+    window = now - _LOCKOUT_SECONDS
+    attempts = [t for t in _fail_counts[ip] if t > window]
+    _fail_counts[ip] = attempts
+    if len(attempts) >= _FAIL_MAX:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Too many failed attempts. Try again in {_LOCKOUT_SECONDS // 60} minutes.",
+        )
+
+
+def _record_failure(ip: str):
+    _fail_counts[ip].append(_time.monotonic())
+
+
+def _clear_failures(ip: str):
+    _fail_counts.pop(ip, None)
+
 
 @router.post("/login")
-async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
+async def login(req: LoginRequest, request: Request, db: AsyncSession = Depends(get_db)):
     """Step 1: Validate credentials. If OTP enabled, return temp token for step 2."""
+    ip = request.client.host if request.client else "unknown"
+    _check_rate_limit(ip)
+
     result = await db.execute(select(User).where(User.username == req.username))
     user = result.scalar_one_or_none()
 
     if not user or not verify_password(req.password, user.hashed_password):
+        _record_failure(ip)
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     if not user.is_active:
@@ -34,12 +67,14 @@ async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
 
     # If OTP enabled, require second factor
     if user.otp_enabled:
+        _clear_failures(ip)
         temp_token = create_access_token(
             {"sub": str(user.id), "otp_pending": True},
         )
         return {"requires_otp": True, "temp_token": temp_token}
 
     # No OTP — issue tokens directly
+    _clear_failures(ip)
     access = create_access_token({"sub": str(user.id)})
     refresh = create_refresh_token({"sub": str(user.id)})
     await log_action(db, user, "login", "Password auth")

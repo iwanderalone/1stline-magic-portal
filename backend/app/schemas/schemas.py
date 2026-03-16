@@ -111,6 +111,30 @@ class ProfileUpdate(BaseModel):
     telegram_notify_shifts: Optional[bool] = None
     telegram_notify_reminders: Optional[bool] = None
 
+class PublicUserResponse(BaseModel):
+    """Safe subset of user data returned to non-admin users (e.g. embedded in shifts)."""
+    id: UUID
+    display_name: str
+    role: UserRole
+    is_active: bool = True
+    avatar_url: Optional[str] = None
+    name_color: Optional[str] = None
+    timezone: Optional[str] = None
+    group_ids: list[UUID] = []
+    created_at: datetime
+
+    @model_validator(mode='after')
+    def apply_defaults(self) -> 'PublicUserResponse':
+        if self.name_color is None:
+            self.name_color = "#2563eb"
+        if self.timezone is None:
+            self.timezone = "UTC"
+        return self
+
+    class Config:
+        from_attributes = True
+
+
 class UserResponse(BaseModel):
     id: UUID
     username: str
@@ -218,7 +242,7 @@ class ShiftResponse(BaseModel):
     location: Optional[WorkLocation]
     notes: Optional[str]
     is_published: bool
-    user: Optional[UserResponse] = None
+    user: Optional[PublicUserResponse] = None
     class Config:
         from_attributes = True
 
