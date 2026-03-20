@@ -20,7 +20,11 @@ export default function App() {
     return tk ? { loggedIn: true, user: tk.user } : { loggedIn: false, user: null };
   });
   const isAdmin = (u) => u?.role === 'admin';
+<<<<<<< HEAD
   const PAGES = ['schedule', 'reminders', 'profile', 'admin', 'mail'];
+=======
+  const PAGES = ['schedule', 'reminders', 'profile', 'admin'];
+>>>>>>> cc9536b15cdb2019b0580a9ce9f2eadb1f8acd57
   const [page, setPage] = useState(() => {
     const hash = window.location.hash.slice(1);
     if (!PAGES.includes(hash)) return 'schedule';
@@ -154,7 +158,10 @@ export default function App() {
             {page === 'reminders' && <RemindersPage />}
             {page === 'profile' && <ProfilePage user={auth.user} onUserUpdate={onUserUpdate} />}
             {page === 'admin' && isAdmin(auth.user) && <AdminPage />}
+<<<<<<< HEAD
             {page === 'mail' && isAdmin(auth.user) && <MailReporterPage />}
+=======
+>>>>>>> cc9536b15cdb2019b0580a9ce9f2eadb1f8acd57
           </div>
         </main>
 
