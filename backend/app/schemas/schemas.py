@@ -111,6 +111,30 @@ class ProfileUpdate(BaseModel):
     telegram_notify_shifts: Optional[bool] = None
     telegram_notify_reminders: Optional[bool] = None
 
+class PublicUserResponse(BaseModel):
+    """Safe subset of user data returned to non-admin users (e.g. embedded in shifts)."""
+    id: UUID
+    display_name: str
+    role: UserRole
+    is_active: bool = True
+    avatar_url: Optional[str] = None
+    name_color: Optional[str] = None
+    timezone: Optional[str] = None
+    group_ids: list[UUID] = []
+    created_at: datetime
+
+    @model_validator(mode='after')
+    def apply_defaults(self) -> 'PublicUserResponse':
+        if self.name_color is None:
+            self.name_color = "#2563eb"
+        if self.timezone is None:
+            self.timezone = "UTC"
+        return self
+
+    class Config:
+        from_attributes = True
+
+
 class UserResponse(BaseModel):
     id: UUID
     username: str
@@ -218,7 +242,7 @@ class ShiftResponse(BaseModel):
     location: Optional[WorkLocation]
     notes: Optional[str]
     is_published: bool
-    user: Optional[UserResponse] = None
+    user: Optional[PublicUserResponse] = None
     class Config:
         from_attributes = True
 
@@ -367,6 +391,56 @@ class TelegramChatResponse(BaseModel):
     notify_office_roster: bool
     notify_reminders: bool
     notify_general: bool
+    created_at: datetime
+    class Config:
+        from_attributes = True
+
+
+# ─── Mail Reporter ────────────────────────────────────────
+
+class MailboxConfigCreate(BaseModel):
+    email: str = Field(..., min_length=3, max_length=255)
+    password: str = Field(..., min_length=1, max_length=500)
+    subject_filter: str = Field(default="NONE", max_length=200)
+    telegram_target: str = Field(default="", max_length=200)
+    enabled: bool = True
+    monitor_since: Optional[date] = None
+
+class MailboxConfigUpdate(BaseModel):
+    email: Optional[str] = Field(default=None, max_length=255)
+    password: Optional[str] = Field(default=None, max_length=500)
+    subject_filter: Optional[str] = Field(default=None, max_length=200)
+    telegram_target: Optional[str] = Field(default=None, max_length=200)
+    enabled: Optional[bool] = None
+    monitor_since: Optional[date] = None
+
+class MailboxConfigResponse(BaseModel):
+    id: int
+    email: str
+    subject_filter: str
+    telegram_target: str
+    enabled: bool
+    monitor_since: Optional[date]
+    last_poll_at: Optional[datetime]
+    last_error: Optional[str]
+    consecutive_failures: int
+    created_at: datetime
+    class Config:
+        from_attributes = True
+
+class EmailLogResponse(BaseModel):
+    id: int
+    mailbox_id: int
+    mailbox_email: Optional[str] = None  # populated in router
+    fingerprint: str
+    subject: Optional[str]
+    sender: Optional[str]
+    category: str
+    telegram_sent: bool
+    telegram_target_used: Optional[str]
+    extracted_code: Optional[str]
+    skip_reason: Optional[str]
+    received_at: Optional[datetime]
     created_at: datetime
     class Config:
         from_attributes = True

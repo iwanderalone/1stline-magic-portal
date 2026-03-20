@@ -13,8 +13,10 @@ from app.core.config import get_settings
 from app.core.database import engine, Base, _is_sqlite
 from app.core.security import hash_password
 from app.api import auth, users, groups, schedule, reminders, notifications, admin_config
+from app.api import mail_reporter
 from app.workers.reminder_worker import check_and_fire_reminders
 from app.services.telegram_service import notify_shift_start, notify_office_roster, poll_telegram_updates
+from app.services.mail_reporter_service import check_all_mailboxes
 from app.models.models import ShiftType
 
 logging.basicConfig(level=logging.INFO)
@@ -133,12 +135,14 @@ async def lifespan(app: FastAPI):
     # Reminder worker
     scheduler.add_job(check_and_fire_reminders, "interval", seconds=30)
 
-    # Shift start notifications — times are in PORTAL_TIMEZONE
-    scheduler.add_job(notify_shift_start, "cron", hour=7, minute=45,
+    # Shift start notifications — times are in PORTAL_TIMEZONE.
+    # Times match the seeded shift config: DAY=08:00, NIGHT=20:00, OFFICE=09:00.
+    # If you change shift start times in the admin panel, update these cron times too.
+    scheduler.add_job(notify_shift_start, "cron", hour=8, minute=0,
                       id="day_shift_notify", args=[ShiftType.DAY])
-    scheduler.add_job(notify_shift_start, "cron", hour=19, minute=45,
+    scheduler.add_job(notify_shift_start, "cron", hour=20, minute=0,
                       id="night_shift_notify", args=[ShiftType.NIGHT])
-    scheduler.add_job(notify_office_roster, "cron", hour=8, minute=50,
+    scheduler.add_job(notify_office_roster, "cron", hour=9, minute=0,
                       id="office_roster_notify")
 
     if settings.TELEGRAM_BOT_TOKEN:
@@ -147,8 +151,14 @@ async def lifespan(app: FastAPI):
             id="telegram_poll", max_instances=1, coalesce=True,
         )
 
+    # Mail reporter — check all enabled mailboxes on a configurable interval
+    scheduler.add_job(
+        check_all_mailboxes, "interval", seconds=settings.MAIL_POLL_INTERVAL,
+        id="mail_reporter_poll", max_instances=1, coalesce=True,
+    )
+
     scheduler.start()
-    logger.info("Scheduler started: reminders (30s), shift notifications (daily)")
+    logger.info("Scheduler started: reminders (30s), shift notifications (daily), mail reporter (%ds)", settings.MAIL_POLL_INTERVAL)
 
     yield
     scheduler.shutdown()
@@ -172,6 +182,7 @@ app.include_router(schedule.router, prefix="/api")
 app.include_router(reminders.router, prefix="/api")
 app.include_router(notifications.router, prefix="/api")
 app.include_router(admin_config.router, prefix="/api")
+app.include_router(mail_reporter.router, prefix="/api")
 
 
 @app.exception_handler(Exception)
