@@ -9,6 +9,7 @@ import SchedulePage from './pages/SchedulePage';
 import RemindersPage from './pages/RemindersPage';
 import AdminPage from './pages/AdminPage';
 import ProfilePage from './pages/ProfilePage';
+import MailReporterPage from './pages/MailReporterPage';
 import NotificationsPanel from './components/NotificationsPanel';
 
 export default function App() {
@@ -18,12 +19,20 @@ export default function App() {
     const tk = getTokens();
     return tk ? { loggedIn: true, user: tk.user } : { loggedIn: false, user: null };
   });
-  const PAGES = ['schedule', 'reminders', 'profile', 'admin'];
+  const isAdmin = (u) => u?.role === 'admin';
+  const PAGES = ['schedule', 'reminders', 'profile', 'admin', 'mail'];
   const [page, setPage] = useState(() => {
     const hash = window.location.hash.slice(1);
-    return PAGES.includes(hash) ? hash : 'schedule';
+    if (!PAGES.includes(hash)) return 'schedule';
+    // Don't let the hash pre-select admin for non-admins — resolved after login
+    return hash;
   });
   const navigate = (p) => { setPage(p); window.location.hash = p; setSidebarOpen(false); };
+
+  // Kick non-admins off the admin page if they somehow navigate there
+  useEffect(() => {
+    if (page === 'admin' && !isAdmin(auth.user)) navigate('schedule');
+  }, [page, auth.user]);
   const [showNotifs, setShowNotifs] = useState(false);
   const [unread, setUnread] = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -46,7 +55,10 @@ export default function App() {
     { id: 'schedule', label: tr('schedule'), icon: '📅' },
     { id: 'reminders', label: tr('reminders'), icon: '🔔' },
     { id: 'profile', label: tr('profile'), icon: '👤' },
-    ...(auth.user.role === 'admin' ? [{ id: 'admin', label: tr('admin'), icon: '⚙️' }] : []),
+    ...(auth.user.role === 'admin' ? [
+      { id: 'admin', label: tr('admin'), icon: '⚙️' },
+      { id: 'mail', label: tr('mailReporter'), icon: '📧' },
+    ] : []),
   ];
 
   return (
@@ -141,7 +153,8 @@ export default function App() {
             {page === 'schedule' && <SchedulePage user={auth.user} />}
             {page === 'reminders' && <RemindersPage />}
             {page === 'profile' && <ProfilePage user={auth.user} onUserUpdate={onUserUpdate} />}
-            {page === 'admin' && <AdminPage />}
+            {page === 'admin' && isAdmin(auth.user) && <AdminPage />}
+            {page === 'mail' && isAdmin(auth.user) && <MailReporterPage />}
           </div>
         </main>
 
