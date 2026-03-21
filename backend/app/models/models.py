@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime, timezone
 from sqlalchemy import (
     Column, String, Boolean, DateTime, Integer, ForeignKey,
-    Text, Enum as SAEnum, Date, Time, UniqueConstraint, Table, Float, Uuid,
+    Text, Enum as SAEnum, Date, Time, UniqueConstraint, Table, Float, Uuid, Index,
 )
 from sqlalchemy.orm import relationship
 from app.core.database import Base
@@ -253,3 +253,46 @@ class TelegramChat(Base):
     notify_general = Column(Boolean, default=True)
 
     created_at = Column(DateTime(timezone=True), default=utcnow)
+
+
+# ─── Mail Reporter ────────────────────────────────────────
+
+class MailboxConfig(Base):
+    __tablename__ = "mailbox_configs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    email = Column(String(255), unique=True, nullable=False, index=True)
+    password = Column(String(500), nullable=False)
+    subject_filter = Column(String(200), default="NONE", nullable=False)
+    telegram_target = Column(String(200), default="", nullable=False)
+    enabled = Column(Boolean, default=True, nullable=False)
+    monitor_since = Column(Date, nullable=True)  # None = use today at first poll
+
+    # Runtime status (updated after each poll)
+    last_poll_at = Column(DateTime(timezone=True), nullable=True)
+    last_error = Column(Text, nullable=True)
+    consecutive_failures = Column(Integer, default=0, nullable=False)
+
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+    logs = relationship("EmailLog", back_populates="mailbox", cascade="all, delete-orphan")
+
+
+class EmailLog(Base):
+    __tablename__ = "email_logs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    mailbox_id = Column(Integer, ForeignKey("mailbox_configs.id", ondelete="CASCADE"), nullable=False)
+    fingerprint = Column(String(24), unique=True, nullable=False, index=True)
+    subject = Column(String(500), nullable=True)
+    sender = Column(String(500), nullable=True)
+    category = Column(String(50), nullable=False)   # adobe | onboarding | offboarding | yandex_support | general | filtered
+    telegram_sent = Column(Boolean, default=False, nullable=False)
+    telegram_target_used = Column(String(200), nullable=True)
+    extracted_code = Column(String(20), nullable=True)  # adobe codes only
+    skip_reason = Column(String(100), nullable=True)    # None=processed, 'filter', 'no_target', 'error'
+    received_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+
+    mailbox = relationship("MailboxConfig", back_populates="logs")

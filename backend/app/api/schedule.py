@@ -7,10 +7,10 @@ from sqlalchemy.orm import selectinload
 from datetime import date
 from app.core.database import get_db
 from app.core.deps import get_current_user, require_admin
-from app.models.models import User, Shift, TimeOffRequest, ShiftType, ShiftConfig
+from app.models.models import User, Shift, TimeOffRequest, ShiftType, ShiftConfig, UserRole
 from app.schemas.schemas import (
     ShiftCreate, ShiftUpdate, ShiftResponse, ScheduleGenerateRequest,
-    TimeOffCreate, TimeOffResponse, TimeOffReviewRequest, UserResponse,
+    TimeOffCreate, TimeOffResponse, TimeOffReviewRequest,
     ShiftConfigResponse,
 )
 from app.services.schedule_service import generate_schedule
@@ -41,10 +41,20 @@ async def list_shifts(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    if (end_date - start_date).days > 366:
+        raise HTTPException(status_code=400, detail="Date range too large (max 366 days)")
+    if end_date < start_date:
+        raise HTTPException(status_code=400, detail="end_date must be >= start_date")
+
+    filters = [Shift.date >= start_date, Shift.date <= end_date]
+    if user.role != UserRole.ADMIN:
+        # Engineers only see published shifts
+        filters.append(Shift.is_published == True)
+
     result = await db.execute(
         select(Shift)
         .options(selectinload(Shift.user))
-        .where(and_(Shift.date >= start_date, Shift.date <= end_date))
+        .where(and_(*filters))
         .order_by(Shift.date, Shift.shift_type)
     )
     return [ShiftResponse.model_validate(s) for s in result.scalars().all()]
