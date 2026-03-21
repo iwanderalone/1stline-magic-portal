@@ -14,14 +14,13 @@ export default function AdminPage() {
         <Tabs tabs={[
           { id: 'users', label: tr('users') }, { id: 'groups', label: tr('groups') },
           { id: 'shifts', label: tr('shiftConfig') }, { id: 'telegram', label: tr('telegram') },
-          { id: 'notifications', label: tr('notificationsTab') }, { id: 'logs', label: tr('logs') },
+          { id: 'logs', label: tr('logs') },
         ]} active={tab} onChange={setTab} />
       </div>
       {tab === 'users' && <UsersTab />}
       {tab === 'groups' && <GroupsTab />}
       {tab === 'shifts' && <ShiftConfigTab />}
       {tab === 'telegram' && <TelegramTab />}
-      {tab === 'notifications' && <NotificationsTab />}
       {tab === 'logs' && <LogsTab />}
     </div>
   );
@@ -511,7 +510,6 @@ function TelegramTab() {
   const [show, setShow] = useState(false);
   const [editTarget, setEditTarget] = useState(null);
   const [toast, setToast] = useState(null);
-  const [testingShift, setTestingShift] = useState(null);
   const [diagResult, setDiagResult] = useState(null);
   const [diagLoading, setDiagLoading] = useState(false);
 
@@ -539,15 +537,6 @@ function TelegramTab() {
       })});
       setToast({ message: 'Test message sent to chat', type: 'success' });
     } catch (e) { setToast({ message: e.message, type: 'error' }); }
-  };
-
-  const testShift = async (type) => {
-    setTestingShift(type);
-    try {
-      await api(`/admin/test-telegram-shift?shift_type=${type}`, { method: 'POST' });
-      setToast({ message: `${type} shift notification fired — check Telegram. Note: only sends if there are published shifts today.`, type: 'success' });
-    } catch (e) { setToast({ message: e.message, type: 'error' }); }
-    finally { setTestingShift(null); }
   };
 
   const flags = ['notify_day_shift_start','notify_night_shift_start','notify_office_roster','notify_reminders','notify_general'];
@@ -593,21 +582,8 @@ function TelegramTab() {
         )}
       </div>
 
-      {/* Shift notification test buttons */}
-      <div style={{ padding: '14px 16px', background: t.surfaceAlt, borderRadius: t.radiusSm, marginBottom: '12px' }}>
-        <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '8px' }}>Test shift notifications</div>
-        <div style={{ fontSize: '12px', color: t.textMuted, marginBottom: '10px' }}>
-          Fires the real notification now. Sends to all configured chats + personal DMs. Requires published shifts for today.
-        </div>
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-          {['day','night','office'].map(type => (
-            <Button key={type} size="sm" variant="secondary" disabled={testingShift === type}
-              onClick={() => testShift(type)}>
-              {testingShift === type ? 'Sending…' : { day: '☀️ Day shift', night: '🌙 Night shift', office: '🏢 Office roster' }[type]}
-            </Button>
-          ))}
-        </div>
-      </div>
+      {/* Shift notification test */}
+      <ShiftNotificationTest />
 
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '8px' }}>
         <Button size="sm" onClick={() => setShow(true)}>+ Add chat</Button>
@@ -680,149 +656,123 @@ function ChatModal({ chat, onClose, onSave }) {
   );
 }
 
-// ─── Notifications Tab ───────────────────────────────────
-function NotificationsTab() {
+// ─── Shift Notification Test ─────────────────────────────
+function ShiftNotificationTest() {
   const { theme: t } = useTheme();
-  const [users, setUsers] = useState([]);
-  const [chats, setChats] = useState([]);
-  const [title, setTitle] = useState('Test Notification');
-  const [message, setMessage] = useState('This is a test notification from the admin panel.');
-  const [selectedUsers, setSelectedUsers] = useState([]);
-  const [selectedChats, setSelectedChats] = useState([]);
-  const [sendTelegram, setSendTelegram] = useState(false);
-  const [result, setResult] = useState(null);
+  const { t: tr } = useLang();
+  const [preview, setPreview] = useState(null);
+  const [loadingPreview, setLoadingPreview] = useState(false);
+  const [testingShift, setTestingShift] = useState(null);
+  const [testResult, setTestResult] = useState(null);
   const [toast, setToast] = useState(null);
-  const [sending, setSending] = useState(false);
 
-  useEffect(() => {
-    api('/users/').then(u => setUsers((u || []).filter(u => u.is_active)));
-    api('/admin/telegram-chats').then(c => setChats(c || []));
-  }, []);
-
-  const toggleUser = id => setSelectedUsers(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
-  const toggleChat = id => setSelectedChats(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
-
-  const send = async () => {
-    setSending(true);
-    setResult(null);
+  const loadPreview = async () => {
+    setLoadingPreview(true);
     try {
-      const body = {
-        title,
-        message,
-        send_telegram: sendTelegram,
-        user_ids: selectedUsers.length > 0 ? selectedUsers : null,
-        telegram_chat_db_ids: selectedChats.length > 0 ? selectedChats : null,
-      };
-      const r = await api('/admin/test-notification', { method: 'POST', body: JSON.stringify(body) });
-      setResult(r);
-      const parts = [`${r.sent_in_app} in-app`];
-      if (r.sent_telegram) parts.push(`${r.sent_telegram} Telegram DM`);
-      if (r.sent_channels) parts.push(`${r.sent_channels} channel(s)`);
-      setToast({ message: `Sent: ${parts.join(' · ')}`, type: 'success' });
-    } catch (e) {
-      setToast({ message: e.message, type: 'error' });
-    } finally {
-      setSending(false);
-    }
+      const data = await api('/admin/telegram-shift-preview');
+      setPreview(data);
+    } catch {}
+    finally { setLoadingPreview(false); }
   };
 
-  const targetLabel = () => {
-    const parts = [];
-    if (selectedUsers.length > 0) parts.push(`${selectedUsers.length} user(s)`);
-    else parts.push('all users');
-    if (selectedChats.length > 0) parts.push(`${selectedChats.length} chat(s)`);
-    return parts.join(' + ');
+  useEffect(() => { loadPreview(); }, []);
+
+  const testShift = async (type) => {
+    setTestingShift(type);
+    setTestResult(null);
+    try {
+      const r = await api(`/admin/test-telegram-shift?shift_type=${type}`, { method: 'POST' });
+      setTestResult({ type, ...r });
+      setToast({ message: `${type} notification sent — check Telegram`, type: 'success' });
+    } catch (e) { setToast({ message: e.message, type: 'error' }); }
+    finally { setTestingShift(null); }
+  };
+
+  const nameList = (names) =>
+    names?.length > 0
+      ? names.map(n => `  • ${n}`).join('\n')
+      : '  No one assigned';
+
+  const previewMsg = (type) => {
+    if (!preview) return tr('loading');
+    if (type === 'day') {
+      return [
+        `☀️ Day Shift Starting`,
+        preview.today,
+        `━━━━━━━━━━━━━━━━━━━━`,
+        ``,
+        `👥 On duty now:`,
+        nameList(preview.day_today),
+        ``,
+        `🌙 Tonight's night shift:`,
+        nameList(preview.night_today),
+      ].join('\n');
+    }
+    return [
+      `🌙 Night Shift Starting`,
+      preview.today,
+      `━━━━━━━━━━━━━━━━━━━━`,
+      ``,
+      `👥 On duty now:`,
+      nameList(preview.night_today),
+      ``,
+      `☀️ Tomorrow's day shift (${preview.tomorrow}):`,
+      nameList(preview.day_tomorrow),
+    ].join('\n');
   };
 
   return (
-    <>
-      <p style={{ fontSize: '13px', color: t.textMuted }}>
-        Send a test notification to users (in-app / Telegram DM) and/or to configured group chats and channels.
-      </p>
-
-      <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', alignItems: 'flex-start' }}>
-        {/* Compose panel */}
-        <Card style={{ padding: '24px', flex: '1', minWidth: '300px' }}>
-          <h3 style={{ fontSize: '14px', fontWeight: 600, marginBottom: '16px' }}>Compose</h3>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-            <Input label="Title" value={title} onChange={e => setTitle(e.target.value)} />
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-              <label style={{ fontSize: '13px', fontWeight: 500, color: t.textSecondary }}>Message</label>
-              <textarea value={message} onChange={e => setMessage(e.target.value)} rows={4}
-                style={{ padding: '9px 12px', border: `1px solid ${t.border}`, borderRadius: t.radiusSm, fontSize: '14px', background: t.surface, color: t.text, resize: 'vertical', fontFamily: 'inherit' }} />
-            </div>
-
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer' }}>
-              <input type="checkbox" checked={sendTelegram} onChange={e => setSendTelegram(e.target.checked)} />
-              Also send Telegram DM to users with linked accounts
-            </label>
-
-            <Button onClick={send} disabled={sending || !title || !message}>
-              {sending ? 'Sending…' : `Send to ${targetLabel()}`}
-            </Button>
-
-            {result && (
-              <div style={{ padding: '12px', background: t.successLight, borderRadius: t.radiusSm, fontSize: '13px', color: t.success }}>
-                ✓ {result.sent_in_app} in-app
-                {result.sent_telegram > 0 ? ` · ${result.sent_telegram} Telegram DM` : ''}
-                {result.sent_channels > 0 ? ` · ${result.sent_channels} channel(s)` : ''}
-              </div>
-            )}
-          </div>
-        </Card>
-
-        {/* Target panels */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', minWidth: '260px' }}>
-          <Card style={{ padding: '20px' }}>
-            <h3 style={{ fontSize: '14px', fontWeight: 600, marginBottom: '12px' }}>Preview</h3>
-            <div style={{ padding: '12px 16px', background: t.surfaceAlt, borderRadius: t.radiusSm, borderLeft: `3px solid ${t.accent}` }}>
-              <div style={{ fontWeight: 600, fontSize: '13px', marginBottom: '4px' }}>{title || '—'}</div>
-              <div style={{ fontSize: '12px', color: t.textSecondary, whiteSpace: 'pre-wrap' }}>{message || '—'}</div>
-              <div style={{ fontSize: '11px', color: t.textMuted, marginTop: '6px' }}>just now</div>
-            </div>
-          </Card>
-
-          <Card style={{ padding: '20px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-              <h3 style={{ fontSize: '14px', fontWeight: 600 }}>Target users</h3>
-              <Button size="sm" variant="ghost" onClick={() => setSelectedUsers([])}>All</Button>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '200px', overflowY: 'auto' }}>
-              {users.map(u => (
-                <label key={u.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer', padding: '4px 0' }}>
-                  <input type="checkbox" checked={selectedUsers.includes(u.id)} onChange={() => toggleUser(u.id)} />
-                  <span style={{ color: u.name_color || t.accent, fontWeight: 500 }}>{u.display_name}</span>
-                  {u.telegram_chat_id && <span style={{ fontSize: '11px', color: t.textMuted }}>TG</span>}
-                </label>
-              ))}
-            </div>
-            {selectedUsers.length === 0 && (
-              <div style={{ fontSize: '12px', color: t.textMuted, marginTop: '6px' }}>All active users selected.</div>
-            )}
-          </Card>
-
-          {chats.length > 0 && (
-            <Card style={{ padding: '20px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                <h3 style={{ fontSize: '14px', fontWeight: 600 }}>Target channels</h3>
-                <Button size="sm" variant="ghost" onClick={() => setSelectedChats([])}>None</Button>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                {chats.filter(c => c.is_active).map(c => (
-                  <label key={c.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer', padding: '4px 0' }}>
-                    <input type="checkbox" checked={selectedChats.includes(c.id)} onChange={() => toggleChat(c.id)} />
-                    <span style={{ fontWeight: 500 }}>{c.name}</span>
-                    <span style={{ fontSize: '11px', color: t.textMuted }}>{c.chat_type}</span>
-                  </label>
-                ))}
-              </div>
-            </Card>
-          )}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+      {toast && <Toast {...toast} onClose={() => setToast(null)} />}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div>
+          <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '2px' }}>Test shift notifications</div>
+          <div style={{ fontSize: '12px', color: t.textMuted }}>Fires the real notification now — sends to all configured chats + personal DMs.</div>
         </div>
+        <Button size="sm" variant="ghost" onClick={loadPreview} disabled={loadingPreview}>
+          {loadingPreview ? '…' : '↻ Refresh'}
+        </Button>
       </div>
 
-      {toast && <Toast {...toast} onClose={() => setToast(null)} />}
-    </>
+      <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+        {['day', 'night'].map(type => (
+          <div key={type} style={{ flex: '1', minWidth: '220px', padding: '14px', background: t.surfaceAlt, borderRadius: t.radiusSm, border: `1px solid ${t.border}` }}>
+            <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px', color: t.textSecondary }}>
+              {type === 'day' ? '☀️ DAY SHIFT' : '🌙 NIGHT SHIFT'} PREVIEW
+            </div>
+            <pre style={{
+              fontFamily: 'inherit', fontSize: '12px', color: t.text,
+              whiteSpace: 'pre-wrap', margin: '0 0 12px 0',
+              padding: '10px', background: t.surface, borderRadius: t.radiusSm,
+              border: `1px solid ${t.borderLight}`, lineHeight: 1.5,
+            }}>
+              {previewMsg(type)}
+            </pre>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <Button size="sm" disabled={testingShift === type} onClick={() => testShift(type)}
+                style={{ background: type === 'day' ? '#f59e0b' : '#6366f1', color: '#fff' }}>
+                {testingShift === type ? 'Sending…' : `Send ${type} notification`}
+              </Button>
+              {testResult?.type === type && (
+                <span style={{ fontSize: '12px', color: t.success }}>
+                  ✓ {testResult.chats_sent} chat(s), {testResult.dms_sent} DM(s)
+                </span>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ padding: '10px 14px', background: t.surfaceAlt, borderRadius: t.radiusSm, border: `1px solid ${t.border}` }}>
+        <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px', color: t.textSecondary }}>🏢 OFFICE ROSTER</div>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <Button size="sm" variant="secondary" disabled={testingShift === 'office'} onClick={() => testShift('office')}>
+            {testingShift === 'office' ? 'Sending…' : 'Send office roster'}
+          </Button>
+          {testResult?.type === 'office' && <span style={{ fontSize: '12px', color: t.success }}>✓ Sent</span>}
+        </div>
+      </div>
+    </div>
   );
 }
 

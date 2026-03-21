@@ -187,11 +187,23 @@ export default function ProfilePage({ user, onUserUpdate }) {
         <h3 style={{ fontSize: '15px', fontWeight: 600, marginBottom: '16px' }}>{tr('telegramNotifications')}</h3>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
             <Badge color={profile.telegram_chat_id ? 'green' : 'yellow'}>
               {profile.telegram_chat_id ? tr('linked') : tr('notLinked')}
             </Badge>
             {profile.telegram_username && <span style={{ fontSize: '13px', color: t.textSecondary }}>@{profile.telegram_username}</span>}
+            {profile.telegram_chat_id && (
+              <Button size="sm" variant="danger" onClick={async () => {
+                try {
+                  const updated = await api('/users/me/telegram-unlink', { method: 'POST' });
+                  setProfile(updated);
+                  if (onUserUpdate) onUserUpdate(updated);
+                  setToast({ message: tr('telegramUnlinked'), type: 'success' });
+                } catch (e) { setToast({ message: e.message, type: 'error' }); }
+              }}>
+                {tr('unlinkTelegram')}
+              </Button>
+            )}
           </div>
 
           <Input label="Telegram username" value={profile.telegram_username || ''}

@@ -3,7 +3,6 @@ import logging
 from datetime import date, datetime, timezone, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlalchemy import select, and_
-from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.database import AsyncSessionFactory
 from app.models.models import (
@@ -69,7 +68,7 @@ async def notify_shift_start(shift_type: ShiftType, force_send: bool = False) ->
     force_send=True skips the "no shifts" early-exit (used by admin test button).
     Returns {"chats_sent": int, "dms_sent": int, "had_shifts": bool}.
     """
-    today = date.today()
+    today = datetime.now(timezone.utc).date()
     tomorrow = today + timedelta(days=1)
 
     async with AsyncSessionFactory() as db:
@@ -100,12 +99,16 @@ async def notify_shift_start(shift_type: ShiftType, force_send: bool = False) ->
         lines = [
             title,
             f"<i>{today.strftime('%A, %d %b %Y')}</i>",
+            "━━━━━━━━━━━━━━━━━━━━",
             "",
-            "<b>👥 On duty:</b>",
+            "<b>👥 On duty now:</b>",
         ]
-        lines += primary_lines if primary_lines else ["  <i>— no shifts scheduled yet</i>"]
-        lines += ["", f"<b>{upcoming_label}:</b>"]
-        lines += upcoming_lines if upcoming_lines else ["  <i>— not scheduled yet</i>"]
+        lines += primary_lines if primary_lines else ["  <i>No one assigned</i>"]
+        lines += [
+            "",
+            f"<b>{upcoming_label}:</b>",
+        ]
+        lines += upcoming_lines if upcoming_lines else ["  <i>No one assigned</i>"]
         msg = "\n".join(lines)
 
         chats_result = await db.execute(
@@ -119,11 +122,6 @@ async def notify_shift_start(shift_type: ShiftType, force_send: bool = False) ->
                 chats_sent += 1
 
         # ── Personal DMs to workers on the current shift ────
-        try:
-            portal_tz = ZoneInfo(get_settings().PORTAL_TIMEZONE)
-        except ZoneInfoNotFoundError:
-            portal_tz = ZoneInfo("UTC")
-
         dms_sent = 0
         for u, s, _ in primary:
             if not (u.telegram_chat_id and u.telegram_notify_shifts):
@@ -139,7 +137,9 @@ async def notify_shift_start(shift_type: ShiftType, force_send: bool = False) ->
                     user_tz = ZoneInfo(u.timezone or "UTC")
                 except ZoneInfoNotFoundError:
                     user_tz = ZoneInfo("UTC")
-                local_start = datetime.combine(today, s.start_time).replace(tzinfo=portal_tz).astimezone(user_tz)
+                # start_time is stored in UTC; convert to user's local timezone for the DM
+                start_utc = datetime.combine(today, s.start_time, tzinfo=timezone.utc)
+                local_start = start_utc.astimezone(user_tz)
                 dm_lines.append(f"⏰ Starts at <b>{local_start.strftime('%H:%M')}</b> ({u.timezone or 'UTC'})")
             if upcoming_lines:
                 dm_lines += ["", f"<b>{upcoming_label}:</b>"] + upcoming_lines
@@ -158,7 +158,7 @@ async def notify_shift_start(shift_type: ShiftType, force_send: bool = False) ->
 
 async def notify_office_roster():
     """Send office roster to configured group chats."""
-    today = date.today()
+    today = datetime.now(timezone.utc).date()
     async with AsyncSessionFactory() as db:
         shifts = await db.execute(
             select(Shift).where(
@@ -211,11 +211,6 @@ async def notify_office_roster():
             await send_telegram_message(chat.chat_id, message, chat.topic_id)
 
         # Personal DMs to office workers
-        try:
-            portal_tz = ZoneInfo(get_settings().PORTAL_TIMEZONE)
-        except ZoneInfoNotFoundError:
-            portal_tz = ZoneInfo("UTC")
-
         for s in shift_list:
             user_result = await db.execute(select(User).where(User.id == s.user_id))
             u = user_result.scalar_one_or_none()
@@ -233,7 +228,8 @@ async def notify_office_roster():
                     user_tz = ZoneInfo(u.timezone or "UTC")
                 except ZoneInfoNotFoundError:
                     user_tz = ZoneInfo("UTC")
-                local_start = datetime.combine(today, s.start_time).replace(tzinfo=portal_tz).astimezone(user_tz)
+                start_utc = datetime.combine(today, s.start_time, tzinfo=timezone.utc)
+                local_start = start_utc.astimezone(user_tz)
                 dm_lines.append(f"⏰ Starts at <b>{local_start.strftime('%H:%M')}</b> ({u.timezone or 'UTC'})")
             personal_msg = "\n".join(dm_lines)
             if not await send_telegram_message(u.telegram_chat_id, personal_msg):
@@ -285,6 +281,11 @@ async def poll_telegram_updates():
                 elif text.startswith("/myshift"):
                     reply = await handle_myshift_command(chat_id)
                     await send_telegram_message(chat_id, reply)
+                elif text.startswith("/who"):
+                    parts = text.split(maxsplit=1)
+                    date_arg = parts[1].strip() if len(parts) > 1 else None
+                    reply = await handle_who_command(date_arg)
+                    await send_telegram_message(chat_id, reply)
     except httpx.TimeoutException:
         # Normal when Telegram has no updates — not an error
         pass
@@ -314,7 +315,7 @@ async def handle_myshift_command(chat_id: str) -> str:
         user = result.scalar_one_or_none()
         if not user:
             return "Not linked. Use /link <code> first."
-        today = date.today()
+        today = datetime.now(timezone.utc).date()
         shifts = await db.execute(
             select(Shift).where(
                 and_(Shift.user_id == user.id, Shift.date >= today)
@@ -328,3 +329,60 @@ async def handle_myshift_command(chat_id: str) -> str:
             loc = f" ({s.location.value})" if s.location else ""
             lines.append(f"  {s.date.strftime('%a %d %b')} — {s.shift_type.value}{loc}")
         return "\n".join(lines)
+
+
+async def handle_who_command(date_str: str | None) -> str:
+    """Handle /who [DD.MM.YYYY].
+
+    No argument → today's full roster + tomorrow's day/night preview.
+    With date   → show who was on each shift that day.
+    """
+    SHIFT_INFO = [
+        (ShiftType.DAY,    "☀️", "Day Shift"),
+        (ShiftType.NIGHT,  "🌙", "Night Shift"),
+        (ShiftType.OFFICE, "🏢", "Office"),
+    ]
+
+    if date_str:
+        try:
+            target_date = datetime.strptime(date_str, "%d.%m.%Y").date()
+        except ValueError:
+            return "❌ Invalid date format. Use <b>/who DD.MM.YYYY</b> — e.g. <code>/who 21.02.2025</code>"
+
+        async with AsyncSessionFactory() as db:
+            lines = [f"📅 <b>{target_date.strftime('%A, %d %b %Y')}</b>", "━━━━━━━━━━━━━━━━━━━━", ""]
+            any_found = False
+            for shift_type, emoji, label in SHIFT_INFO:
+                roster = await _get_roster(db, shift_type, target_date)
+                if roster:
+                    lines.append(f"<b>{emoji} {label}:</b>")
+                    lines += [row[2] for row in roster]
+                    lines.append("")
+                    any_found = True
+            if not any_found:
+                lines.append("No published shifts found for this date.")
+        return "\n".join(lines).strip()
+
+    # No date — show today + tomorrow preview
+    today = datetime.now(timezone.utc).date()
+    tomorrow = today + timedelta(days=1)
+
+    async with AsyncSessionFactory() as db:
+        lines = [f"📅 <b>Today — {today.strftime('%A, %d %b %Y')}</b>", "━━━━━━━━━━━━━━━━━━━━", ""]
+        for shift_type, emoji, label in SHIFT_INFO:
+            roster = await _get_roster(db, shift_type, today)
+            lines.append(f"<b>{emoji} {label}:</b>")
+            lines += [row[2] for row in roster] if roster else ["  <i>No one assigned</i>"]
+            lines.append("")
+
+        # Tomorrow preview (day + night only)
+        lines.append(f"<b>Tomorrow — {tomorrow.strftime('%A, %d %b')}</b>")
+        for shift_type, emoji, label in SHIFT_INFO[:2]:
+            roster = await _get_roster(db, shift_type, tomorrow)
+            if roster:
+                names = ", ".join(row[0].display_name for row in roster)
+                lines.append(f"{emoji} {label}: {names}")
+            else:
+                lines.append(f"{emoji} {label}: <i>not scheduled</i>")
+
+    return "\n".join(lines).strip()

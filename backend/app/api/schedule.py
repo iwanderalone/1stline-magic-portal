@@ -1,12 +1,14 @@
 """Schedule endpoints — shifts, auto-gen, time-off."""
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 from sqlalchemy.orm import selectinload
 from datetime import date
 from app.core.database import get_db
 from app.core.deps import get_current_user, require_admin
+from app.core.scheduler import scheduler
+from app.workers.shift_notification_scheduler import schedule_pending_notifications
 from app.models.models import User, Shift, TimeOffRequest, ShiftType, ShiftConfig, UserRole
 from app.schemas.schemas import (
     ShiftCreate, ShiftUpdate, ShiftResponse, ScheduleGenerateRequest,
@@ -171,6 +173,7 @@ async def auto_generate(
 
 @router.post("/publish")
 async def publish_schedule(
+    background_tasks: BackgroundTasks,
     start_date: date = Query(...),
     end_date: date = Query(...),
     admin: User = Depends(require_admin),
@@ -187,6 +190,8 @@ async def publish_schedule(
     await db.flush()
     await log_action(db, admin, "schedule_published",
         f"{len(shifts)} shifts from {start_date} to {end_date}")
+    # Schedule notifications after commit (BackgroundTasks run post-response)
+    background_tasks.add_task(schedule_pending_notifications, scheduler)
     return {"published": len(shifts)}
 
 
