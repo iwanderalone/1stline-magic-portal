@@ -261,31 +261,6 @@ export default function SchedulePage({ user }) {
         )}
       </Card>
 
-      {/* Time Off Requests */}
-      <Card style={{ padding: '20px' }}>
-        <h3 style={{ fontSize: '15px', fontWeight: 600, marginBottom: '12px' }}>{tr('timeOffRequests')}</h3>
-        {timeOff.length === 0 ? <EmptyState icon="🏖️" title={tr('noRequests')} /> : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {timeOff.map(r => (
-              <div key={r.id} onClick={() => setSelectedTimeOff(r)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: t.surfaceAlt, borderRadius: t.radiusSm, gap: '12px', flexWrap: 'wrap', cursor: 'pointer' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                  <span style={{ fontWeight: 500, fontSize: '14px' }}>{r.user?.display_name || 'You'}</span>
-                  <span style={{ color: t.textSecondary, fontSize: '13px' }}>{r.start_date} → {r.end_date}</span>
-                  <Badge color={r.off_type === 'vacation' ? 'blue' : r.off_type === 'sick_leave' ? 'red' : 'gray'}>{r.off_type.replace('_',' ')}</Badge>
-                  <Badge color={r.status === 'approved' ? 'green' : r.status === 'rejected' ? 'red' : 'yellow'}>{r.status}</Badge>
-                </div>
-                {isAdmin && r.status === 'pending' && (
-                  <div style={{ display: 'flex', gap: '6px' }}>
-                    <Button size="sm" onClick={() => handleReview(r.id, 'approved')}>✓</Button>
-                    <Button size="sm" variant="danger" onClick={() => handleReview(r.id, 'rejected')}>✗</Button>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
-
       {showGenerate && <GenerateModal onClose={() => setShowGenerate(false)} onGenerate={handleGenerate} dates={weekDates} configs={configs} />}
       {showTimeOff && <TimeOffModal onClose={() => setShowTimeOff(false)} onSubmit={handleTimeOff} />}
       {showAddShift && <AddShiftModal onClose={() => setShowAddShift(false)} onSubmit={handleAddShift} users={users} configs={configs} />}

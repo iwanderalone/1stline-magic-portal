@@ -279,6 +279,17 @@ class MailboxConfig(Base):
     logs = relationship("EmailLog", back_populates="mailbox", cascade="all, delete-orphan")
 
 
+class ShiftNotificationLog(Base):
+    """Tracks which (date, shift_type) notifications have already been sent."""
+    __tablename__ = "shift_notification_logs"
+    __table_args__ = (UniqueConstraint("date", "shift_type"),)
+
+    id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    date = Column(Date, nullable=False)
+    shift_type = Column(SAEnum(ShiftType), nullable=False)
+    sent_at = Column(DateTime(timezone=True), default=utcnow)
+
+
 class EmailLog(Base):
     __tablename__ = "email_logs"
 
@@ -294,5 +305,8 @@ class EmailLog(Base):
     skip_reason = Column(String(100), nullable=True)    # None=processed, 'filter', 'no_target', 'error'
     received_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), default=utcnow)
+    is_solved = Column(Boolean, default=False, nullable=False)
+    solver_comment = Column(Text, nullable=True)
+    solved_at = Column(DateTime(timezone=True), nullable=True)
 
     mailbox = relationship("MailboxConfig", back_populates="logs")
