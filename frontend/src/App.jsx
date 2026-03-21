@@ -10,6 +10,7 @@ import RemindersPage from './pages/RemindersPage';
 import AdminPage from './pages/AdminPage';
 import ProfilePage from './pages/ProfilePage';
 import MailReporterPage from './pages/MailReporterPage';
+import TimeOffPage from './pages/TimeOffPage';
 import NotificationsPanel from './components/NotificationsPanel';
 
 export default function App() {
@@ -20,14 +21,20 @@ export default function App() {
     return tk ? { loggedIn: true, user: tk.user } : { loggedIn: false, user: null };
   });
   const isAdmin = (u) => u?.role === 'admin';
-  const PAGES = ['schedule', 'reminders', 'profile', 'admin', 'mail'];
+  const PAGES = ['schedule', 'reminders', 'timeoff', 'profile', 'admin', 'mail'];
   const [page, setPage] = useState(() => {
     const hash = window.location.hash.slice(1);
     if (!PAGES.includes(hash)) return 'schedule';
-    // Don't let the hash pre-select admin for non-admins — resolved after login
+    if (hash === 'admin') {
+      const tk = getTokens();
+      if (tk?.user?.role !== 'admin') return 'schedule';
+    }
     return hash;
   });
-  const navigate = (p) => { setPage(p); window.location.hash = p; setSidebarOpen(false); };
+  const navigate = (p) => {
+    if (p === 'admin' && !isAdmin(auth.user)) return;
+    setPage(p); window.location.hash = p; setSidebarOpen(false);
+  };
 
   // Kick non-admins off the admin page if they somehow navigate there
   useEffect(() => {
@@ -54,10 +61,11 @@ export default function App() {
   const nav = [
     { id: 'schedule', label: tr('schedule'), icon: '📅' },
     { id: 'reminders', label: tr('reminders'), icon: '🔔' },
+    { id: 'timeoff', label: tr('timeOff'), icon: '🌴', color: '#10b981' },
     { id: 'profile', label: tr('profile'), icon: '👤' },
+    { id: 'mail', label: tr('mailReporter'), icon: '📧' },
     ...(auth.user.role === 'admin' ? [
       { id: 'admin', label: tr('admin'), icon: '⚙️' },
-      { id: 'mail', label: tr('mailReporter'), icon: '📧' },
     ] : []),
   ];
 
@@ -88,8 +96,12 @@ export default function App() {
               <button key={item.id} onClick={() => navigate(item.id)} style={{
                 display: 'flex', alignItems: 'center', gap: '10px',
                 width: '100%', padding: '10px 12px', border: 'none', borderRadius: t.radiusSm,
-                background: page === item.id ? t.accentLight : 'transparent',
-                color: page === item.id ? t.accent : t.textSecondary,
+                background: page === item.id
+                  ? (item.color ? item.color + '20' : t.accentLight)
+                  : 'transparent',
+                color: page === item.id
+                  ? (item.color || t.accent)
+                  : (item.color ? item.color + 'cc' : t.textSecondary),
                 fontWeight: page === item.id ? 600 : 400, fontSize: '14px',
                 cursor: 'pointer', transition: 'all 0.15s', marginBottom: '2px',
               }}>
@@ -152,9 +164,10 @@ export default function App() {
           <div style={{ padding: '24px', maxWidth: '1200px', margin: '0 auto' }}>
             {page === 'schedule' && <SchedulePage user={auth.user} />}
             {page === 'reminders' && <RemindersPage />}
+            {page === 'timeoff' && <TimeOffPage user={auth.user} />}
             {page === 'profile' && <ProfilePage user={auth.user} onUserUpdate={onUserUpdate} />}
             {page === 'admin' && isAdmin(auth.user) && <AdminPage />}
-            {page === 'mail' && isAdmin(auth.user) && <MailReporterPage />}
+            {page === 'mail' && <MailReporterPage user={auth.user} />}
           </div>
         </main>
 

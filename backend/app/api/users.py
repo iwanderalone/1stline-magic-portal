@@ -143,6 +143,27 @@ async def self_telegram_link_code(
     return {"code": code, "instruction": f"Send /link {code} to the bot"}
 
 
+@router.post("/me/telegram-unlink", response_model=UserResponse)
+async def unlink_telegram(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Unlink Telegram so the user can link a different account."""
+    result = await db.execute(
+        select(User).options(selectinload(User.groups)).where(User.id == user.id)
+    )
+    u = result.scalar_one_or_none()
+    if not u:
+        raise HTTPException(status_code=404)
+    u.telegram_chat_id = None
+    u.telegram_link_code = None
+    await db.commit()
+    result2 = await db.execute(
+        select(User).options(selectinload(User.groups)).where(User.id == user.id)
+    )
+    return user_to_response(result2.scalar_one())
+
+
 # ─── Admin routes (parameterised /{user_id}) ────────────────────────────────
 
 @router.post("/{user_id}/reactivate")

@@ -125,6 +125,16 @@ const translations = {
     otpDisableDesc: 'Enter your current authenticator code to disable 2FA.',
     otpDisabled: '2FA has been disabled',
 
+    // Time Off Page
+    timeOffRequests: 'Time Off',
+    timeOffDesc: 'Manage vacation, sick leave, and days off',
+    noRequestsDesc: 'No requests found',
+    timeOffRequested: 'Time-off requested!',
+
+    // Telegram
+    unlinkTelegram: 'Unlink',
+    telegramUnlinked: 'Telegram unlinked',
+
     // Mail Reporter
     mailReporter: 'Mail Reporter',
     mailboxes: 'Mailboxes',
@@ -290,6 +300,16 @@ const translations = {
     otpDisable: 'Отключить 2FA',
     otpDisableDesc: 'Введите код из приложения для отключения 2FA.',
     otpDisabled: '2FA отключена',
+
+    // Time Off Page
+    timeOffRequests: 'Выходные',
+    timeOffDesc: 'Отпуска, больничные и выходные дни',
+    noRequestsDesc: 'Заявок нет',
+    timeOffRequested: 'Заявка отправлена!',
+
+    // Telegram
+    unlinkTelegram: 'Отвязать',
+    telegramUnlinked: 'Telegram отвязан',
 
     // Mail Reporter
     mailReporter: 'Почта',
