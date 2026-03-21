@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.core.database import get_db
 from app.core.deps import require_admin
-from app.models.models import User, ShiftConfig, TelegramChat, Notification, ActivityLog, ShiftType
+from app.models.models import User, ShiftConfig, TelegramChat, Notification, ActivityLog, ShiftType, Shift
 from app.schemas.schemas import (
     ShiftConfigCreate, ShiftConfigUpdate, ShiftConfigResponse,
     TelegramChatCreate, TelegramChatUpdate, TelegramChatResponse,
@@ -193,6 +193,41 @@ async def trigger_shift_notification(
         return {"triggered": shift_type}
     result = await notify_shift_start(mapping[shift_type], force_send=True)
     return {"triggered": shift_type, **result}
+
+
+# ─── Roster preview ──────────────────────────────────────
+
+@router.get("/telegram-shift-preview")
+async def telegram_shift_preview(
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return today's/tonight's roster for preview in the admin panel before sending."""
+    from datetime import datetime, timezone, timedelta
+    from sqlalchemy import and_
+    today = datetime.now(timezone.utc).date()
+    tomorrow = today + timedelta(days=1)
+
+    async def get_names(shift_type, on_date):
+        result = await db.execute(
+            select(User).join(Shift, Shift.user_id == User.id).where(
+                and_(
+                    Shift.date == on_date,
+                    Shift.shift_type == shift_type,
+                    Shift.is_published == True,
+                )
+            )
+        )
+        return [u.display_name for u in result.scalars().all()]
+
+    return {
+        "today": today.strftime("%A, %d %b %Y"),
+        "tomorrow": tomorrow.strftime("%A, %d %b %Y"),
+        "day_today": await get_names(ShiftType.DAY, today),
+        "night_today": await get_names(ShiftType.NIGHT, today),
+        "day_tomorrow": await get_names(ShiftType.DAY, tomorrow),
+        "night_tomorrow": await get_names(ShiftType.NIGHT, tomorrow),
+    }
 
 
 # ─── Telegram diagnostics ────────────────────────────────
