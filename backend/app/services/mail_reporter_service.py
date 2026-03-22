@@ -1,8 +1,12 @@
 """Mail Reporter Service — IMAP polling, classification, and Telegram delivery.
 
-Ported from ultimate-mail-reporter-3000/bot.py and adapted for async portal context.
-IMAP operations (blocking I/O) run inside asyncio.to_thread() to avoid blocking
-the portal's event loop.
+Classification flow:
+  1. User-defined rules checked first (by priority, non-builtin)
+  2. Built-in hardcoded logic as fallback (adobe, yandex, onboarding, offboarding)
+  3. General catch-all
+
+Display config (label, color, hashtag, mentions) always comes from the DB rule,
+making everything configurable without code changes.
 """
 import asyncio
 import hashlib
@@ -17,16 +21,71 @@ from typing import Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from bs4 import BeautifulSoup
-from sqlalchemy import select, desc
+from sqlalchemy import select
 
 from app.core.config import get_settings
 from app.core.database import AsyncSessionFactory
-from app.models.models import MailboxConfig, EmailLog
+from app.models.models import MailboxConfig, EmailLog, MailRoutingRule
 
 logger = logging.getLogger(__name__)
 
+# ─── Built-in rule seed data ─────────────────────────────────────────
+# Seeded on first startup via seed_routing_rules() in main.py
 
-# ─── Classification Patterns ──────────────────────────────────────────
+BUILTIN_RULES = [
+    {
+        "builtin_key": "adobe",
+        "name": "Adobe Verification Code",
+        "label": "🔴 Adobe",
+        "color": "#ef4444",
+        "hashtag": "#adobe",
+        "mention_users": "",
+        "include_body": False,
+        "priority": 100,
+    },
+    {
+        "builtin_key": "yandex_support",
+        "name": "Yandex 360 Support",
+        "label": "🟡 Yandex Support",
+        "color": "#f59e0b",
+        "hashtag": "#yandexsupport",
+        "mention_users": "@itsupport_viory",
+        "include_body": True,
+        "priority": 100,
+    },
+    {
+        "builtin_key": "onboarding",
+        "name": "Onboarding Request",
+        "label": "🔵 Onboarding",
+        "color": "#3b82f6",
+        "hashtag": "#onboarding #offboarding",
+        "mention_users": "@wanderalone @itsupport_viory",
+        "include_body": True,
+        "priority": 100,
+    },
+    {
+        "builtin_key": "offboarding",
+        "name": "Offboarding Request",
+        "label": "🔵 Offboarding",
+        "color": "#3b82f6",
+        "hashtag": "#onboarding #offboarding",
+        "mention_users": "@wanderalone @itsupport_viory",
+        "include_body": True,
+        "priority": 100,
+    },
+    {
+        "builtin_key": "general",
+        "name": "General Email",
+        "label": "📩 General",
+        "color": "#6b7280",
+        "hashtag": "#email",
+        "mention_users": "",
+        "include_body": True,
+        "priority": 100,
+    },
+]
+
+# ─── Hardcoded classification patterns ───────────────────────────────
 
 ONBOARDING_KEYWORDS = [
     "onboarding", "new employee", "new hire", "create account",
@@ -60,7 +119,7 @@ _CLEANUP_PATTERNS = [
 _BARE_URL_LINE = re.compile(r"^https?://\S+$")
 
 
-# ─── Utility functions ────────────────────────────────────────────────
+# ─── Utilities ────────────────────────────────────────────────────────
 
 def _make_fingerprint(msg_id: str, mailbox_email: str) -> str:
     raw = f"{mailbox_email}:{msg_id}".encode()
@@ -239,10 +298,11 @@ def _extract_adobe_code_from_text(text: str) -> Optional[str]:
     return None
 
 
-# ─── Classification ───────────────────────────────────────────────────
+# ─── Hardcoded Classification (built-in fallback) ────────────────────
 
 def classify_email(sender: str, subject: str, body: str,
                    raw_html: str = "", raw_text: str = "") -> tuple[str, dict]:
+    """Built-in classification. Returns (category_key, extra_data)."""
     full_text = f"{subject} {body}"
     all_text = f"{subject} {sender} {body} {raw_text}".lower()
 
@@ -267,8 +327,7 @@ def classify_email(sender: str, subject: str, body: str,
         logger.warning(
             f"Adobe email detected but no code extracted. "
             f"Subject: '{subject}' | Sender: '{sender}' | "
-            f"HTML: {len(raw_html)}ch | Text: {len(raw_text)}ch | "
-            f"Body preview: '{body[:200]}'"
+            f"HTML: {len(raw_html)}ch | Text: {len(raw_text)}ch"
         )
         return "adobe", {"code": "see email"}
 
@@ -278,8 +337,6 @@ def classify_email(sender: str, subject: str, body: str,
     text_lower = full_text.lower()
     is_onboard = any(kw in text_lower for kw in ONBOARDING_KEYWORDS)
     is_offboard = any(kw in text_lower for kw in OFFBOARDING_KEYWORDS)
-    if is_onboard and is_offboard:
-        return "onboarding_offboarding", {}
     if is_onboard:
         return "onboarding", {}
     if is_offboard:
@@ -288,10 +345,40 @@ def classify_email(sender: str, subject: str, body: str,
     return "general", {}
 
 
+# ─── User Rule Matching ───────────────────────────────────────────────
+
+def _rule_matches(rule: MailRoutingRule, sender: str, subject: str, body: str) -> bool:
+    """Check if a user-defined rule matches this email."""
+    values = [v.strip().lower() for v in (rule.match_values or "").split(",") if v.strip()]
+    if not values:
+        return False
+
+    match_type = (rule.match_type or "").lower()
+    subject_l = subject.lower()
+    sender_l = sender.lower()
+    body_l = body.lower()
+
+    if match_type == "keyword":
+        return any(v in subject_l or v in body_l for v in values)
+    if match_type == "subject_keyword":
+        return any(v in subject_l for v in values)
+    if match_type == "sender":
+        return any(v in sender_l for v in values)
+    if match_type == "sender_domain":
+        return any(v in sender_l for v in values)
+    return False
+
+
 # ─── Message Formatting ───────────────────────────────────────────────
 
 def format_message(category: str, extra: dict, sender: str, recipient: str,
-                   subject: str, timestamp: datetime, body: str, mailbox_email: str) -> str:
+                   subject: str, timestamp: datetime, body: str, mailbox_email: str,
+                   display: Optional[dict] = None) -> str:
+    """Build a Telegram message.
+
+    display dict keys: label, hashtag, mention_users, include_body
+    Falls back to safe generic template if display is None.
+    """
     settings = get_settings()
     try:
         local_tz = ZoneInfo(settings.PORTAL_TIMEZONE)
@@ -299,54 +386,53 @@ def format_message(category: str, extra: dict, sender: str, recipient: str,
         local_tz = ZoneInfo("UTC")
     local_time = timestamp.astimezone(local_tz).strftime("%Y-%m-%d %H:%M")
 
-    safe_subject = escape_html(subject)
-    safe_sender = escape_html(sender)
+    safe_subject  = escape_html(subject)
+    safe_sender   = escape_html(sender)
     safe_recipient = escape_html(recipient)
-    safe_body = escape_html(body)
-    safe_mailbox = escape_html(mailbox_email)
+    safe_body     = escape_html(body)
+    safe_mailbox  = escape_html(mailbox_email)
 
+    # Adobe gets special treatment regardless of display config
     if category == "adobe":
         code = extra.get("code", "N/A")
+        label = display.get("label", "🔴 Adobe") if display else "🔴 Adobe"
+        hashtag = display.get("hashtag", "#adobe") if display else "#adobe"
+        mentions = (display.get("mention_users") or "").strip() if display else ""
+        mention_line = f"{mentions}\n" if mentions else ""
         return (
-            f"🔴 <b>#adobe</b>\n"
+            f"{label} <b>{hashtag}</b>\n"
+            f"{mention_line}"
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"New Adobe Code: <code>{escape_html(code)}</code>\n"
             f"Mailbox: {safe_mailbox}\n"
             f"🕐 {local_time}"
         )
 
-    if category in ("onboarding", "offboarding", "onboarding_offboarding"):
-        if category == "onboarding":
-            label = "New Onboarding request"
-        elif category == "offboarding":
-            label = "New Offboarding request"
-        else:
-            label = "New Onboarding / Offboarding request"
+    # Generic template driven by display config
+    if display:
+        label     = display.get("label", "📩 Email")
+        hashtag   = display.get("hashtag") or ""
+        mentions  = (display.get("mention_users") or "").strip()
+        inc_body  = display.get("include_body", True)
+
+        header = f"{label}"
+        if hashtag:
+            header += f" <b>{escape_html(hashtag)}</b>"
+        mention_line = f"{mentions}\n" if mentions else ""
+        body_section = f"\n{safe_body}" if inc_body else ""
+
         return (
-            f"🔵 <b>#onboarding #offboarding</b>\n"
-            f"@wanderalone @itsupport_viory\n"
+            f"{header}\n"
+            f"{mention_line}"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"{label}\n\n"
             f"<b>From:</b> {safe_sender}\n"
             f"<b>To:</b> {safe_recipient}\n"
             f"<b>Subject:</b> {safe_subject}\n"
-            f"🕐 {local_time}\n\n"
-            f"{safe_body}"
+            f"🕐 {local_time}"
+            f"{body_section}"
         )
 
-    if category == "yandex_support":
-        return (
-            f"🟡 <b>#yandexsupport</b>\n"
-            f"@itsupport_viory\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"Yandex 360 Support\n\n"
-            f"<b>From:</b> {safe_sender}\n"
-            f"<b>To:</b> {safe_recipient}\n"
-            f"<b>Subject:</b> {safe_subject}\n"
-            f"🕐 {local_time}\n\n"
-            f"{safe_body}"
-        )
-
+    # Absolute fallback (no rule config found)
     return (
         f"📩 <b>#email</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
@@ -361,7 +447,6 @@ def format_message(category: str, extra: dict, sender: str, recipient: str,
 # ─── Telegram Target Resolution ───────────────────────────────────────
 
 def _resolve_target(telegram_target: str) -> tuple[str, str]:
-    """Parse target string → (chat_id, thread_id). Falls back to global config."""
     settings = get_settings()
     target = (telegram_target or "").strip()
     if not target:
@@ -383,7 +468,6 @@ def _connect_imap(email_addr: str, password: str) -> imaplib.IMAP4_SSL:
 
 
 def _test_imap_connection(email_addr: str, password: str) -> dict:
-    """Try to connect to IMAP and return result. Runs in thread executor."""
     try:
         mail = _connect_imap(email_addr, password)
         mail.select("INBOX", readonly=True)
@@ -398,9 +482,6 @@ def _test_imap_connection(email_addr: str, password: str) -> dict:
 
 
 def _fetch_imap_emails(email_addr: str, password: str, monitor_since: date) -> list[dict]:
-    """Fetch all emails since monitor_since. Runs in thread executor.
-    Returns list of parsed email dicts, or raises RuntimeError on connection failure.
-    """
     mail = None
     try:
         mail = _connect_imap(email_addr, password)
@@ -416,7 +497,6 @@ def _fetch_imap_emails(email_addr: str, password: str, monitor_since: date) -> l
             try:
                 status, msg_data = mail.fetch(num, "(RFC822)")
                 if status != "OK":
-                    logger.error(f"Failed to fetch msg {num} from {email_addr}")
                     continue
                 msg = email_lib.message_from_bytes(msg_data[0][1])
 
@@ -424,10 +504,10 @@ def _fetch_imap_emails(email_addr: str, password: str, monitor_since: date) -> l
                 if not msg_id:
                     msg_id = f"{msg.get('Date', '')}|{msg.get('Subject', '')}"
 
-                subject = safe_decode_header(msg["Subject"])
-                sender = safe_decode_header(msg["From"])
+                subject   = safe_decode_header(msg["Subject"])
+                sender    = safe_decode_header(msg["From"])
                 recipient = safe_decode_header(msg["To"])
-                body = extract_body(msg)
+                body      = extract_body(msg)
                 raw_html, raw_text = _get_raw_parts(msg)
 
                 try:
@@ -438,14 +518,10 @@ def _fetch_imap_emails(email_addr: str, password: str, monitor_since: date) -> l
                     timestamp = datetime.now(timezone.utc)
 
                 results.append({
-                    "msg_id": msg_id,
-                    "subject": subject,
-                    "sender": sender,
-                    "recipient": recipient,
-                    "body": body,
-                    "raw_html": raw_html,
-                    "raw_text": raw_text,
-                    "timestamp": timestamp,
+                    "msg_id": msg_id, "subject": subject,
+                    "sender": sender, "recipient": recipient,
+                    "body": body, "raw_html": raw_html,
+                    "raw_text": raw_text, "timestamp": timestamp,
                 })
             except Exception as e:
                 logger.error(f"Error parsing message {num} from {email_addr}: {e}")
@@ -464,14 +540,14 @@ def _fetch_imap_emails(email_addr: str, password: str, monitor_since: date) -> l
 
 # ─── Async Orchestration ─────────────────────────────────────────────
 
-async def _check_one_mailbox(mb: MailboxConfig):
-    """Check a single mailbox: fetch, classify, send, log."""
+async def _check_one_mailbox(mb: MailboxConfig, user_rules: list, builtin_map: dict,
+                             custom_builtin_rules: list = None):
+    """Check a single mailbox using the provided pre-loaded rule sets."""
     from app.services.telegram_service import send_telegram_message
 
     monitor_since = mb.monitor_since or date.today()
     logger.info(f"[mail-reporter] Checking {mb.email} since {monitor_since}")
 
-    # Fetch emails in a thread (IMAP is blocking)
     try:
         raw_emails = await asyncio.to_thread(
             _fetch_imap_emails, mb.email, mb.password, monitor_since
@@ -494,7 +570,7 @@ async def _check_one_mailbox(mb: MailboxConfig):
             try:
                 fingerprint = _make_fingerprint(raw["msg_id"], mb.email)
 
-                # Dedup check
+                # Dedup
                 existing = await db.execute(
                     select(EmailLog).where(EmailLog.fingerprint == fingerprint)
                 )
@@ -506,9 +582,7 @@ async def _check_one_mailbox(mb: MailboxConfig):
                 subj = raw["subject"]
                 if mb.subject_filter and mb.subject_filter.upper() != "NONE":
                     if mb.subject_filter.lower() not in subj.lower():
-                        logger.info(
-                            f"[mail-reporter] SKIP [{mb.email}] '{subj}' — filter '{mb.subject_filter}'"
-                        )
+                        logger.info(f"[mail-reporter] SKIP [{mb.email}] '{subj}' — filter '{mb.subject_filter}'")
                         skipped_filter += 1
                         db.add(EmailLog(
                             mailbox_id=mb.id, fingerprint=fingerprint,
@@ -518,27 +592,64 @@ async def _check_one_mailbox(mb: MailboxConfig):
                         ))
                         continue
 
-                # Classify
-                category, extra = classify_email(
-                    raw["sender"], raw["subject"], raw["body"],
-                    raw_html=raw["raw_html"], raw_text=raw["raw_text"],
-                )
+                # ── Rule matching ───────────────────────────────────
+                matched_rule: Optional[MailRoutingRule] = None
+                category = None
+                extra = {}
 
-                # Format
+                # 1. User rules (non-builtin, ordered by priority)
+                for rule in user_rules:
+                    if _rule_matches(rule, raw["sender"], raw["subject"], raw["body"]):
+                        matched_rule = rule
+                        category = rule.name
+                        break
+
+                # 1.5. Non-general built-in rules with custom match_values
+                # These extend (not replace) hardcoded detection with admin-defined keywords
+                if matched_rule is None and custom_builtin_rules:
+                    for rule in custom_builtin_rules:
+                        if _rule_matches(rule, raw["sender"], raw["subject"], raw["body"]):
+                            matched_rule = rule
+                            category = rule.builtin_key
+                            break
+
+                # 2. Built-in classification
+                if matched_rule is None:
+                    category, extra = classify_email(
+                        raw["sender"], raw["subject"], raw["body"],
+                        raw_html=raw["raw_html"], raw_text=raw["raw_text"],
+                    )
+                    matched_rule = builtin_map.get(category)
+
+                # ── Display config from rule ────────────────────────
+                display = None
+                rule_target = None
+                if matched_rule:
+                    display = {
+                        "label":        matched_rule.label,
+                        "hashtag":      matched_rule.hashtag or "",
+                        "mention_users": matched_rule.mention_users or "",
+                        "include_body": matched_rule.include_body,
+                    }
+                    if matched_rule.telegram_target:
+                        rule_target = matched_rule.telegram_target
+
+                # ── Format & send ───────────────────────────────────
                 message = format_message(
-                    category, extra, raw["sender"], raw["recipient"],
-                    raw["subject"], raw["timestamp"], raw["body"], mb.email,
+                    category, extra,
+                    raw["sender"], raw["recipient"],
+                    raw["subject"], raw["timestamp"],
+                    raw["body"], mb.email,
+                    display=display,
                 )
 
-                # Resolve Telegram target
-                chat_id, thread_id = _resolve_target(mb.telegram_target)
+                effective_target = rule_target or mb.telegram_target
+                chat_id, thread_id = _resolve_target(effective_target)
 
                 sent = False
                 skip_reason = None
                 if not chat_id:
-                    logger.warning(
-                        f"[mail-reporter] No Telegram target for {mb.email}, skipping send"
-                    )
+                    logger.warning(f"[mail-reporter] No Telegram target for {mb.email}")
                     skip_reason = "no_target"
                 else:
                     sent = await send_telegram_message(chat_id, message, thread_id or None)
@@ -547,19 +658,19 @@ async def _check_one_mailbox(mb: MailboxConfig):
 
                 tg_target_str = f"{chat_id}:{thread_id}" if thread_id else chat_id
 
-                log_entry = EmailLog(
+                db.add(EmailLog(
                     mailbox_id=mb.id,
                     fingerprint=fingerprint,
                     subject=raw["subject"][:500],
                     sender=raw["sender"][:500],
                     category=category,
+                    rule_id=matched_rule.id if matched_rule else None,
                     telegram_sent=sent,
                     telegram_target_used=tg_target_str if chat_id else None,
                     extracted_code=extra.get("code") if category == "adobe" else None,
                     skip_reason=skip_reason,
                     received_at=raw["timestamp"],
-                )
-                db.add(log_entry)
+                ))
 
                 if sent:
                     sent_count += 1
@@ -588,18 +699,33 @@ async def _check_one_mailbox(mb: MailboxConfig):
 
 
 async def check_all_mailboxes():
-    """APScheduler entry point. Check all enabled mailboxes."""
+    """APScheduler entry point. Loads rules once, then checks all enabled mailboxes."""
     async with AsyncSessionFactory() as db:
-        result = await db.execute(
+        mb_result = await db.execute(
             select(MailboxConfig).where(MailboxConfig.enabled == True)
         )
-        mailboxes = result.scalars().all()
+        mailboxes = mb_result.scalars().all()
+
+        rule_result = await db.execute(
+            select(MailRoutingRule)
+            .where(MailRoutingRule.enabled == True)
+            .order_by(MailRoutingRule.priority)
+        )
+        all_rules = rule_result.scalars().all()
 
     if not mailboxes:
         return
 
+    user_rules  = [r for r in all_rules if not r.is_builtin]
+    builtin_map = {r.builtin_key: r for r in all_rules if r.is_builtin and r.builtin_key}
+    # Built-in rules (except general) that have custom match_values set by admins
+    custom_builtin_rules = [
+        r for r in all_rules
+        if r.is_builtin and r.builtin_key != "general" and r.match_values and r.enabled
+    ]
+
     for mb in mailboxes:
         try:
-            await _check_one_mailbox(mb)
+            await _check_one_mailbox(mb, user_rules, builtin_map, custom_builtin_rules)
         except Exception as e:
             logger.error(f"[mail-reporter] Unhandled error for {mb.email}: {e}")

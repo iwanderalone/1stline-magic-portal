@@ -9,13 +9,31 @@ export async function getPublicConfig() {
 }
 
 export function getTokens() {
-  try { return JSON.parse(sessionStorage.getItem('tokens') || 'null'); }
+  try { return JSON.parse(localStorage.getItem('tokens') || 'null'); }
   catch { return null; }
 }
-export function setTokens(t) { sessionStorage.setItem('tokens', JSON.stringify(t)); }
-export function clearTokens() { sessionStorage.removeItem('tokens'); }
+export function setTokens(t) { localStorage.setItem('tokens', JSON.stringify(t)); }
+export function clearTokens() { localStorage.removeItem('tokens'); }
 
-export async function api(path, opts = {}) {
+async function tryRefresh() {
+  const tokens = getTokens();
+  if (!tokens?.refresh_token) return false;
+  try {
+    const res = await fetch(`${BASE}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: tokens.refresh_token }),
+    });
+    if (!res.ok) return false;
+    const data = await res.json();
+    setTokens(data);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function api(path, opts = {}, _retry = true) {
   const tokens = getTokens();
   const headers = { 'Content-Type': 'application/json', ...opts.headers };
   if (tokens?.access_token) headers['Authorization'] = `Bearer ${tokens.access_token}`;
@@ -24,7 +42,10 @@ export async function api(path, opts = {}) {
   try { res = await fetch(`${BASE}${path}`, { ...opts, headers }); }
   catch { throw new Error('Cannot reach server. Is the backend running?'); }
 
-  if (res.status === 401) { clearTokens(); window.location.reload(); return null; }
+  if (res.status === 401) {
+    if (_retry && await tryRefresh()) return api(path, opts, false);
+    clearTokens(); window.location.reload(); return null;
+  }
 
   const text = await res.text();
   let data;

@@ -104,6 +104,7 @@ async def run_migrations():
         "ALTER TABLE email_logs ADD COLUMN is_solved INTEGER DEFAULT 0",
         "ALTER TABLE email_logs ADD COLUMN solver_comment TEXT",
         "ALTER TABLE email_logs ADD COLUMN solved_at DATETIME",
+        "ALTER TABLE email_logs ADD COLUMN rule_id INTEGER REFERENCES mail_routing_rules(id) ON DELETE SET NULL",
     ]
     async with engine.begin() as conn:
         for stmt in migrations:
@@ -111,6 +112,46 @@ async def run_migrations():
                 await conn.execute(text(stmt))
             except Exception:
                 pass  # Column already exists — safe to ignore
+
+
+async def seed_routing_rules():
+    """Upsert built-in routing rules. Safe to run on every startup."""
+    from sqlalchemy import select
+    from app.core.database import AsyncSessionFactory
+    from app.models.models import MailRoutingRule
+    from app.services.mail_reporter_service import BUILTIN_RULES
+
+    async with AsyncSessionFactory() as db:
+        # Remove deprecated combined category — merged into onboarding
+        dep = await db.execute(
+            select(MailRoutingRule).where(MailRoutingRule.builtin_key == "onboarding_offboarding")
+        )
+        dep_rule = dep.scalar_one_or_none()
+        if dep_rule:
+            await db.delete(dep_rule)
+            await db.commit()
+
+        for rule_data in BUILTIN_RULES:
+            key = rule_data["builtin_key"]
+            result = await db.execute(
+                select(MailRoutingRule).where(MailRoutingRule.builtin_key == key)
+            )
+            existing = result.scalar_one_or_none()
+            if existing is None:
+                db.add(MailRoutingRule(
+                    is_builtin=True,
+                    builtin_key=key,
+                    name=rule_data["name"],
+                    label=rule_data["label"],
+                    color=rule_data["color"],
+                    hashtag=rule_data.get("hashtag"),
+                    mention_users=rule_data.get("mention_users"),
+                    include_body=rule_data.get("include_body", True),
+                    priority=rule_data.get("priority", 100),
+                    enabled=True,
+                ))
+        await db.commit()
+    logger.info("Built-in routing rules seeded")
 
 
 @asynccontextmanager
@@ -128,6 +169,7 @@ async def lifespan(app: FastAPI):
         await conn.run_sync(Base.metadata.create_all)
     await run_migrations()
     await seed_defaults()
+    await seed_routing_rules()
 
     # Reminder worker
     scheduler.add_job(check_and_fire_reminders, "interval", seconds=30)

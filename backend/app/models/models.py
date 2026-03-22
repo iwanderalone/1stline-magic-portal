@@ -290,6 +290,42 @@ class ShiftNotificationLog(Base):
     sent_at = Column(DateTime(timezone=True), default=utcnow)
 
 
+class MailRoutingRule(Base):
+    """Configurable routing rules for the mail reporter.
+
+    Built-in rules (is_builtin=True) are seeded automatically and cannot be deleted.
+    They control display config (label, color, hashtag, mentions) for hardcoded categories.
+    User rules are checked first (by priority), then built-in classification runs as fallback.
+    """
+    __tablename__ = "mail_routing_rules"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(100), nullable=False)
+    is_builtin = Column(Boolean, default=False, nullable=False)
+    builtin_key = Column(String(50), nullable=True, unique=True)  # matches classify_email() output
+
+    # Match conditions — only used for non-builtin rules
+    match_type = Column(String(20), nullable=True)   # keyword | subject_keyword | sender | sender_domain
+    match_values = Column(Text, nullable=True)        # comma-separated values to match
+
+    # Display config — editable for all rules including built-ins
+    label = Column(String(100), nullable=False)        # e.g. "🔴 Adobe"
+    color = Column(String(7), default="#6b7280")       # hex color for badge
+    hashtag = Column(String(200), nullable=True)       # e.g. "#adobe"
+    mention_users = Column(String(200), nullable=True) # e.g. "@wanderalone @itsupport_viory"
+    include_body = Column(Boolean, default=True)
+
+    # Optional Telegram target override (empty = use mailbox target)
+    telegram_target = Column(String(200), nullable=True)
+
+    # Control
+    priority = Column(Integer, default=10)  # lower = checked first (user rules only)
+    enabled = Column(Boolean, default=True)
+
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
 class EmailLog(Base):
     __tablename__ = "email_logs"
 
@@ -298,7 +334,8 @@ class EmailLog(Base):
     fingerprint = Column(String(24), unique=True, nullable=False, index=True)
     subject = Column(String(500), nullable=True)
     sender = Column(String(500), nullable=True)
-    category = Column(String(50), nullable=False)   # adobe | onboarding | offboarding | yandex_support | general | filtered
+    category = Column(String(50), nullable=False)   # builtin_key or user rule name
+    rule_id = Column(Integer, ForeignKey("mail_routing_rules.id", ondelete="SET NULL"), nullable=True)
     telegram_sent = Column(Boolean, default=False, nullable=False)
     telegram_target_used = Column(String(200), nullable=True)
     extracted_code = Column(String(20), nullable=True)  # adobe codes only
