@@ -440,6 +440,7 @@ class EmailLogResponse(BaseModel):
     subject: Optional[str]
     sender: Optional[str]
     category: str
+    rule_id: Optional[int] = None
     telegram_sent: bool
     telegram_target_used: Optional[str]
     extracted_code: Optional[str]
@@ -449,5 +450,53 @@ class EmailLogResponse(BaseModel):
     is_solved: bool = False
     solver_comment: Optional[str] = None
     solved_at: Optional[datetime] = None
+    class Config:
+        from_attributes = True
+
+
+# ─── Mail Routing Rules ───────────────────────────────────
+
+class MailRoutingRuleCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    match_type: str = Field(..., pattern="^(keyword|subject_keyword|sender|sender_domain)$")
+    match_values: str = Field(..., min_length=1, max_length=1000)
+    label: str = Field(..., min_length=1, max_length=100)
+    color: str = Field(default="#6b7280", pattern=r"^#[0-9a-fA-F]{6}$")
+    hashtag: Optional[str] = Field(default=None, max_length=200)
+    mention_users: Optional[str] = Field(default=None, max_length=200)
+    include_body: bool = True
+    telegram_target: Optional[str] = Field(default=None, max_length=200)
+    priority: int = Field(default=10, ge=1, le=999)
+    enabled: bool = True
+
+class MailRoutingRuleUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, max_length=100)
+    match_type: Optional[str] = Field(default=None, pattern="^(keyword|subject_keyword|sender|sender_domain)$")
+    match_values: Optional[str] = Field(default=None, max_length=1000)
+    label: Optional[str] = Field(default=None, max_length=100)
+    color: Optional[str] = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
+    hashtag: Optional[str] = Field(default=None, max_length=200)
+    mention_users: Optional[str] = Field(default=None, max_length=200)
+    include_body: Optional[bool] = None
+    telegram_target: Optional[str] = Field(default=None, max_length=200)
+    priority: Optional[int] = Field(default=None, ge=1, le=999)
+    enabled: Optional[bool] = None
+
+class MailRoutingRuleResponse(BaseModel):
+    id: int
+    name: str
+    is_builtin: bool
+    builtin_key: Optional[str]
+    match_type: Optional[str]
+    match_values: Optional[str]
+    label: str
+    color: str
+    hashtag: Optional[str]
+    mention_users: Optional[str]
+    include_body: bool
+    telegram_target: Optional[str]
+    priority: int
+    enabled: bool
+    created_at: datetime
     class Config:
         from_attributes = True

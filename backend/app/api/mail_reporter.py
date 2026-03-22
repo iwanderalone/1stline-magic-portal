@@ -10,10 +10,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import get_current_user, require_admin
-from app.models.models import MailboxConfig, EmailLog, User
+from app.models.models import MailboxConfig, EmailLog, MailRoutingRule, User
 from app.schemas.schemas import (
     MailboxConfigCreate, MailboxConfigUpdate, MailboxConfigResponse, EmailLogResponse,
-    EmailLogUpdate,
+    EmailLogUpdate, MailRoutingRuleCreate, MailRoutingRuleUpdate, MailRoutingRuleResponse,
 )
 from app.services.mail_reporter_service import (
     _test_imap_connection, check_all_mailboxes,
@@ -193,3 +193,88 @@ async def poll_now(background_tasks: BackgroundTasks, _=Depends(require_admin)):
     """Trigger an immediate email check in the background."""
     background_tasks.add_task(check_all_mailboxes)
     return {"started": True, "message": "Poll triggered — check logs or refresh emails shortly"}
+
+
+# ─── Routing Rules CRUD ───────────────────────────────────────────────
+
+@router.get("/rules", response_model=list[MailRoutingRuleResponse])
+async def list_rules(
+    db: AsyncSession = Depends(get_db),
+    _=Depends(require_admin),
+):
+    """Return all routing rules ordered: built-ins first, then user rules by priority."""
+    result = await db.execute(
+        select(MailRoutingRule).order_by(
+            MailRoutingRule.is_builtin.desc(),
+            MailRoutingRule.priority,
+            MailRoutingRule.id,
+        )
+    )
+    return result.scalars().all()
+
+
+@router.post("/rules", response_model=MailRoutingRuleResponse, status_code=201)
+async def create_rule(
+    body: MailRoutingRuleCreate,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(require_admin),
+):
+    rule = MailRoutingRule(**body.model_dump(), is_builtin=False)
+    db.add(rule)
+    await db.commit()
+    await db.refresh(rule)
+    logger.info(f"[mail-reporter] Rule created: {rule.name}")
+    return rule
+
+
+@router.patch("/rules/{rule_id}", response_model=MailRoutingRuleResponse)
+async def update_rule(
+    rule_id: int,
+    body: MailRoutingRuleUpdate,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(require_admin),
+):
+    rule = await db.get(MailRoutingRule, rule_id)
+    if not rule:
+        raise HTTPException(status_code=404, detail="Rule not found")
+
+    updates = body.model_dump(exclude_unset=True)
+
+    # General built-in is a pure catch-all — match conditions don't apply to it.
+    # All other built-in rules can have custom match_values to extend detection.
+    if rule.is_builtin and rule.builtin_key == "general":
+        forbidden = {"match_type", "match_values", "priority"}
+        blocked = forbidden & set(updates.keys())
+        if blocked:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot modify {', '.join(blocked)} on the General catch-all rule"
+            )
+
+    for field, value in updates.items():
+        setattr(rule, field, value)
+    rule.updated_at = datetime.now(timezone.utc)
+
+    await db.commit()
+    await db.refresh(rule)
+    logger.info(f"[mail-reporter] Rule updated: {rule.name}")
+    return rule
+
+
+@router.delete("/rules/{rule_id}")
+async def delete_rule(
+    rule_id: int,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(require_admin),
+):
+    rule = await db.get(MailRoutingRule, rule_id)
+    if not rule:
+        raise HTTPException(status_code=404, detail="Rule not found")
+    if rule.is_builtin:
+        raise HTTPException(status_code=400, detail="Cannot delete built-in rules")
+
+    name = rule.name
+    await db.delete(rule)
+    await db.commit()
+    logger.info(f"[mail-reporter] Rule deleted: {name}")
+    return {"ok": True}
