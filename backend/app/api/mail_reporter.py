@@ -270,8 +270,8 @@ async def delete_rule(
     rule = await db.get(MailRoutingRule, rule_id)
     if not rule:
         raise HTTPException(status_code=404, detail="Rule not found")
-    if rule.is_builtin:
-        raise HTTPException(status_code=400, detail="Cannot delete built-in rules")
+    if rule.is_builtin and rule.builtin_key == "general":
+        raise HTTPException(status_code=400, detail="Cannot delete the General catch-all rule")
 
     name = rule.name
     await db.delete(rule)
