@@ -1,6 +1,6 @@
 # User Guide — 1line Portal
 
-Internal operations portal for first-line support teams. Covers shift scheduling, reminders, Telegram notifications, and team management.
+Internal operations portal for first-line support teams. Covers shift scheduling, time-off management, email monitoring, Telegram notifications, and team management.
 
 ---
 
@@ -14,9 +14,25 @@ If your account has **two-factor authentication (2FA)** enabled, you will be pro
 
 ---
 
+## Navigation
+
+The sidebar contains:
+
+| Item | Description |
+|------|-------------|
+| 👤 My Profile | Personal settings, timezone, Telegram linking, 2FA |
+| 📅 Schedule | Shift calendar (weekly/monthly view) |
+| 📧 Mail | Email monitoring and routing rules |
+| 🌴 Time Off | Submit and track time-off requests |
+| ⚙️ Admin | Team and system administration *(admin only)* |
+
+The bell icon 🔔 in the top bar shows your unread in-app notification count.
+
+---
+
 ## Schedule
 
-The schedule page is the main page. It shows shifts for the current week or month.
+The schedule page shows shifts for the current week or month.
 
 ### Viewing shifts
 
@@ -37,36 +53,50 @@ Times are in your admin's configured portal timezone. Telegram notifications you
 
 ### World clock
 
-A live clock bar above the calendar shows current time in Berlin, Moscow, Abu Dhabi, Mexico City, and Bishkek. Columns with night hours (before 07:00 or after 20:00) are shaded.
-
-### Time-off requests
-
-Click **Time off** to submit a request. Choose the type (Day off / Vacation / Sick leave), date range, and an optional note.
-
-Your request starts as **pending**. An admin will approve or reject it. Approved time-off days are shown on the calendar and respected by the auto-schedule generator.
+A live clock bar above the calendar shows current time in multiple timezones. Columns with night hours (before 07:00 or after 20:00) are shaded.
 
 ---
 
-## Reminders
+## Time Off
 
-Create personal reminders that fire as in-app notifications and optionally as Telegram DMs.
+The Time Off page lets you submit and track leave requests.
 
-### Creating a reminder
+### Submitting a request
 
-1. Click **+ New reminder**.
-2. Enter a title and optional description.
-3. Set the date and time. Quick buttons: **15 min / 30 min / 1 h / 2 h / Tomorrow 09:00**.
-4. Choose notification channels: **In-app**, **Telegram** (requires linked account).
-5. For Telegram, choose where to send: personal DM, configured group chats, or both.
-6. Toggle **Recurring** and set an interval (e.g. every 60 minutes) for repeating reminders.
+1. Click **+ New request**.
+2. Choose the type: **Day off**, **Vacation**, or **Sick leave**.
+3. Select the date range.
+4. Add an optional note and submit.
 
-Reminders fire within 30 seconds of their scheduled time.
+Your request starts as **pending**. An admin will approve or reject it. You can see the status and any admin comment on the Time Off page.
+
+Approved time-off days are shown on the schedule calendar and are respected by the auto-schedule generator — you won't be assigned shifts on those days.
+
+---
+
+## Mail
+
+The Mail page shows incoming emails captured from monitored mailboxes and forwarded to Telegram. All authenticated users can view the email log and mark emails as solved.
+
+### Email log
+
+Each row shows:
+- **Category badge** — the routing rule that matched (e.g. 🔴 Adobe, 🔵 Onboarding, 📩 General)
+- **Subject** and **sender**
+- **Received** time
+- **Solved** status — click to toggle, optionally add a comment
+
+Use the **Solved / All** filter to focus on open items.
+
+### Marking as solved
+
+Click the checkmark icon on any email row to mark it as solved. You can add a short comment describing the resolution. Click again to reopen.
 
 ---
 
 ## Notifications
 
-The bell icon (🔔) in the top-right corner shows your unread notification count, updated every 15 seconds.
+The bell icon (🔔) in the top bar shows your unread notification count, updated every 15 seconds.
 
 Click it to open the notification panel. You can:
 - Mark individual notifications as read.
@@ -89,7 +119,7 @@ Set your IANA timezone (e.g. `Europe/Moscow`, `Asia/Dubai`). This affects how sh
 
 ### Telegram notifications
 
-Link your Telegram account to receive shift and reminder notifications.
+Link your Telegram account to receive shift notifications.
 
 **How to link:**
 
@@ -143,7 +173,7 @@ Configure the three shift types (Day, Night, Office):
 - Duration in hours
 - Whether the shift requires a location (onsite / remote)
 
-Times are interpreted in the portal timezone shown in the banner at the top of this tab.
+Times are interpreted in the portal timezone shown in the banner at the top of this tab. Changing a shift type's default start time automatically adjusts when Telegram notifications fire for that shift type.
 
 ### Telegram tab
 
@@ -157,19 +187,59 @@ Add Telegram group chats or channels to receive automatic roster notifications.
 **Notification types:**
 | Toggle | When it fires |
 |--------|--------------|
-| ☀️ Day | 07:45 in portal timezone — posts today's day shift roster |
-| 🌙 Night | 19:45 — posts today's night shift roster |
-| 🏢 Office | 08:50 — posts today's office roster |
+| ☀️ Day | At day shift start time (portal timezone) — posts today's day shift roster |
+| 🌙 Night | At night shift start time — posts today's night shift roster |
+| 🏢 Office | At office shift start time — posts today's office roster |
 | 🔔 Reminders | When any reminder with "groups" target fires |
-| 📢 General | Manual test notifications from the Notifications tab |
-
-### Notifications tab
-
-Send a manual in-app notification (and optionally a Telegram DM) to selected users or group chats. Useful for announcements.
+| 📢 General | Manual test notifications |
 
 ### Logs tab
 
 Last 200 audit log entries: logins, schedule generation/publish, time-off approvals, password resets, etc.
+
+---
+
+## Mail Reporter (admin setup)
+
+The mail reporter monitors IMAP mailboxes and delivers categorised emails to Telegram.
+
+### Mailboxes tab
+
+Add the mailboxes you want to monitor:
+1. Click **+ Add mailbox**.
+2. Enter the email address and password (app password if 2FA is enabled on the mail account).
+3. Set **Monitor since** — emails older than this date are ignored.
+4. Set the **Telegram target** — a chat ID, or `chat_id:thread_id` for forum channels.
+5. Optionally set a **Subject filter** keyword to only forward matching emails.
+6. Click **Test connection** to verify IMAP credentials before saving.
+
+The portal polls each enabled mailbox on the configured interval (default: every 30 seconds).
+
+### Routing rules tab
+
+Rules determine how emails are categorised and where they are delivered.
+
+**Built-in rules** (cannot be deleted):
+| Rule | Matches |
+|------|---------|
+| 🔴 Adobe | Emails from Adobe with verification codes — extracts the numeric code |
+| 🟡 Yandex Support | Emails from `support-team@360.yandex.ru` |
+| 🔵 Onboarding | Emails containing onboarding-related keywords |
+| 🔵 Offboarding | Emails containing offboarding/termination keywords |
+| 📩 General | Catch-all for everything else |
+
+Built-in rules' **display config** (label, colour, hashtag, @mentions, include body) can be edited. Their match logic is hardcoded but you can add custom `match_values` to extend detection.
+
+**Custom rules** are checked first (by priority), before built-in classification runs:
+1. Click **+ Add rule**.
+2. Choose a **match type**: keyword (subject + body), subject keyword, sender address, or sender domain.
+3. Enter **match values** (comma-separated).
+4. Set the display config and optionally a Telegram target override.
+5. Lower priority number = checked first.
+
+### Email log
+
+The email log is visible to all authenticated users (not just admins). Each entry shows the category, sender, subject, delivery status, and solve state. Admins can clear the log from this tab.
 
 ---
 
@@ -190,11 +260,11 @@ Once your account is linked, you can use these commands in the bot:
 
 **I lost access to my 2FA app.** Ask an admin to click Reset 2FA on your account.
 
-**My shift appears on the wrong day.** This was a known timezone bug, fixed in v0.1. If you still see it, hard-refresh the page (Ctrl+Shift+R).
-
 **I'm not receiving Telegram notifications.** Check:
 1. Your Telegram account is linked (Profile → Telegram → status shows Linked).
 2. The relevant notification toggle is on (Shift notifications / Reminder notifications).
 3. You haven't blocked the bot.
 
-**Reminders are not firing.** Reminders fire within 30 seconds. Check that the reminder status is Active (not Fired or Cancelled) on the Reminders page.
+**An email was not forwarded to Telegram.** Check the Mail page — if the row shows the email but `telegram_sent` is false, there may be a Telegram target misconfiguration. If the email doesn't appear at all, check the subject filter on the mailbox config.
+
+**Shift notifications are not arriving on time.** Shift start notifications are scheduled based on the default start time set in Admin → Shift Config. Notifications are registered when shifts are published — if you changed a shift config time after publishing, ask an admin to re-publish.

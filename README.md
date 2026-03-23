@@ -1,6 +1,6 @@
 # 1line-portal — Support Team Internal Portal
 
-A lightweight internal operations portal for first-line support teams. Provides shift scheduling, reminders, Telegram bot integration, and an in-app notification centre.
+A lightweight internal operations portal for first-line support teams. Provides shift scheduling, time-off management, IMAP email monitoring with Telegram delivery, and an in-app notification centre.
 
 ## Architecture
 
@@ -15,11 +15,12 @@ A lightweight internal operations portal for first-line support teams. Provides 
 │  JWT auth · RBAC · APScheduler (in-process)  │
 ├──────────────────────────────────────────────┤
 │  Modules:                                     │
-│  · Auth         (login + TOTP 2FA)            │
-│  · Users        (admin CRUD + profile)        │
-│  · Groups       (team groupings)              │
-│  · Schedule     (shifts + auto-generation)    │
-│  · Reminders    (one-off + recurring)         │
+│  · Auth          (login + TOTP 2FA)           │
+│  · Users         (admin CRUD + profile)       │
+│  · Groups        (team groupings)             │
+│  · Schedule      (shifts + auto-generation)  │
+│  · Time Off      (requests + approval)        │
+│  · Mail Reporter (IMAP → classify → Telegram) │
 │  · Notifications (in-app + Telegram)          │
 │  · Admin config  (shift types, Telegram chats)│
 └───────────────────┬──────────────────────────┘
@@ -130,18 +131,28 @@ npm run dev      # Vite dev server on :5173 — proxies /api to :8000
   - Optional availability cycle patterns (e.g. "works 24h elsewhere, then 3 days free")
   - Greedy workload balancing with random tie-breaking
 - Draft → Published workflow (admin publishes, engineers see only published shifts)
-- Time-off requests (day off / vacation / sick leave) with admin approve/reject workflow
 
-### Reminders
-- Create one-off or recurring reminders
-- Quick-set buttons: 15 min, 30 min, 1 h, 2 h, tomorrow 09:00
-- Dual notifications: in-app bell + Telegram DM
-- Background worker fires due reminders every 30 seconds
+### Time Off
+- Standalone page for submitting and tracking time-off requests
+- Types: Day off / Vacation / Sick leave with date range and optional note
+- Admin approve/reject workflow; approved days block schedule auto-generation
+
+### Mail Reporter
+- Monitor one or more IMAP mailboxes (Yandex by default, configurable)
+- Automatically classifies incoming emails by category using built-in rules + admin-defined custom rules
+- Forwards formatted messages to Telegram chats/topics with category labels, hashtags, and @mentions
+- Built-in categories: Adobe verification codes (extracts numeric code), Yandex 360 Support, Onboarding, Offboarding, General catch-all
+- Custom rules: keyword, subject keyword, sender address, or sender domain matching
+- Deduplication by message fingerprint — each email is processed exactly once
+- Solve workflow: team members can mark emails as solved and add a comment from the UI
+- Per-mailbox subject filter, Telegram target (chat_id:thread_id), enable/disable toggle
+- Per-rule Telegram target override (route different categories to different channels/topics)
+- Admin can trigger an immediate poll or test IMAP connection from the UI
 
 ### Telegram Bot
 - Link portal accounts via short verification code (`/link <CODE>`)
 - Bot commands: `/link <code>`, `/myshift`
-- Shift start notifications sent to linked personal chats
+- Shift start notifications sent at the configured start time for each shift type
 - Group chat notifications (day shift, night shift, office roster) configurable per chat
 - Forum topic support for group channels
 - Setup: create a bot via @BotFather, set `TELEGRAM_BOT_TOKEN` in `.env`
@@ -156,7 +167,6 @@ npm run dev      # Vite dev server on :5173 — proxies /api to :8000
 - **Groups tab**: manage team groupings; assign members
 - **Shift config tab**: edit shift type labels, durations, times, emoji, colours, location requirement
 - **Telegram tab**: configure group chats and which notification types they receive
-- **Notifications tab**: send test in-app (and optionally Telegram) notifications to selected users
 - **Logs tab**: last 200 audit log entries (login, time-off, schedule generation/publish, etc.)
 
 ### Profile (self-service)
@@ -226,6 +236,20 @@ DELETE /api/admin/telegram-chats/:id         # Remove chat (admin)
 POST   /api/admin/test-notification          # Send test notification (admin)
 GET    /api/admin/audit-logs                 # Last 200 audit log entries (admin)
 
+GET    /api/mail-reporter/mailboxes          # List mailboxes (admin)
+POST   /api/mail-reporter/mailboxes          # Add mailbox (admin)
+PATCH  /api/mail-reporter/mailboxes/:id      # Update mailbox (admin)
+DELETE /api/mail-reporter/mailboxes/:id      # Remove mailbox (admin)
+POST   /api/mail-reporter/mailboxes/:id/test # Test IMAP connection (admin)
+GET    /api/mail-reporter/emails             # Email log (all authenticated users)
+PATCH  /api/mail-reporter/emails/:id         # Mark solved / add comment (all authenticated users)
+DELETE /api/mail-reporter/emails             # Clear email logs (admin)
+POST   /api/mail-reporter/poll-now           # Trigger immediate mail check (admin)
+GET    /api/mail-reporter/rules              # List routing rules (admin)
+POST   /api/mail-reporter/rules              # Create custom rule (admin)
+PATCH  /api/mail-reporter/rules/:id          # Update rule (admin)
+DELETE /api/mail-reporter/rules/:id          # Delete custom rule (admin)
+
 GET    /api/health                           # Health check
 ```
 
@@ -247,6 +271,10 @@ SQLite at `data/portal.db`, persisted via Docker volume. Schema created automati
 | `notifications` | In-app notification feed per user |
 | `activity_logs` | Audit trail — action + details; username denormalised so entries survive user deletion |
 | `telegram_chats` | Configured group chats/channels with per-notification-type enable flags |
+| `shift_notification_logs` | Deduplication log — one row per (date, shift_type) prevents duplicate shift notifications |
+| `mailbox_configs` | IMAP mailbox credentials, poll settings, Telegram target, last-poll status |
+| `mail_routing_rules` | Categorisation rules (built-in + user-defined) — match conditions, display config, Telegram target override |
+| `email_logs` | Processed email history — category, Telegram delivery status, extracted codes, solve workflow |
 
 ## Security
 
@@ -275,13 +303,22 @@ SQLite at `data/portal.db`, persisted via Docker volume. Schema created automati
 
 ## Configuration
 
-| Variable              | Required | Default                              | Description                    |
-|-----------------------|----------|--------------------------------------|--------------------------------|
-| `SECRET_KEY`          | yes      | insecure default                     | App secret key                 |
-| `JWT_SECRET`          | yes      | insecure default                     | JWT signing key                |
-| `DATABASE_URL`        | no       | `sqlite+aiosqlite:///./portal.db`    | SQLAlchemy async URL           |
-| `TELEGRAM_BOT_TOKEN`  | no       | *(empty)*                            | @BotFather token               |
-| `DEBUG`               | no       | `false`                              | SQLAlchemy echo logging        |
+| Variable                | Required | Default                              | Description                                    |
+|-------------------------|----------|--------------------------------------|------------------------------------------------|
+| `SECRET_KEY`            | yes      | insecure default                     | App secret key                                 |
+| `JWT_SECRET`            | yes      | insecure default                     | JWT signing key                                |
+| `DATABASE_URL`          | no       | `sqlite+aiosqlite:///./portal.db`    | SQLAlchemy async URL                           |
+| `PORTAL_TIMEZONE`       | no       | `UTC`                                | IANA timezone for shift times and crons        |
+| `CORS_ORIGINS`          | no       | `http://localhost:5173,...`          | Comma-separated allowed origins                |
+| `TELEGRAM_BOT_TOKEN`    | no       | *(empty)*                            | @BotFather token; leave empty to disable       |
+| `TELEGRAM_BOT_USERNAME` | no       | *(empty)*                            | Bot username shown in the UI link flow         |
+| `DEBUG`                 | no       | `false`                              | SQLAlchemy echo logging                        |
+| `MAIL_IMAP_SERVER`      | no       | `imap.yandex.com`                    | IMAP server hostname                           |
+| `MAIL_IMAP_PORT`        | no       | `993`                                | IMAP SSL port                                  |
+| `MAIL_IMAP_TIMEOUT`     | no       | `30`                                 | IMAP connection timeout (seconds)              |
+| `MAIL_POLL_INTERVAL`    | no       | `30`                                 | Seconds between mailbox polls                  |
+| `MAIL_DEFAULT_CHAT_ID`  | no       | *(empty)*                            | Fallback Telegram chat_id if mailbox has no target |
+| `MAIL_DEFAULT_THREAD_ID`| no       | *(empty)*                            | Fallback Telegram thread/topic id              |
 
 In Docker Compose the database URL is overridden to `sqlite+aiosqlite:////app/data/portal.db` so the file lands in the persisted `./data` volume mount.
 
@@ -289,47 +326,57 @@ In Docker Compose the database URL is overridden to `sqlite+aiosqlite:////app/da
 
 ```
 backend/app/
-├── main.py                   # FastAPI app, lifespan (DB init + seed + migrations), APScheduler jobs
+├── main.py                         # FastAPI app, lifespan (DB init + seed + migrations), APScheduler jobs
 ├── core/
-│   ├── config.py             # Settings via pydantic-settings; get_settings() (lru_cache)
-│   ├── database.py           # Async SQLAlchemy engine; WAL mode pragmas; get_db() dependency
-│   ├── deps.py               # get_current_user, require_admin FastAPI dependencies
-│   └── security.py           # hash_password, verify_password, create/decode JWT tokens
-├── models/models.py          # All SQLAlchemy ORM models
-├── schemas/schemas.py        # All Pydantic v2 request/response schemas
+│   ├── config.py                   # Settings via pydantic-settings; get_settings() (lru_cache)
+│   ├── database.py                 # Async SQLAlchemy engine; WAL mode pragmas; get_db() dependency
+│   ├── deps.py                     # get_current_user, require_admin FastAPI dependencies
+│   ├── security.py                 # hash_password, verify_password, create/decode JWT tokens
+│   └── scheduler.py                # Shared AsyncIOScheduler instance
+├── models/models.py                # All SQLAlchemy ORM models
+├── schemas/schemas.py              # All Pydantic v2 request/response schemas
 ├── api/
-│   ├── auth.py               # Login, OTP setup/confirm/disable, token refresh
-│   ├── users.py              # User CRUD (admin) + self-service profile/telegram endpoints
-│   ├── groups.py             # Group CRUD + member management (admin)
-│   ├── schedule.py           # Shifts, auto-generation, publish, time-off requests
-│   ├── reminders.py          # Reminder CRUD for current user
-│   ├── notifications.py      # In-app notification feed
-│   └── admin_config.py       # Shift configs, Telegram chats, test notifications, audit logs
+│   ├── auth.py                     # Login, OTP setup/confirm/disable, token refresh
+│   ├── users.py                    # User CRUD (admin) + self-service profile/telegram endpoints
+│   ├── groups.py                   # Group CRUD + member management (admin)
+│   ├── schedule.py                 # Shifts, auto-generation, publish, time-off requests
+│   ├── reminders.py                # Reminder CRUD for current user
+│   ├── notifications.py            # In-app notification feed
+│   ├── admin_config.py             # Shift configs, Telegram chats, test notifications, audit logs
+│   └── mail_reporter.py            # Mailbox CRUD, email log, routing rules, manual poll trigger
 ├── services/
-│   ├── schedule_service.py   # Greedy auto-generation algorithm with constraint satisfaction
-│   ├── telegram_service.py   # Shift start + office roster Telegram notifications
-│   └── audit.py              # log_action() helper for activity_logs table
+│   ├── schedule_service.py         # Greedy auto-generation algorithm with constraint satisfaction
+│   ├── telegram_service.py         # Shift start + office roster Telegram notifications
+│   ├── mail_reporter_service.py    # IMAP polling, email classification, Telegram delivery
+│   └── audit.py                    # log_action() helper for activity_logs table
 └── workers/
-    └── reminder_worker.py    # Fires due reminders every 30s; advances recurring reminders
+    ├── reminder_worker.py          # Fires due reminders every 30s; advances recurring reminders
+    ├── shift_notification_worker.py    # 60s fallback: fires shift notifications based on UTC clock
+    └── shift_notification_scheduler.py # On startup/publish: registers precise APScheduler 'date' jobs
 ```
 
 ## Frontend Structure
 
 ```
 frontend/src/
-├── main.jsx                  # React root, ThemeProvider
+├── main.jsx                  # React root, ThemeProvider, LangProvider
 ├── App.jsx                   # Sidebar nav, notification bell polling (15s), page routing
 ├── api.js                    # api(path, opts) — JWT from sessionStorage, auto-refresh on 401
 ├── theme.js                  # Design tokens (light/dark) + getGlobalCSS()
 ├── components/
 │   ├── UI.jsx                # Shared primitives: Button, Input, Card, Badge, Modal, etc.
 │   ├── ThemeContext.jsx       # ThemeProvider + useTheme() hook (persists to localStorage)
-│   ├── LangContext.jsx        # Language/i18n context
+│   ├── LangContext.jsx        # Language/i18n context (EN/RU)
 │   └── NotificationsPanel.jsx # Bell dropdown with unread count
 └── pages/
     ├── LoginPage.jsx          # Login form + OTP step
-    ├── SchedulePage.jsx       # Weekly/monthly calendar, time-off requests
-    ├── RemindersPage.jsx      # Reminder list + create/edit
-    ├── AdminPage.jsx          # Users, Groups, Shift config, Telegram, Notifications, Logs tabs
+    ├── SchedulePage.jsx       # Weekly/monthly calendar
+    ├── TimeOffPage.jsx        # Time-off request submission and status tracking
+    ├── MailReporterPage.jsx   # IMAP email log, mailbox config, routing rules (admin)
+    ├── AdminPage.jsx          # Users, Groups, Shift config, Telegram, Logs tabs
     └── ProfilePage.jsx        # Self-service profile, timezone, 2FA, Telegram settings
 ```
+
+**Navigation (sidebar):** My Profile · Schedule · Mail · Time Off · Admin *(admin only)*
+
+**Routing:** No React Router. `page` state in `App.jsx` synced with `window.location.hash`. On refresh, hash is read to restore the current page.
