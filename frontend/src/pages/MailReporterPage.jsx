@@ -500,6 +500,27 @@ export default function MailReporterPage({ user }) {
     setConfirmDeleteRule(null);
   }
 
+  async function moveRule(rule, direction) {
+    const sorted = rules
+      .filter(r => !r.is_builtin)
+      .sort((a, b) => a.priority - b.priority || a.id - b.id);
+    const idx = sorted.findIndex(r => r.id === rule.id);
+    const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (swapIdx < 0 || swapIdx >= sorted.length) return;
+    const other = sorted[swapIdx];
+    const newP = other.priority;
+    const otherP = rule.priority === other.priority
+      ? (direction === 'up' ? other.priority + 1 : Math.max(1, other.priority - 1))
+      : rule.priority;
+    try {
+      const [r1, r2] = await Promise.all([
+        api(`/mail-reporter/rules/${rule.id}`, { method: 'PATCH', body: JSON.stringify({ priority: newP }) }),
+        api(`/mail-reporter/rules/${other.id}`, { method: 'PATCH', body: JSON.stringify({ priority: otherP }) }),
+      ]);
+      setRules(prev => prev.map(r => r.id === r1.id ? r1 : r.id === r2.id ? r2 : r));
+    } catch (e) { showToast(e.message || 'Reorder failed', 'error'); }
+  }
+
   async function toggleRuleEnabled(rule) {
     try {
       const updated = await api(`/mail-reporter/rules/${rule.id}`, { method: 'PATCH', body: JSON.stringify({ enabled: !rule.enabled }) });
@@ -620,7 +641,7 @@ export default function MailReporterPage({ user }) {
                       <td style={cellStyle}><RuleBadge rule={rule} /></td>
                       <td style={{ ...cellStyle, maxWidth: '160px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                          {rule.is_builtin && <span title="Built-in rule — cannot be deleted" style={{ fontSize: '12px' }}>🔒</span>}
+                          {rule.is_builtin && <span title={rule.builtin_key === 'general' ? 'General catch-all — cannot be deleted' : 'Built-in rule — re-created on server restart'} style={{ fontSize: '12px' }}>{rule.builtin_key === 'general' ? '🔒' : '⚙️'}</span>}
                           <span style={{ fontWeight: 500, fontSize: '13px' }}>{rule.name}</span>
                         </div>
                         {rule.hashtag && <div style={{ fontSize: '11px', color: t.textMuted }}>{rule.hashtag}</div>}
@@ -649,9 +670,19 @@ export default function MailReporterPage({ user }) {
                         </button>
                       </td>
                       <td style={{ ...cellStyle, whiteSpace: 'nowrap' }}>
-                        <div style={{ display: 'flex', gap: '4px' }}>
+                        <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                          {!rule.is_builtin && (() => {
+                            const sorted = rules.filter(r => !r.is_builtin).sort((a, b) => a.priority - b.priority || a.id - b.id);
+                            const idx = sorted.findIndex(r => r.id === rule.id);
+                            return (
+                              <>
+                                <Button size="sm" variant="ghost" disabled={idx === 0} onClick={() => moveRule(rule, 'up')} style={{ fontSize: '11px', padding: '3px 6px' }} title="Move up">↑</Button>
+                                <Button size="sm" variant="ghost" disabled={idx === sorted.length - 1} onClick={() => moveRule(rule, 'down')} style={{ fontSize: '11px', padding: '3px 6px' }} title="Move down">↓</Button>
+                              </>
+                            );
+                          })()}
                           <Button size="sm" variant="secondary" onClick={() => { setEditRule(rule); setShowRuleModal(true); }} style={{ fontSize: '11px', padding: '3px 8px' }}>Edit</Button>
-                          {!rule.is_builtin && (
+                          {rule.builtin_key !== 'general' && (
                             <Button size="sm" variant="danger" onClick={() => setConfirmDeleteRule(rule)} style={{ fontSize: '11px', padding: '3px 8px' }}>Del</Button>
                           )}
                         </div>

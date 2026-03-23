@@ -10,6 +10,7 @@ import AdminPage from './pages/AdminPage';
 import ProfilePage from './pages/ProfilePage';
 import MailReporterPage from './pages/MailReporterPage';
 import TimeOffPage from './pages/TimeOffPage';
+import RemindersPage from './pages/RemindersPage';
 import NotificationsPanel from './components/NotificationsPanel';
 
 // ─── Triangular SVG cursor ───────────────────────────────────────────────────
@@ -357,6 +358,7 @@ export default function App() {
     { id: 'schedule', label: tr('schedule'),                             icon: '📅' },
     { id: 'mail',     label: lang === 'ru' ? 'Почта'   : 'Mail',        icon: '📧' },
     { id: 'timeoff',  label: tr('timeOff'),                              icon: '🌴', color: '#10b981' },
+    { id: 'reminders', label: tr('reminders'),                            icon: '🔔' },
     ...(auth.user.role === 'admin' ? [
       { id: 'admin',  label: tr('admin'),                                icon: '⚙️' },
     ] : []),
@@ -532,8 +534,9 @@ export default function App() {
             )}
             {page === 'schedule' && <SchedulePage user={auth.user} />}
             {page === 'mail'     && <MailReporterPage user={auth.user} />}
-            {page === 'timeoff'  && <TimeOffPage user={auth.user} />}
-            {page === 'admin'    && isAdmin(auth.user) && <AdminPage />}
+            {page === 'timeoff'   && <TimeOffPage user={auth.user} />}
+            {page === 'reminders' && <RemindersPage user={auth.user} />}
+            {page === 'admin'     && isAdmin(auth.user) && <AdminPage />}
           </div>
         </main>
 
