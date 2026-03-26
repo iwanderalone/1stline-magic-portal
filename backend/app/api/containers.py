@@ -552,10 +552,15 @@ async def get_dashboard(
         .order_by(VPSAgent.name)
     )
     agents = result.scalars().all()
+    from datetime import timezone as _tz
     now = utcnow()
     out = []
     for agent in agents:
-        online = agent.last_seen is not None and (now - agent.last_seen).total_seconds() < 75
+        if agent.last_seen is None:
+            online = False
+        else:
+            ls = agent.last_seen if agent.last_seen.tzinfo else agent.last_seen.replace(tzinfo=_tz.utc)
+            online = (now - ls).total_seconds() < 75
         containers = [ContainerStateResponse.model_validate(c) for c in agent.containers if not c.is_absent]
         snapshot = None
         if agent.system_snapshot:
