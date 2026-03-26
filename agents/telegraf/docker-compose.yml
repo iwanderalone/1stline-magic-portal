@@ -18,6 +18,7 @@ services:
       - ./telegraf.conf:/etc/telegraf/telegraf.conf:ro
       - ./scripts:/etc/telegraf/scripts:ro
       - /var/run/docker.sock:/var/run/docker.sock
+      - /:/hostfs:ro
 
   # ── Command handler: polls portal for start/stop/restart commands ─────────────
   cmd-handler:
