@@ -11,6 +11,7 @@ import ProfilePage from './pages/ProfilePage';
 import MailReporterPage from './pages/MailReporterPage';
 import TimeOffPage from './pages/TimeOffPage';
 import RemindersPage from './pages/RemindersPage';
+import ContainersPage from './pages/ContainersPage';
 import NotificationsPanel from './components/NotificationsPanel';
 
 // ─── Triangular SVG cursor ───────────────────────────────────────────────────
@@ -305,7 +306,7 @@ export default function App() {
   });
 
   const isAdmin = (u) => u?.role === 'admin';
-  const PAGES = ['schedule', 'timeoff', 'profile', 'admin', 'mail'];
+  const PAGES = ['schedule', 'timeoff', 'profile', 'admin', 'mail', 'reminders', 'containers'];
   const [page, setPage] = useState(() => {
     const hash = window.location.hash.slice(1);
     if (!PAGES.includes(hash)) return 'profile';
@@ -317,12 +318,12 @@ export default function App() {
   });
 
   const navigate = (p) => {
-    if (p === 'admin' && !isAdmin(auth.user)) return;
+    if ((p === 'admin' || p === 'containers') && !isAdmin(auth.user)) return;
     setPage(p); window.location.hash = p; setSidebarOpen(false);
   };
 
   useEffect(() => {
-    if (page === 'admin' && !isAdmin(auth.user)) navigate('profile');
+    if ((page === 'admin' || page === 'containers') && !isAdmin(auth.user)) navigate('profile');
   }, [page, auth.user]);
 
   const [showNotifs, setShowNotifs] = useState(false);
@@ -360,6 +361,7 @@ export default function App() {
     { id: 'timeoff',  label: tr('timeOff'),                              icon: '🌴', color: '#10b981' },
     { id: 'reminders', label: tr('reminders'),                            icon: '🔔' },
     ...(auth.user.role === 'admin' ? [
+      { id: 'containers', label: lang === 'ru' ? 'Серверы' : 'Containers', icon: '🖥️' },
       { id: 'admin',  label: tr('admin'),                                icon: '⚙️' },
     ] : []),
   ];
@@ -406,9 +408,7 @@ export default function App() {
               <div>
                 <div style={{
                   fontWeight: 800, fontSize: '16px', letterSpacing: '-0.03em',
-                  background: `linear-gradient(135deg, ${t.accent}, ${t.accentHover})`,
-                  WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
-                  backgroundClip: 'text',
+                  color: t.accent,
                 }}>Portal</div>
                 <div style={{
                   fontSize: '9px', color: t.textMuted,
@@ -536,6 +536,7 @@ export default function App() {
             {page === 'mail'     && <MailReporterPage user={auth.user} />}
             {page === 'timeoff'   && <TimeOffPage user={auth.user} />}
             {page === 'reminders' && <RemindersPage user={auth.user} />}
+            {page === 'containers' && isAdmin(auth.user) && <ContainersPage />}
             {page === 'admin'     && isAdmin(auth.user) && <AdminPage />}
           </div>
         </main>

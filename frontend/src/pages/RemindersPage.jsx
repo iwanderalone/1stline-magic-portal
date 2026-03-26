@@ -53,7 +53,9 @@ export default function RemindersPage() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '3px' }}>
                   <span style={{ fontWeight: 600, fontSize: '14px' }}>{r.title}</span>
                   <Badge color={sc[r.status]}>{r.status}</Badge>
-                  {r.is_recurring && <Badge color="blue">↻</Badge>}
+                  {r.is_recurring && (
+                    <Badge color="blue">↻ {RECURRENCE_OPTIONS.find(o => o.value === r.recurrence_minutes)?.label ?? `${r.recurrence_minutes}m`}</Badge>
+                  )}
                   {r.telegram_target && r.telegram_target !== 'none' && (
                     <Badge color="gray">💬 {r.telegram_target}</Badge>
                   )}
@@ -74,37 +76,92 @@ export default function RemindersPage() {
   );
 }
 
+const RECURRENCE_OPTIONS = [
+  { label: '15 minutes',  value: 15 },
+  { label: '30 minutes',  value: 30 },
+  { label: '1 hour',      value: 60 },
+  { label: '2 hours',     value: 120 },
+  { label: '6 hours',     value: 360 },
+  { label: '12 hours',    value: 720 },
+  { label: 'Daily',       value: 1440 },
+  { label: 'Weekly',      value: 10080 },
+  { label: 'Biweekly',    value: 20160 },
+  { label: 'Monthly',     value: 43200 },
+];
+
 function CreateReminderModal({ onClose, onCreate }) {
   const { theme: t } = useTheme();
   const { t: tr } = useLang();
-  const [title, setTitle] = useState(''); const [desc, setDesc] = useState(''); const [at, setAt] = useState('');
-  const [rec, setRec] = useState(false); const [recMin, setRecMin] = useState(60); const [tgTarget, setTgTarget] = useState('personal');
-  const setQuick = m => { if (m) { setAt(new Date(Date.now() + m * 60000).toISOString().slice(0,16)); } else { const d = new Date(); d.setDate(d.getDate()+1); d.setHours(9,0,0,0); setAt(d.toISOString().slice(0,16)); }};
+  const [title, setTitle] = useState('');
+  const [desc, setDesc] = useState('');
+  const [at, setAt] = useState('');
+  const [rec, setRec] = useState(false);
+  const [recMin, setRecMin] = useState(60);
+  const [tgTarget, setTgTarget] = useState('personal');
+
+  const setQuick = m => {
+    if (m) {
+      setAt(new Date(Date.now() + m * 60000).toISOString().slice(0, 16));
+    } else {
+      const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0);
+      setAt(d.toISOString().slice(0, 16));
+    }
+  };
+
   return (
     <Overlay onClose={onClose} title={tr('newReminderTitle')}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
         <Input label={tr('title')} value={title} onChange={e => setTitle(e.target.value)} autoFocus placeholder="Check ticket #1234" />
         <Input label={tr('description')} value={desc} onChange={e => setDesc(e.target.value)} />
+
         <div>
           <label style={{ fontSize: '13px', fontWeight: 500, color: t.textSecondary, display: 'block', marginBottom: '6px' }}>{tr('quickSet')}</label>
           <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-            {[['15m',15],['30m',30],['1h',60],['2h',120],[tr('tomorrow'),null]].map(([l,m]) => <Button key={l} variant="secondary" size="sm" onClick={() => setQuick(m)}>{l}</Button>)}
+            {[['15m', 15], ['30m', 30], ['1h', 60], ['2h', 120], [tr('tomorrow'), null]].map(([l, m]) => (
+              <Button key={l} variant="secondary" size="sm" onClick={() => setQuick(m)}>{l}</Button>
+            ))}
           </div>
         </div>
+
         <Input label={tr('remindAt')} type="datetime-local" value={at} onChange={e => setAt(e.target.value)} />
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer' }}><input type="checkbox" checked={rec} onChange={e => setRec(e.target.checked)} /> {tr('recurring')}</label>
-          {rec && <><Input type="number" value={recMin} onChange={e => setRecMin(e.target.value)} style={{ width: '80px' }} /><span style={{ fontSize: '12px', color: t.textMuted }}>min</span></>}
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer', userSelect: 'none' }}>
+            <input type="checkbox" checked={rec} onChange={e => setRec(e.target.checked)}
+              style={{ width: 15, height: 15, accentColor: t.accent, cursor: 'pointer' }} />
+            <span style={{ fontWeight: 500, color: t.text }}>{tr('recurring')}</span>
+          </label>
+          {rec && (
+            <Select value={String(recMin)} onChange={e => setRecMin(parseInt(e.target.value))}>
+              {RECURRENCE_OPTIONS.map(opt => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </Select>
+          )}
         </div>
+
         <Select label={tr('telegram')} value={tgTarget} onChange={e => setTgTarget(e.target.value)}>
           <option value="none">None (in-app only)</option>
           <option value="personal">Personal chat</option>
           <option value="groups">Group chats</option>
           <option value="both">Both</option>
         </Select>
+
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
           <Button variant="secondary" onClick={onClose}>{tr('cancel')}</Button>
-          <Button onClick={() => onCreate({ title, description: desc || null, remind_at: new Date(at).toISOString(), is_recurring: rec, recurrence_minutes: rec ? parseInt(recMin) : null, notify_telegram: tgTarget !== 'none', notify_in_app: true, telegram_target: tgTarget })} disabled={!title || !at}>{tr('create')}</Button>
+          <Button
+            onClick={() => onCreate({
+              title,
+              description: desc || null,
+              remind_at: new Date(at).toISOString(),
+              is_recurring: rec,
+              recurrence_minutes: rec ? recMin : null,
+              notify_telegram: tgTarget !== 'none',
+              notify_in_app: true,
+              telegram_target: tgTarget,
+            })}
+            disabled={!title || !at}
+          >{tr('create')}</Button>
         </div>
       </div>
     </Overlay>

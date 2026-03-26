@@ -1,0 +1,37 @@
+services:
+
+  # ── Telegraf: collects system + Docker metrics, pushes to portal ─────────────
+  telegraf:
+    image: telegraf:1.32-alpine
+    restart: unless-stopped
+    hostname: "${HOSTNAME:-}"
+    environment:
+      PORTAL_URL: "${PORTAL_URL}"
+      AGENT_ID:   "${AGENT_ID}"
+      AGENT_KEY:  "${AGENT_KEY}"
+    volumes:
+      - ./telegraf.conf:/etc/telegraf/telegraf.conf:ro
+      - ./scripts:/etc/telegraf/scripts:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /proc:/host/proc:ro      # optional: for host /proc metrics via inputs.kernel etc.
+    # Give Telegraf access to Docker socket
+    group_add:
+      - "${DOCKER_GID:-999}"
+
+  # ── Command handler: polls portal for start/stop/restart commands ─────────────
+  cmd-handler:
+    image: python:3.12-alpine
+    restart: unless-stopped
+    environment:
+      PORTAL_URL:    "${PORTAL_URL}"
+      AGENT_ID:      "${AGENT_ID}"
+      AGENT_KEY:     "${AGENT_KEY}"
+      POLL_INTERVAL: "5"
+    volumes:
+      - ./command-handler.py:/app/command-handler.py:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    working_dir: /app
+    command: >
+      sh -c "pip install requests --quiet && python3 command-handler.py"
+    group_add:
+      - "${DOCKER_GID:-999}"

@@ -16,6 +16,13 @@ const CATEGORY_LABELS = {
   general: '📩 General', filtered: '⛔ Filtered',
 };
 
+const EMAIL_STATUS_CONFIG = {
+  unchecked: { label: 'Unchecked', color: 'yellow' },
+  solved:    { label: '✓ Solved',  color: 'green'  },
+  on_pause:  { label: '⏸ Paused',  color: 'blue'   },
+  blocked:   { label: '🚫 Blocked', color: 'red'    },
+};
+
 const MATCH_TYPE_LABELS = {
   keyword: 'Keyword (subject + body)',
   subject_keyword: 'Subject keyword',
@@ -118,34 +125,78 @@ function MailboxModal({ mailbox, onClose, onSave }) {
   );
 }
 
-// ─── Comment Modal ────────────────────────────────────────────────────
+// ─── Comment History Modal ────────────────────────────────────────────
 
-function CommentModal({ email, onClose, onSave }) {
-  const { t: tr } = useLang();
+function CommentHistoryModal({ email, onClose }) {
   const { theme: t } = useTheme();
-  const [comment, setComment] = useState(email.solver_comment || '');
+  const [comments, setComments] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [text, setText] = useState('');
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    api(`/mail-reporter/emails/${email.id}/comments`)
+      .then(setComments).catch(() => {}).finally(() => setLoading(false));
+  }, [email.id]);
+
+  async function submit(e) {
+    e.preventDefault();
+    if (!text.trim()) return;
+    setSaving(true);
+    try {
+      const c = await api(`/mail-reporter/emails/${email.id}/comments`, {
+        method: 'POST', body: JSON.stringify({ text: text.trim() }),
+      });
+      setComments(prev => [...prev, c]);
+      setText('');
+    } catch (err) { /* ignore */ }
+    finally { setSaving(false); }
+  }
+
+  const taStyle = {
+    width: '100%', padding: '9px 12px', borderRadius: t.radiusSm,
+    border: `1px solid ${t.border}`, fontSize: '13px', resize: 'vertical',
+    fontFamily: 'inherit', boxSizing: 'border-box', background: t.surfaceAlt,
+    color: t.text, outline: 'none', lineHeight: 1.5,
+  };
+
   return (
-    <Overlay onClose={onClose} title="Add Comment">
+    <Overlay onClose={onClose} title="Comment history">
       <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-        <div style={{ fontSize: '13px', fontWeight: 600, wordBreak: 'break-word' }}>{email.subject}</div>
-        <div>
-          <label style={{ fontSize: '13px', fontWeight: 500, display: 'block', marginBottom: '5px' }}>Comment</label>
-          <textarea
-            value={comment}
-            onChange={e => setComment(e.target.value)}
-            rows={4}
-            placeholder="Add a note about this email…"
-            style={{ width: '100%', padding: '9px 12px', borderRadius: '6px', border: `1px solid ${t.border}`, fontSize: '14px', resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box', background: t.surface, color: t.text }}
-          />
+        <div style={{ fontSize: '12px', color: t.textMuted, wordBreak: 'break-word', borderLeft: `3px solid ${t.border}`, paddingLeft: '10px' }}>
+          {email.subject || '(no subject)'}
         </div>
-        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-          <Button variant="ghost" onClick={onClose}>{tr('cancel')}</Button>
-          <Button disabled={saving} onClick={async () => {
-            setSaving(true);
-            try { await onSave(comment); onClose(); }
-            finally { setSaving(false); }
-          }}>{saving ? '…' : 'Save'}</Button>
+
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: '20px', color: t.textMuted, fontSize: '13px' }}>Loading…</div>
+        ) : comments.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '20px', color: t.textMuted, fontSize: '13px' }}>No comments yet.</div>
+        ) : (
+          <div style={{ maxHeight: '300px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {comments.map(c => (
+              <div key={c.id} style={{
+                background: t.surfaceAlt, borderRadius: t.radiusSm,
+                padding: '10px 12px', border: `1px solid ${t.border}`,
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px', gap: '8px' }}>
+                  <span style={{ fontWeight: 700, fontSize: '12px', color: t.accent }}>{c.username}</span>
+                  <span style={{ fontSize: '11px', color: t.textMuted, whiteSpace: 'nowrap' }}>{fmtTime(c.created_at)}</span>
+                </div>
+                <div style={{ fontSize: '13px', lineHeight: 1.55, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{c.text}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div style={{ borderTop: `1px solid ${t.border}`, paddingTop: '12px' }}>
+          <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <textarea value={text} onChange={e => setText(e.target.value)} rows={3}
+              placeholder="Add a comment…" style={taStyle} required />
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+              <Button variant="ghost" type="button" onClick={onClose}>Close</Button>
+              <Button type="submit" disabled={saving || !text.trim()}>{saving ? '…' : 'Add comment'}</Button>
+            </div>
+          </form>
         </div>
       </div>
     </Overlay>
@@ -296,11 +347,6 @@ function RuleModal({ rule, onClose, onSave }) {
         {!matchLocked && (
           <>
             <div style={{ borderTop: `1px solid ${t.border}`, margin: '2px 0' }} />
-            {isBuiltin && (
-              <div style={{ fontSize: '11px', color: t.textMuted, letterSpacing: '0.03em' }}>
-                EXTRA KEYWORDS — added on top of built-in detection
-              </div>
-            )}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', alignItems: 'flex-end' }}>
               <div style={field}>
                 <label style={lbl}>Match type</label>
@@ -311,23 +357,26 @@ function RuleModal({ rule, onClose, onSave }) {
               <div style={field}>
                 <label style={lbl}>Priority</label>
                 <input
-                  type="number" style={isBuiltin ? inpDisabled : inp}
+                  type="number" style={inp}
                   value={form.priority} onChange={set('priority')}
-                  min={1} max={999} disabled={isBuiltin}
+                  min={1} max={999}
                 />
               </div>
             </div>
             <div style={field}>
-              <label style={lbl}>
-                {isBuiltin ? 'Extra keywords (comma-separated)' : 'Match values (comma-separated)'}
-              </label>
+              <label style={lbl}>Match values (comma-separated)</label>
               <input
                 style={inp}
                 value={form.match_values}
                 onChange={set('match_values')}
                 required={!isBuiltin}
-                placeholder={isBuiltin ? 'extra-keyword,another phrase' : 'adobe,verification,promo@example.com'}
+                placeholder="payment declined,keyword,phrase with spaces"
               />
+              {isBuiltin && (
+                <div style={{ fontSize: '11px', color: t.textMuted, marginTop: '3px' }}>
+                  Added on top of built-in detection — leave empty to rely on hardcoded logic only
+                </div>
+              )}
             </div>
           </>
         )}
@@ -467,17 +516,11 @@ export default function MailReporterPage({ user }) {
     } catch (e) { showToast(e.message || 'Failed', 'error'); }
   }
 
-  async function toggleSolved(em) {
+  async function setEmailStatus(em, status) {
     try {
-      const updated = await api(`/mail-reporter/emails/${em.id}`, { method: 'PATCH', body: JSON.stringify({ is_solved: !em.is_solved }) });
+      const updated = await api(`/mail-reporter/emails/${em.id}`, { method: 'PATCH', body: JSON.stringify({ status }) });
       setEmails(prev => prev.map(e => e.id === updated.id ? updated : e));
     } catch (e) { showToast(e.message || 'Failed', 'error'); }
-  }
-
-  async function saveComment(em, comment) {
-    const updated = await api(`/mail-reporter/emails/${em.id}`, { method: 'PATCH', body: JSON.stringify({ solver_comment: comment }) });
-    setEmails(prev => prev.map(e => e.id === updated.id ? updated : e));
-    showToast('Comment saved');
   }
 
   // ── Rule actions ─────────────────────────────────────────────────
@@ -501,23 +544,31 @@ export default function MailReporterPage({ user }) {
   }
 
   async function moveRule(rule, direction) {
-    const sorted = rules
-      .filter(r => !r.is_builtin)
+    // All rules except the General catch-all participate in ordering
+    const movable = rules
+      .filter(r => r.builtin_key !== 'general')
       .sort((a, b) => a.priority - b.priority || a.id - b.id);
-    const idx = sorted.findIndex(r => r.id === rule.id);
+    const idx = movable.findIndex(r => r.id === rule.id);
     const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
-    if (swapIdx < 0 || swapIdx >= sorted.length) return;
-    const other = sorted[swapIdx];
-    const newP = other.priority;
-    const otherP = rule.priority === other.priority
-      ? (direction === 'up' ? other.priority + 1 : Math.max(1, other.priority - 1))
-      : rule.priority;
+    if (swapIdx < 0 || swapIdx >= movable.length) return;
+
+    // Swap positions then renumber sequentially (avoids equal-priority deadlocks)
+    const newOrder = [...movable];
+    [newOrder[idx], newOrder[swapIdx]] = [newOrder[swapIdx], newOrder[idx]];
+    const renumbered = newOrder.map((r, i) => ({ ...r, priority: (i + 1) * 10 }));
+    const changed = renumbered.filter((r, i) => r.priority !== movable[i].priority);
+
     try {
-      const [r1, r2] = await Promise.all([
-        api(`/mail-reporter/rules/${rule.id}`, { method: 'PATCH', body: JSON.stringify({ priority: newP }) }),
-        api(`/mail-reporter/rules/${other.id}`, { method: 'PATCH', body: JSON.stringify({ priority: otherP }) }),
-      ]);
-      setRules(prev => prev.map(r => r.id === r1.id ? r1 : r.id === r2.id ? r2 : r));
+      const results = await Promise.all(
+        changed.map(r => api(`/mail-reporter/rules/${r.id}`, {
+          method: 'PATCH', body: JSON.stringify({ priority: r.priority }),
+        }))
+      );
+      setRules(prev => {
+        const next = [...prev];
+        results.forEach(r => { const i = next.findIndex(x => x.id === r.id); if (i >= 0) next[i] = r; });
+        return next;
+      });
     } catch (e) { showToast(e.message || 'Reorder failed', 'error'); }
   }
 
@@ -639,15 +690,17 @@ export default function MailReporterPage({ user }) {
                   {rules.map(rule => (
                     <tr key={rule.id}>
                       <td style={cellStyle}><RuleBadge rule={rule} /></td>
-                      <td style={{ ...cellStyle, maxWidth: '160px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                          {rule.is_builtin && <span title={rule.builtin_key === 'general' ? 'General catch-all — cannot be deleted' : 'Built-in rule — re-created on server restart'} style={{ fontSize: '12px' }}>{rule.builtin_key === 'general' ? '🔒' : '⚙️'}</span>}
-                          <span style={{ fontWeight: 500, fontSize: '13px' }}>{rule.name}</span>
+                      <td style={{ ...cellStyle, maxWidth: '150px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '5px', overflow: 'hidden' }}>
+                          {rule.is_builtin && <span title={rule.builtin_key === 'general' ? 'General catch-all — cannot be deleted' : 'Built-in rule — re-created on server restart'} style={{ fontSize: '12px', flexShrink: 0 }}>{rule.builtin_key === 'general' ? '🔒' : '⚙️'}</span>}
+                          <span style={{ fontWeight: 500, fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rule.name}</span>
                         </div>
-                        {rule.hashtag && <div style={{ fontSize: '11px', color: t.textMuted }}>{rule.hashtag}</div>}
+                        {rule.hashtag && <div style={{ fontSize: '11px', color: t.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rule.hashtag}</div>}
                       </td>
-                      <td style={{ ...cellStyle, fontSize: '12px', color: t.textMuted }}>
-                        {rule.is_builtin ? <span style={{ fontStyle: 'italic' }}>built-in</span> : (MATCH_TYPE_LABELS[rule.match_type] || rule.match_type)}
+                      <td style={{ ...cellStyle, fontSize: '12px', color: t.textMuted, maxWidth: '110px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {rule.is_builtin && !rule.match_values
+                          ? <span style={{ fontStyle: 'italic' }}>built-in</span>
+                          : (MATCH_TYPE_LABELS[rule.match_type] || rule.match_type || <span style={{ fontStyle: 'italic' }}>built-in</span>)}
                       </td>
                       <td style={{ ...cellStyle, maxWidth: '160px', fontSize: '12px' }}>
                         {rule.match_values
@@ -658,7 +711,7 @@ export default function MailReporterPage({ user }) {
                         {rule.mention_users || <span style={{ color: t.border }}>—</span>}
                       </td>
                       <td style={{ ...cellStyle, fontSize: '12px', textAlign: 'center' }}>{rule.include_body ? '✓' : '—'}</td>
-                      <td style={{ ...cellStyle, fontSize: '12px', textAlign: 'center', color: t.textMuted }}>{rule.is_builtin ? '—' : rule.priority}</td>
+                      <td style={{ ...cellStyle, fontSize: '12px', textAlign: 'center', color: t.textMuted }}>{rule.priority}</td>
                       <td style={cellStyle}>
                         <button
                           onClick={() => !(rule.is_builtin && rule.builtin_key === 'general') && toggleRuleEnabled(rule)}
@@ -671,13 +724,13 @@ export default function MailReporterPage({ user }) {
                       </td>
                       <td style={{ ...cellStyle, whiteSpace: 'nowrap' }}>
                         <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-                          {!rule.is_builtin && (() => {
-                            const sorted = rules.filter(r => !r.is_builtin).sort((a, b) => a.priority - b.priority || a.id - b.id);
-                            const idx = sorted.findIndex(r => r.id === rule.id);
+                          {rule.builtin_key !== 'general' && (() => {
+                            const movable = rules.filter(r => r.builtin_key !== 'general').sort((a, b) => a.priority - b.priority || a.id - b.id);
+                            const idx = movable.findIndex(r => r.id === rule.id);
                             return (
                               <>
                                 <Button size="sm" variant="ghost" disabled={idx === 0} onClick={() => moveRule(rule, 'up')} style={{ fontSize: '11px', padding: '3px 6px' }} title="Move up">↑</Button>
-                                <Button size="sm" variant="ghost" disabled={idx === sorted.length - 1} onClick={() => moveRule(rule, 'down')} style={{ fontSize: '11px', padding: '3px 6px' }} title="Move down">↓</Button>
+                                <Button size="sm" variant="ghost" disabled={idx === movable.length - 1} onClick={() => moveRule(rule, 'down')} style={{ fontSize: '11px', padding: '3px 6px' }} title="Move down">↓</Button>
                               </>
                             );
                           })()}
@@ -735,7 +788,7 @@ export default function MailReporterPage({ user }) {
                         <td style={{ ...cellStyle, fontSize: '12px', maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={em.sender}>{em.sender || '—'}</td>
                         <td style={{ ...cellStyle, maxWidth: '200px' }}>
                           <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={em.subject}>{em.subject || '—'}</div>
-                          {em.solver_comment && <div style={{ fontSize: '11px', color: t.textMuted, marginTop: '2px', fontStyle: 'italic', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={em.solver_comment}>💬 {em.solver_comment}</div>}
+                          {em.comment_count > 0 && <div style={{ fontSize: '11px', color: t.accent, marginTop: '2px' }}>💬 {em.comment_count} comment{em.comment_count !== 1 ? 's' : ''}</div>}
                         </td>
                         <td style={cellStyle}>
                           {rule
@@ -746,26 +799,36 @@ export default function MailReporterPage({ user }) {
                         <td style={cellStyle}>{em.skip_reason ? <Badge color="gray">{em.skip_reason}</Badge> : em.telegram_sent ? <Badge color="green">✓</Badge> : <Badge color="red">✗</Badge>}</td>
                         <td style={cellStyle}>{em.extracted_code ? <code style={{ background: t.surfaceAlt, padding: '2px 6px', borderRadius: '4px', fontSize: '13px', fontWeight: 700, border: `1px solid ${t.border}` }}>{em.extracted_code}</code> : <span style={{ color: t.border }}>—</span>}</td>
                         <td style={cellStyle}>
-                          {em.is_solved
-                            ? <Badge color="green">✓ Solved</Badge>
-                            : <Badge color="yellow">Unchecked</Badge>}
+                          {(() => {
+                            const st = em.status || (em.is_solved ? 'solved' : 'unchecked');
+                            const cfg = EMAIL_STATUS_CONFIG[st] || EMAIL_STATUS_CONFIG.unchecked;
+                            return <Badge color={cfg.color}>{cfg.label}</Badge>;
+                          })()}
                         </td>
                         <td style={{ ...cellStyle, whiteSpace: 'nowrap' }}>
-                          <div style={{ display: 'flex', gap: '4px' }}>
-                            <button
-                              onClick={() => toggleSolved(em)}
-                              title={em.is_solved ? 'Mark as unsolved' : 'Mark as solved'}
-                              className={`toggle-pill ${em.is_solved ? 'toggle-on' : 'toggle-off'}`}
+                          <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                            <select
+                              value={em.status || (em.is_solved ? 'solved' : 'unchecked')}
+                              onChange={e => setEmailStatus(em, e.target.value)}
+                              style={{
+                                fontSize: '11px', padding: '3px 6px',
+                                border: `1px solid ${t.border}`, borderRadius: t.radiusSm,
+                                background: t.surfaceAlt, color: t.text,
+                                cursor: 'pointer', fontFamily: 'inherit',
+                              }}
                             >
-                              {em.is_solved ? '✓' : '○'}
-                            </button>
+                              <option value="unchecked">Unchecked</option>
+                              <option value="solved">✓ Solved</option>
+                              <option value="on_pause">⏸ Paused</option>
+                              <option value="blocked">🚫 Blocked</option>
+                            </select>
                             <button
                               onClick={() => setCommentTarget(em)}
-                              title="Add comment"
+                              title={em.comment_count > 0 ? `${em.comment_count} comment${em.comment_count !== 1 ? 's' : ''}` : 'Add comment'}
                               className="btn btn-ghost btn-sm"
-                              style={{ padding: '3px 8px' }}
+                              style={{ padding: '3px 8px', position: 'relative' }}
                             >
-                              💬
+                              💬{em.comment_count > 0 && <span style={{ fontSize: '10px', marginLeft: '2px', color: t.accent }}>{em.comment_count}</span>}
                             </button>
                           </div>
                         </td>
@@ -826,7 +889,7 @@ export default function MailReporterPage({ user }) {
         </Overlay>
       )}
 
-      {commentTarget && <CommentModal email={commentTarget} onClose={() => setCommentTarget(null)} onSave={c => saveComment(commentTarget, c)} />}
+      {commentTarget && <CommentHistoryModal email={commentTarget} onClose={() => { setCommentTarget(null); loadEmails(); }} />}
     </div>
   );
 }

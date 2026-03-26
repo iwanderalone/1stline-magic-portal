@@ -7,6 +7,7 @@ from uuid import UUID
 from app.models.models import (
     UserRole, ShiftType, WorkLocation, TimeOffStatus,
     TimeOffType, ReminderStatus, TelegramChatType,
+    ContainerCommandType, ContainerCommandStatus,
 )
 
 
@@ -417,6 +418,7 @@ class MailboxConfigUpdate(BaseModel):
 class EmailLogUpdate(BaseModel):
     is_solved: Optional[bool] = None
     solver_comment: Optional[str] = Field(default=None, max_length=1000)
+    status: Optional[str] = Field(default=None, pattern="^(unchecked|solved|on_pause|blocked)$")
 
 class MailboxConfigResponse(BaseModel):
     id: int
@@ -428,6 +430,19 @@ class MailboxConfigResponse(BaseModel):
     last_poll_at: Optional[datetime]
     last_error: Optional[str]
     consecutive_failures: int
+    created_at: datetime
+    class Config:
+        from_attributes = True
+
+class EmailCommentCreate(BaseModel):
+    text: str = Field(..., min_length=1, max_length=2000)
+
+class EmailCommentResponse(BaseModel):
+    id: int
+    email_id: int
+    user_id: Optional[UUID] = None
+    username: str
+    text: str
     created_at: datetime
     class Config:
         from_attributes = True
@@ -447,9 +462,11 @@ class EmailLogResponse(BaseModel):
     skip_reason: Optional[str]
     received_at: Optional[datetime]
     created_at: datetime
+    status: str = "unchecked"
     is_solved: bool = False
     solver_comment: Optional[str] = None
     solved_at: Optional[datetime] = None
+    comment_count: int = 0
     class Config:
         from_attributes = True
 
@@ -500,3 +517,184 @@ class MailRoutingRuleResponse(BaseModel):
     created_at: datetime
     class Config:
         from_attributes = True
+
+
+# ─── Telegram Templates ──────────────────────────────────
+
+class TelegramTemplateCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    description: Optional[str] = None
+    chat_id: str = Field(..., min_length=1, max_length=50)
+    topic_id: Optional[int] = Field(default=None, ge=1)
+
+class TelegramTemplateUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, max_length=100)
+    description: Optional[str] = None
+    chat_id: Optional[str] = Field(default=None, max_length=50)
+    topic_id: Optional[int] = None
+
+class TelegramTemplateResponse(BaseModel):
+    id: UUID
+    name: str
+    description: Optional[str]
+    chat_id: str
+    topic_id: Optional[int]
+    created_at: datetime
+    updated_at: datetime
+    class Config:
+        from_attributes = True
+
+
+# ─── Container Dashboard ─────────────────────────────────
+
+class VPSAgentCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    description: Optional[str] = None
+    alert_template_id: Optional[UUID] = None
+    disk_alert_threshold: int = Field(default=85, ge=50, le=99)
+
+class VPSAgentUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, max_length=100)
+    description: Optional[str] = None
+    alert_template_id: Optional[UUID] = None
+    is_enabled: Optional[bool] = None
+    disk_alert_threshold: Optional[int] = Field(default=None, ge=50, le=99)
+
+class VPSAgentResponse(BaseModel):
+    id: UUID
+    name: str
+    description: Optional[str]
+    last_seen: Optional[datetime]
+    ip_address: Optional[str]
+    hostname: Optional[str]
+    is_enabled: bool
+    created_at: datetime
+    alert_template_id: Optional[UUID]
+    disk_alert_threshold: int = 85
+    class Config:
+        from_attributes = True
+
+class VPSAgentRegisterResponse(VPSAgentResponse):
+    api_key: str  # plain token shown once; never stored again
+
+class ContainerStateInput(BaseModel):
+    docker_id: str = Field(..., min_length=1, max_length=64)
+    name: str = Field(..., max_length=255)
+    image: str = Field(..., max_length=500)
+    status: str = Field(..., max_length=50)
+    state_detail: Optional[dict] = None
+    ports: Optional[list[dict]] = None
+    cpu_percent: Optional[float] = Field(default=None, ge=0, le=100)
+    mem_usage_bytes: Optional[int] = Field(default=None, ge=0)
+    mem_limit_bytes: Optional[int] = Field(default=None, ge=0)
+    logs: Optional[list[str]] = Field(default=None, max_length=50)
+
+class SystemMetrics(BaseModel):
+    cpu_percent: Optional[float] = Field(default=None, ge=0, le=100)
+    mem_used_bytes: Optional[int] = Field(default=None, ge=0)
+    mem_total_bytes: Optional[int] = Field(default=None, ge=0)
+    disk_used_bytes: Optional[int] = Field(default=None, ge=0)
+    disk_total_bytes: Optional[int] = Field(default=None, ge=0)
+    load_avg_1m: Optional[float] = Field(default=None, ge=0)
+    load_avg_5m: Optional[float] = Field(default=None, ge=0)
+    uptime_seconds: Optional[int] = Field(default=None, ge=0)
+
+class LoginEvent(BaseModel):
+    username: str = Field(..., max_length=100)
+    ip: Optional[str] = Field(default=None, max_length=45)
+    timestamp: Optional[str] = None
+    event_type: str = Field(default="login", max_length=20)
+
+class PendingUpdate(BaseModel):
+    package: str = Field(..., max_length=200)
+    current_version: Optional[str] = Field(default=None, max_length=100)
+    new_version: Optional[str] = Field(default=None, max_length=100)
+
+class SystemSnapshotResponse(BaseModel):
+    system: Optional[SystemMetrics] = None
+    recent_logins: list[LoginEvent] = []
+    pending_updates: list[PendingUpdate] = []
+    failed_services: list[str] = []
+    snapshot_at: Optional[str] = None
+
+class AgentReportRequest(BaseModel):
+    hostname: Optional[str] = Field(default=None, max_length=255)
+    ip_address: Optional[str] = Field(default=None, max_length=45)
+    containers: list[ContainerStateInput] = Field(default_factory=list, max_length=500)
+    system: Optional[SystemMetrics] = None
+    recent_logins: Optional[list[LoginEvent]] = None
+    pending_updates: Optional[list[PendingUpdate]] = None
+    failed_services: Optional[list[str]] = None
+
+class PendingCommandItem(BaseModel):
+    id: UUID
+    docker_id: str
+    container_name: Optional[str]
+    command: ContainerCommandType
+
+class AgentReportResponse(BaseModel):
+    ok: bool = True
+    pending_commands: list[PendingCommandItem] = Field(default_factory=list)
+
+class ContainerStateResponse(BaseModel):
+    id: UUID
+    agent_id: UUID
+    docker_id: str
+    name: str
+    image: str
+    status: str
+    state_detail: Optional[dict] = None
+    ports: Optional[list] = None
+    cpu_percent: Optional[float] = None
+    mem_usage_bytes: Optional[int] = None
+    mem_limit_bytes: Optional[int] = None
+    last_logs: Optional[list] = None
+    reported_at: datetime
+    is_absent: bool
+    display_name: Optional[str] = None
+    description: Optional[str] = None
+    hosted_on: Optional[str] = None
+
+    @field_validator('state_detail', 'ports', 'last_logs', mode='before')
+    @classmethod
+    def _parse_json(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            try:
+                return _json.loads(v)
+            except Exception:
+                return None
+        return v
+
+    class Config:
+        from_attributes = True
+
+class ContainerMetaUpdate(BaseModel):
+    display_name: Optional[str] = Field(default=None, max_length=100)
+    description: Optional[str] = None
+    hosted_on: Optional[str] = Field(default=None, max_length=150)
+
+class ContainerCommandCreate(BaseModel):
+    command: ContainerCommandType
+
+class ContainerCommandResponse(BaseModel):
+    id: UUID
+    agent_id: UUID
+    docker_id: str
+    container_name: Optional[str]
+    command: ContainerCommandType
+    status: ContainerCommandStatus
+    issued_by_user_id: Optional[UUID]
+    issued_at: datetime
+    executed_at: Optional[datetime]
+    result_message: Optional[str]
+    class Config:
+        from_attributes = True
+
+class CommandResultRequest(BaseModel):
+    status: ContainerCommandStatus
+    result_message: Optional[str] = None
+
+class AgentWithContainersResponse(VPSAgentResponse):
+    containers: list[ContainerStateResponse] = Field(default_factory=list)
+    online: bool = False
+    snapshot: Optional[SystemSnapshotResponse] = None

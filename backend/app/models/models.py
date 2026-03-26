@@ -49,6 +49,17 @@ class TelegramChatType(str, enum.Enum):
     GROUP = "group"
     CHANNEL = "channel"
 
+class ContainerCommandType(str, enum.Enum):
+    START   = "start"
+    STOP    = "stop"
+    RESTART = "restart"
+
+class ContainerCommandStatus(str, enum.Enum):
+    PENDING   = "pending"
+    EXECUTING = "executing"
+    DONE      = "done"
+    FAILED    = "failed"
+
 
 # ─── Association Tables ──────────────────────────────────
 
@@ -326,6 +337,19 @@ class MailRoutingRule(Base):
     updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
+class EmailComment(Base):
+    __tablename__ = "email_comments"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    email_id = Column(Integer, ForeignKey("email_logs.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Uuid(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    username = Column(String(100), nullable=False)  # denormalised — survives user deletion
+    text = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+
+    email_log = relationship("EmailLog", back_populates="comments")
+
+
 class EmailLog(Base):
     __tablename__ = "email_logs"
 
@@ -342,8 +366,103 @@ class EmailLog(Base):
     skip_reason = Column(String(100), nullable=True)    # None=processed, 'filter', 'no_target', 'error'
     received_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), default=utcnow)
+    status = Column(String(20), default="unchecked", nullable=False)  # unchecked | solved | on_pause | blocked
     is_solved = Column(Boolean, default=False, nullable=False)
     solver_comment = Column(Text, nullable=True)
     solved_at = Column(DateTime(timezone=True), nullable=True)
 
     mailbox = relationship("MailboxConfig", back_populates="logs")
+    comments = relationship("EmailComment", back_populates="email_log",
+                            cascade="all, delete-orphan",
+                            order_by="EmailComment.created_at")
+
+
+# ─── Telegram Templates ───────────────────────────────────
+
+class TelegramTemplate(Base):
+    __tablename__ = "telegram_templates"
+
+    id          = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name        = Column(String(100), unique=True, nullable=False)
+    description = Column(Text, nullable=True)
+    chat_id     = Column(String(50), nullable=False)
+    topic_id    = Column(Integer, nullable=True)
+    created_at  = Column(DateTime(timezone=True), default=utcnow)
+    updated_at  = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+# ─── Container Dashboard ──────────────────────────────────
+
+class VPSAgent(Base):
+    __tablename__ = "vps_agents"
+
+    id                = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name              = Column(String(100), unique=True, nullable=False)
+    description       = Column(Text, nullable=True)
+    api_key_hash      = Column(String(64), nullable=False)
+    last_seen         = Column(DateTime(timezone=True), nullable=True)
+    ip_address        = Column(String(45), nullable=True)
+    hostname          = Column(String(255), nullable=True)
+    is_enabled        = Column(Boolean, default=True, nullable=False)
+    created_at        = Column(DateTime(timezone=True), default=utcnow)
+    alert_template_id = Column(Uuid(as_uuid=True),
+                               ForeignKey("telegram_templates.id", ondelete="SET NULL"),
+                               nullable=True)
+
+    system_snapshot      = Column(Text, nullable=True)   # JSON: system metrics, logins, updates
+    disk_alert_threshold = Column(Integer, default=85, nullable=False)  # % — alert when disk >= this
+
+    alert_template = relationship("TelegramTemplate")
+    containers     = relationship("ContainerState", back_populates="agent",
+                                  cascade="all, delete-orphan")
+    commands       = relationship("ContainerCommand", back_populates="agent",
+                                  cascade="all, delete-orphan")
+
+
+class ContainerState(Base):
+    __tablename__ = "container_states"
+    __table_args__ = (UniqueConstraint("agent_id", "docker_id", name="uq_agent_docker"),)
+
+    id              = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    agent_id        = Column(Uuid(as_uuid=True), ForeignKey("vps_agents.id", ondelete="CASCADE"),
+                             nullable=False)
+    docker_id       = Column(String(64), nullable=False)
+    # Agent-reported (overwritten on every report)
+    name            = Column(String(255), nullable=False)
+    image           = Column(String(500), nullable=False)
+    status          = Column(String(50), nullable=False)
+    state_detail    = Column(Text, nullable=True)      # JSON
+    ports           = Column(Text, nullable=True)      # JSON
+    cpu_percent     = Column(Float, nullable=True)
+    mem_usage_bytes = Column(Integer, nullable=True)
+    mem_limit_bytes = Column(Integer, nullable=True)
+    last_logs       = Column(Text, nullable=True)      # JSON array of last 50 log lines
+    reported_at     = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    is_absent       = Column(Boolean, default=False, nullable=False)
+    # User-editable metadata (never overwritten by agent)
+    display_name    = Column(String(100), nullable=True)
+    description     = Column(Text, nullable=True)
+    hosted_on       = Column(String(150), nullable=True)
+
+    agent = relationship("VPSAgent", back_populates="containers")
+
+
+class ContainerCommand(Base):
+    __tablename__ = "container_commands"
+
+    id                = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    agent_id          = Column(Uuid(as_uuid=True), ForeignKey("vps_agents.id", ondelete="CASCADE"),
+                               nullable=False)
+    docker_id         = Column(String(64), nullable=False)
+    container_name    = Column(String(255), nullable=True)
+    command           = Column(SAEnum(ContainerCommandType), nullable=False)
+    status            = Column(SAEnum(ContainerCommandStatus),
+                               default=ContainerCommandStatus.PENDING, nullable=False)
+    issued_by_user_id = Column(Uuid(as_uuid=True),
+                               ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    issued_at         = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    executed_at       = Column(DateTime(timezone=True), nullable=True)
+    result_message    = Column(Text, nullable=True)
+
+    agent     = relationship("VPSAgent", back_populates="commands")
+    issued_by = relationship("User")

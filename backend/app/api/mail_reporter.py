@@ -5,15 +5,16 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from sqlalchemy import select, delete, desc
+from sqlalchemy import select, delete, desc, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import get_current_user, require_admin
-from app.models.models import MailboxConfig, EmailLog, MailRoutingRule, User
+from app.models.models import MailboxConfig, EmailLog, EmailComment, MailRoutingRule, User
 from app.schemas.schemas import (
     MailboxConfigCreate, MailboxConfigUpdate, MailboxConfigResponse, EmailLogResponse,
-    EmailLogUpdate, MailRoutingRuleCreate, MailRoutingRuleUpdate, MailRoutingRuleResponse,
+    EmailLogUpdate, EmailCommentCreate, EmailCommentResponse,
+    MailRoutingRuleCreate, MailRoutingRuleUpdate, MailRoutingRuleResponse,
 )
 from app.services.mail_reporter_service import (
     _test_imap_connection, check_all_mailboxes,
@@ -123,6 +124,13 @@ async def list_email_logs(
     result = await db.execute(query)
     logs = result.scalars().all()
 
+    # Comment counts in one query
+    counts_result = await db.execute(
+        select(EmailComment.email_id, func.count(EmailComment.id).label("cnt"))
+        .group_by(EmailComment.email_id)
+    )
+    comment_counts = {row.email_id: row.cnt for row in counts_result}
+
     # Attach mailbox_email for display
     mailbox_cache: dict[int, str] = {}
     out = []
@@ -132,6 +140,7 @@ async def list_email_logs(
             mailbox_cache[log.mailbox_id] = mb.email if mb else "deleted"
         data = EmailLogResponse.model_validate(log)
         data.mailbox_email = mailbox_cache[log.mailbox_id]
+        data.comment_count = comment_counts.get(log.id, 0)
         out.append(data)
     return out
 
@@ -152,18 +161,33 @@ async def update_email_log(
     updates = body.model_dump(exclude_unset=True)
     for field, value in updates.items():
         setattr(log, field, value)
-    if updates.get("is_solved") is True and not log.solved_at:
+
+    # Sync status ↔ is_solved
+    if "status" in updates:
+        log.is_solved = (updates["status"] == "solved")
+        if log.is_solved and not log.solved_at:
+            log.solved_at = datetime.now(timezone.utc)
+        elif not log.is_solved:
+            log.solved_at = None
+    elif updates.get("is_solved") is True and not log.solved_at:
         log.solved_at = datetime.now(timezone.utc)
+        log.status = "solved"
     elif updates.get("is_solved") is False:
         log.solved_at = None
+        log.status = "unchecked"
 
     await db.commit()
     await db.refresh(log)
 
-    # Attach mailbox_email
+    counts_result = await db.execute(
+        select(func.count(EmailComment.id)).where(EmailComment.email_id == log.id)
+    )
+    comment_count = counts_result.scalar_one()
+
     mb = await db.get(MailboxConfig, log.mailbox_id)
     data = EmailLogResponse.model_validate(log)
     data.mailbox_email = mb.email if mb else "deleted"
+    data.comment_count = comment_count
     return data
 
 
@@ -202,10 +226,9 @@ async def list_rules(
     db: AsyncSession = Depends(get_db),
     _=Depends(require_admin),
 ):
-    """Return all routing rules ordered: built-ins first, then user rules by priority."""
+    """Return all routing rules ordered by priority, then id."""
     result = await db.execute(
         select(MailRoutingRule).order_by(
-            MailRoutingRule.is_builtin.desc(),
             MailRoutingRule.priority,
             MailRoutingRule.id,
         )
@@ -278,3 +301,41 @@ async def delete_rule(
     await db.commit()
     logger.info(f"[mail-reporter] Rule deleted: {name}")
     return {"ok": True}
+
+
+# ─── Email Comments ───────────────────────────────────────────────────
+
+@router.get("/emails/{email_id}/comments", response_model=list[EmailCommentResponse])
+async def list_comments(
+    email_id: int,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    result = await db.execute(
+        select(EmailComment)
+        .where(EmailComment.email_id == email_id)
+        .order_by(EmailComment.created_at)
+    )
+    return result.scalars().all()
+
+
+@router.post("/emails/{email_id}/comments", response_model=EmailCommentResponse, status_code=201)
+async def add_comment(
+    email_id: int,
+    body: EmailCommentCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    log = await db.get(EmailLog, email_id)
+    if not log:
+        raise HTTPException(status_code=404, detail="Email log not found")
+    comment = EmailComment(
+        email_id=email_id,
+        user_id=current_user.id,
+        username=current_user.display_name or current_user.username,
+        text=body.text,
+    )
+    db.add(comment)
+    await db.commit()
+    await db.refresh(comment)
+    return comment

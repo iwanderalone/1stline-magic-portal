@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom';
 import { useTheme } from './ThemeContext';
 
 export function Button({ children, variant = 'primary', size = 'md', style, ...props }) {
@@ -115,7 +116,8 @@ export function EmptyState({ icon, title, subtitle }) {
 
 export function Overlay({ children, onClose, title }) {
   const { theme: t } = useTheme();
-  return (
+
+  const modal = (
     <div
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}
       style={{
@@ -123,14 +125,12 @@ export function Overlay({ children, onClose, title }) {
         top: 0, left: 0,
         width: '100vw', height: '100vh',
         zIndex: 9999,
-        background: 'rgba(0,0,0,0.55)',
-        backdropFilter: 'blur(6px)',
-        WebkitBackdropFilter: 'blur(6px)',
-        overflowY: 'auto',
+        background: 'rgba(0,0,0,0.50)',
         display: 'flex',
-        alignItems: 'flex-start',
+        alignItems: 'center',
         justifyContent: 'center',
-        padding: '40px 20px 40px',
+        padding: '20px',
+        boxSizing: 'border-box',
       }}
     >
       <div
@@ -142,7 +142,9 @@ export function Overlay({ children, onClose, title }) {
           border: `1px solid ${t.border}`,
           boxShadow: t.shadowLg,
           overflow: 'hidden',
-          margin: 'auto 0',
+          maxHeight: 'calc(100vh - 40px)',
+          display: 'flex',
+          flexDirection: 'column',
         }}
       >
         {/* Accent header */}
@@ -152,6 +154,7 @@ export function Overlay({ children, onClose, title }) {
           display: 'flex', justifyContent: 'space-between', alignItems: 'center',
           background: t.surfaceAlt,
           position: 'relative',
+          flexShrink: 0,
         }}>
           <div style={{
             position: 'absolute', left: 0, top: 0, bottom: 0, width: '3px',
@@ -164,13 +167,15 @@ export function Overlay({ children, onClose, title }) {
           <button onClick={onClose} style={{
             background: 'none', border: 'none',
             fontSize: '17px', color: t.textMuted, padding: '2px 4px', lineHeight: 1,
-            borderRadius: t.radiusSm, transition: 'color 0.15s',
+            borderRadius: t.radiusSm, transition: 'color 0.15s', cursor: 'pointer',
           }}>✕</button>
         </div>
-        <div style={{ padding: '22px' }}>{children}</div>
+        <div style={{ padding: '22px', overflowY: 'auto' }}>{children}</div>
       </div>
     </div>
   );
+
+  return createPortal(modal, document.body);
 }
 
 export function Tabs({ tabs, active, onChange }) {
