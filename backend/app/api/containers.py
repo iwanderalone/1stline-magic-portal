@@ -35,7 +35,7 @@ router = APIRouter(prefix="/containers", tags=["containers"])
 # ─── Per-agent rate limiter ───────────────────────────────
 
 _agent_report_times: dict[str, float] = {}
-REPORT_MIN_INTERVAL = 5.0  # seconds
+REPORT_MIN_INTERVAL = 10.0  # seconds — Telegraf flushes every 15s, this gives safe margin
 
 
 async def get_agent(
