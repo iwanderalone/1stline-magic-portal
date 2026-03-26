@@ -409,7 +409,10 @@ async def agent_report(
         }
         for c in body.containers
     ]
-    await _upsert_containers(db, agent_id, agent, containers)
+    # Only update container state when the report actually includes container data.
+    # cmd-handler sends empty lists just to poll for commands — don't wipe container state.
+    if containers:
+        await _upsert_containers(db, agent_id, agent, containers)
     pending = await _claim_pending_commands(db, agent_id)
     return AgentReportResponse(
         pending_commands=[
@@ -441,21 +444,6 @@ async def telegraf_report(
     parsed = _parse_telegraf_batch(raw)
     if not parsed:
         raise HTTPException(status_code=400, detail="Could not parse Telegraf batch")
-
-    # Temporary debug: log unique metric names and a sample of tags seen
-    if isinstance(raw, dict):
-        _metrics = raw.get("metrics", [])
-    elif isinstance(raw, list):
-        _metrics = raw
-    else:
-        _metrics = []
-    _seen: dict = {}
-    for _m in _metrics:
-        _n = _m.get("name", "?")
-        if _n not in _seen:
-            _seen[_n] = {"tags": list((_m.get("tags") or {}).keys()), "fields": list((_m.get("fields") or {}).keys())}
-    logger.info("TELEGRAF DEBUG agent=%s metrics=%s parsed_containers=%d sys=%s",
-                agent_id, _seen, len(parsed.get("containers", [])), parsed.get("system"))
 
     agent.last_seen = utcnow()
     if parsed.get("hostname"): agent.hostname = parsed["hostname"]
