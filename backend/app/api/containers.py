@@ -314,17 +314,24 @@ def _parse_telegraf_batch(raw: Any) -> dict:
             sys_data["mem_used_bytes"]  = int(fields.get("used",  0) or 0)
             sys_data["mem_total_bytes"] = int(fields.get("total", 0) or 0)
 
-        elif name == "disk" and tags.get("path") == "/":
-            sys_data["disk_used_bytes"]  = int(fields.get("used",  0) or 0)
-            sys_data["disk_total_bytes"] = int(fields.get("total", 0) or 0)
+        elif name == "disk":
+            # disk metric absent inside container (root is overlay, which is ignored).
+            # Accept any non-empty path — prefer "/" but take the first one we see.
+            path = tags.get("path", "")
+            if path and not sys_data.get("disk_total_bytes"):
+                sys_data["disk_used_bytes"]  = int(fields.get("used",  0) or 0)
+                sys_data["disk_total_bytes"] = int(fields.get("total", 0) or 0)
 
         elif name == "system":
-            sys_data["load_avg_1m"]    = float(fields.get("load1",  0) or 0)
-            sys_data["load_avg_5m"]    = float(fields.get("load5",  0) or 0)
-            sys_data["uptime_seconds"] = int(fields.get("uptime",   0) or 0)
+            sys_data["load_avg_1m"] = float(fields.get("load1", 0) or 0)
+            sys_data["load_avg_5m"] = float(fields.get("load5", 0) or 0)
+            # uptime field dropped in Telegraf 1.38 inputs.system
+            if fields.get("uptime"):
+                sys_data["uptime_seconds"] = int(fields["uptime"])
 
         elif name == "docker_container_status":
-            cid = (tags.get("container_id") or "")[:12]
+            # Telegraf 1.35+: container_id moved from tags → fields
+            cid = (fields.get("container_id") or tags.get("container_id") or "")[:12]
             if cid:
                 c = containers.setdefault(cid, {"docker_id": cid})
                 c["name"]   = (tags.get("container_name")  or "unknown").lstrip("/")
@@ -332,14 +339,14 @@ def _parse_telegraf_batch(raw: Any) -> dict:
                 c["status"] = (tags.get("container_status") or "unknown").lower()
 
         elif name == "docker_container_cpu" and tags.get("cpu") == "cpu-total":
-            cid = (tags.get("container_id") or "")[:12]
+            cid = (fields.get("container_id") or tags.get("container_id") or "")[:12]
             if cid:
                 containers.setdefault(cid, {"docker_id": cid})["cpu_percent"] = (
                     round(float(fields.get("usage_percent", 0) or 0), 2)
                 )
 
         elif name == "docker_container_mem":
-            cid = (tags.get("container_id") or "")[:12]
+            cid = (fields.get("container_id") or tags.get("container_id") or "")[:12]
             if cid:
                 c = containers.setdefault(cid, {"docker_id": cid})
                 c["mem_usage_bytes"] = int(fields.get("usage", 0) or 0)
