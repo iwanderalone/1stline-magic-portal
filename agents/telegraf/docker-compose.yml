@@ -4,6 +4,7 @@ services:
   telegraf:
     image: telegraf:1.32-alpine
     restart: unless-stopped
+    user: root
     hostname: "${HOSTNAME:-}"
     environment:
       PORTAL_URL: "${PORTAL_URL}"
@@ -13,10 +14,6 @@ services:
       - ./telegraf.conf:/etc/telegraf/telegraf.conf:ro
       - ./scripts:/etc/telegraf/scripts:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - /proc:/host/proc:ro      # optional: for host /proc metrics via inputs.kernel etc.
-    # Give Telegraf access to Docker socket
-    group_add:
-      - "${DOCKER_GID:-999}"
 
   # ── Command handler: polls portal for start/stop/restart commands ─────────────
   cmd-handler:
