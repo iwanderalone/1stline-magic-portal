@@ -263,7 +263,7 @@ export function getGlobalCSS(t) {
     }
     @media (min-width: 769px) {
       .mobile-only { display: none !important; }
-      .sidebar-fixed { position: sticky !important; left: 0 !important; }
+      .sidebar-fixed { position: sticky !important; top: 0 !important; left: 0 !important; height: 100vh !important; overflow: hidden !important; }
     }
 
     /* ── Misc ───────────────────────────────────────────────── */

@@ -5,11 +5,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.core.database import get_db
 from app.core.deps import require_admin
-from app.models.models import User, ShiftConfig, TelegramChat, Notification, ActivityLog, ShiftType, Shift
+from app.models.models import User, ShiftConfig, TelegramChat, Notification, ActivityLog, ShiftType, Shift, TelegramTemplate
 from app.schemas.schemas import (
     ShiftConfigCreate, ShiftConfigUpdate, ShiftConfigResponse,
     TelegramChatCreate, TelegramChatUpdate, TelegramChatResponse,
     TestNotificationRequest, ActivityLogResponse,
+    TelegramTemplateCreate, TelegramTemplateUpdate, TelegramTemplateResponse,
 )
 from app.services.telegram_service import send_telegram_message, notify_shift_start, notify_office_roster
 from app.services.audit import log_action
@@ -294,3 +295,62 @@ async def get_audit_logs(
         select(ActivityLog).order_by(ActivityLog.created_at.desc()).limit(200)
     )
     return [ActivityLogResponse.model_validate(r) for r in result.scalars().all()]
+
+
+# ─── Telegram Templates ───────────────────────────────────
+
+@router.get("/telegram-templates", response_model=list[TelegramTemplateResponse])
+async def list_telegram_templates(
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(TelegramTemplate).order_by(TelegramTemplate.name))
+    return [TelegramTemplateResponse.model_validate(t) for t in result.scalars().all()]
+
+
+@router.post("/telegram-templates", response_model=TelegramTemplateResponse)
+async def create_telegram_template(
+    req: TelegramTemplateCreate,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    existing = await db.scalar(select(TelegramTemplate).where(TelegramTemplate.name == req.name))
+    if existing:
+        raise HTTPException(status_code=409, detail="Template name already exists")
+    tpl = TelegramTemplate(**req.model_dump())
+    db.add(tpl)
+    await db.flush()
+    await log_action(db, admin, "telegram_template_create", f"Created template: {req.name}")
+    return TelegramTemplateResponse.model_validate(tpl)
+
+
+@router.patch("/telegram-templates/{template_id}", response_model=TelegramTemplateResponse)
+async def update_telegram_template(
+    template_id: UUID,
+    req: TelegramTemplateUpdate,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    tpl = await db.get(TelegramTemplate, template_id)
+    if not tpl:
+        raise HTTPException(status_code=404)
+    for field, value in req.model_dump(exclude_unset=True).items():
+        setattr(tpl, field, value)
+    await db.flush()
+    await log_action(db, admin, "telegram_template_update", f"Updated template: {tpl.name}")
+    return TelegramTemplateResponse.model_validate(tpl)
+
+
+@router.delete("/telegram-templates/{template_id}")
+async def delete_telegram_template(
+    template_id: UUID,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    tpl = await db.get(TelegramTemplate, template_id)
+    if not tpl:
+        raise HTTPException(status_code=404)
+    name = tpl.name
+    await db.delete(tpl)
+    await log_action(db, admin, "telegram_template_delete", f"Deleted template: {name}")
+    return {"deleted": True}

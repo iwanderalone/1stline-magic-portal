@@ -14,6 +14,7 @@ export default function AdminPage() {
         <Tabs tabs={[
           { id: 'users', label: tr('users') }, { id: 'groups', label: tr('groups') },
           { id: 'shifts', label: tr('shiftConfig') }, { id: 'telegram', label: tr('telegram') },
+          { id: 'tg-templates', label: 'TG Templates' },
           { id: 'logs', label: tr('logs') },
         ]} active={tab} onChange={setTab} />
       </div>
@@ -21,6 +22,7 @@ export default function AdminPage() {
       {tab === 'groups' && <GroupsTab />}
       {tab === 'shifts' && <ShiftConfigTab />}
       {tab === 'telegram' && <TelegramTab />}
+      {tab === 'tg-templates' && <TelegramTemplatesTab />}
       {tab === 'logs' && <LogsTab />}
     </div>
   );
@@ -838,5 +840,148 @@ function LogsTab() {
         })}
       </Card>
     </>
+  );
+}
+
+// ─── Telegram Templates Tab ──────────────────────────────
+function TelegramTemplatesTab() {
+  const { theme: t } = useTheme();
+  const [templates, setTemplates] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [toast, setToast] = useState(null);
+  const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState(null); // template object
+
+  const load = () => {
+    api('/admin/telegram-templates')
+      .then(d => setTemplates(d || []))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  };
+  useEffect(() => { load(); }, []);
+
+  const showToast = (message, type) => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3500);
+  };
+
+  const handleSave = async (form) => {
+    try {
+      if (editing) {
+        await api(`/admin/telegram-templates/${editing.id}`, {
+          method: 'PATCH', body: JSON.stringify(form),
+        });
+        showToast('Template updated', 'success');
+      } else {
+        await api('/admin/telegram-templates', {
+          method: 'POST', body: JSON.stringify(form),
+        });
+        showToast('Template created', 'success');
+      }
+      setShowForm(false); setEditing(null); load();
+    } catch (e) { showToast(e.message, 'error'); }
+  };
+
+  const handleDelete = async (tpl) => {
+    if (!confirm(`Delete template "${tpl.name}"? Any agents using it will lose their alert.`)) return;
+    try {
+      await api(`/admin/telegram-templates/${tpl.id}`, { method: 'DELETE' });
+      showToast('Deleted', 'info'); load();
+    } catch (e) { showToast(e.message, 'error'); }
+  };
+
+  return (
+    <>
+      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <div style={{ fontSize: '14px', fontWeight: 600 }}>Telegram Notification Templates</div>
+          <div style={{ fontSize: '12px', color: t.textMuted, marginTop: '2px' }}>
+            Named presets for Telegram chat destinations. Assign them to container agents for error alerts.
+          </div>
+        </div>
+        <Button size="sm" variant="primary" onClick={() => { setEditing(null); setShowForm(true); }}>
+          + Add Template
+        </Button>
+      </div>
+
+      <Card style={{ padding: '4px' }}>
+        {loading && <div style={{ padding: '20px', textAlign: 'center', color: t.textMuted }}>Loading…</div>}
+        {!loading && templates.length === 0 && (
+          <EmptyState icon="📨" title="No templates yet"
+            subtitle="Create a template to quickly assign Telegram destinations to modules" />
+        )}
+        {templates.map((tpl, i) => (
+          <div key={tpl.id} style={{
+            display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 18px',
+            borderBottom: i < templates.length - 1 ? `1px solid ${t.borderLight}` : 'none',
+          }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 600, fontSize: '14px' }}>{tpl.name}</div>
+              <div style={{ fontSize: '12px', color: t.textMuted, fontFamily: t.fontMono, marginTop: '2px' }}>
+                Chat ID: {tpl.chat_id}{tpl.topic_id ? ` · Topic: ${tpl.topic_id}` : ''}
+              </div>
+              {tpl.description && (
+                <div style={{ fontSize: '12px', color: t.textSecondary, marginTop: '2px' }}>{tpl.description}</div>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: '6px' }}>
+              <Button size="sm" variant="ghost" onClick={() => { setEditing(tpl); setShowForm(true); }}>✏️</Button>
+              <Button size="sm" variant="danger" onClick={() => handleDelete(tpl)}>🗑</Button>
+            </div>
+          </div>
+        ))}
+      </Card>
+
+      {showForm && (
+        <TelegramTemplateFormOverlay
+          initial={editing}
+          onClose={() => { setShowForm(false); setEditing(null); }}
+          onSave={handleSave}
+        />
+      )}
+    </>
+  );
+}
+
+function TelegramTemplateFormOverlay({ initial, onClose, onSave }) {
+  const [name, setName] = useState(initial?.name || '');
+  const [chatId, setChatId] = useState(initial?.chat_id || '');
+  const [topicId, setTopicId] = useState(initial?.topic_id?.toString() || '');
+  const [description, setDescription] = useState(initial?.description || '');
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    if (!name.trim() || !chatId.trim()) return;
+    setSaving(true);
+    const form = {
+      name: name.trim(),
+      chat_id: chatId.trim(),
+      topic_id: topicId ? parseInt(topicId) : null,
+      description: description.trim() || null,
+    };
+    await onSave(form);
+    setSaving(false);
+  };
+
+  return (
+    <Overlay title={initial ? 'Edit Template' : 'New Telegram Template'} onClose={onClose}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        <Input label="Template Name *" value={name} onChange={e => setName(e.target.value)}
+          placeholder="e.g. ops-alerts-channel" />
+        <Input label="Chat ID *" value={chatId} onChange={e => setChatId(e.target.value)}
+          placeholder="e.g. -1001234567890" />
+        <Input label="Topic ID (optional, for forum groups)" value={topicId}
+          onChange={e => setTopicId(e.target.value)} placeholder="e.g. 42" type="number" />
+        <Input label="Description (optional)" value={description}
+          onChange={e => setDescription(e.target.value)} placeholder="What is this template for?" />
+        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '4px' }}>
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" onClick={handleSave} disabled={saving || !name.trim() || !chatId.trim()}>
+            {saving ? 'Saving…' : 'Save'}
+          </Button>
+        </div>
+      </div>
+    </Overlay>
   );
 }

@@ -2,8 +2,15 @@
 __pycache__/
 *.pyc
 *.pyo
+*.pyd
 venv/
+.venv/
+*.egg-info/
+
+# Environment / secrets — never commit these
 .env
+.env.*
+!.env.example
 
 # Node
 node_modules/
@@ -14,6 +21,7 @@ dist/
 .vscode/
 .idea/
 *.swp
+*.swo
 
 # OS
 .DS_Store
@@ -24,6 +32,14 @@ pgdata/
 data/*.db
 data/*.db-wal
 data/*.db-shm
+
+# Agents — ignore local env files but keep config templates
+agents/**/.env
+agents/**/logs/
+
+# Logs
+*.log
+logs/
 
 # Claude Code AI assistant (personal memory, local instructions)
 .claude/

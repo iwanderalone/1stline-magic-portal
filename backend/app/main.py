@@ -13,6 +13,7 @@ from app.core.security import hash_password
 from app.core.scheduler import scheduler
 from app.api import auth, users, groups, schedule, reminders, notifications, admin_config
 from app.api import mail_reporter
+from app.api import containers
 from app.workers.reminder_worker import check_and_fire_reminders
 from app.workers.shift_notification_scheduler import schedule_pending_notifications
 from app.services.telegram_service import poll_telegram_updates
@@ -105,6 +106,27 @@ async def run_migrations():
         "ALTER TABLE email_logs ADD COLUMN solver_comment TEXT",
         "ALTER TABLE email_logs ADD COLUMN solved_at DATETIME",
         "ALTER TABLE email_logs ADD COLUMN rule_id INTEGER REFERENCES mail_routing_rules(id) ON DELETE SET NULL",
+        "ALTER TABLE email_logs ADD COLUMN status VARCHAR(20) DEFAULT 'unchecked'",
+        # Telegram Templates
+        "ALTER TABLE telegram_templates ADD COLUMN description TEXT",
+        "ALTER TABLE telegram_templates ADD COLUMN topic_id INTEGER",
+        # VPS Agents
+        "ALTER TABLE vps_agents ADD COLUMN description TEXT",
+        "ALTER TABLE vps_agents ADD COLUMN is_enabled INTEGER DEFAULT 1",
+        "ALTER TABLE vps_agents ADD COLUMN hostname VARCHAR(255)",
+        "ALTER TABLE vps_agents ADD COLUMN alert_template_id TEXT",
+        # Container States
+        "ALTER TABLE container_states ADD COLUMN is_absent INTEGER DEFAULT 0",
+        "ALTER TABLE container_states ADD COLUMN display_name VARCHAR(100)",
+        "ALTER TABLE container_states ADD COLUMN description TEXT",
+        "ALTER TABLE container_states ADD COLUMN hosted_on VARCHAR(150)",
+        "ALTER TABLE container_states ADD COLUMN last_logs TEXT",
+        # Container Commands
+        "ALTER TABLE container_commands ADD COLUMN container_name VARCHAR(255)",
+        "ALTER TABLE container_commands ADD COLUMN result_message TEXT",
+        # VPS Agent system snapshot & alert config
+        "ALTER TABLE vps_agents ADD COLUMN system_snapshot TEXT",
+        "ALTER TABLE vps_agents ADD COLUMN disk_alert_threshold INTEGER DEFAULT 85",
     ]
     async with engine.begin() as conn:
         for stmt in migrations:
@@ -216,6 +238,7 @@ app.include_router(reminders.router, prefix="/api")
 app.include_router(notifications.router, prefix="/api")
 app.include_router(admin_config.router, prefix="/api")
 app.include_router(mail_reporter.router, prefix="/api")
+app.include_router(containers.router, prefix="/api")
 
 
 @app.exception_handler(Exception)
