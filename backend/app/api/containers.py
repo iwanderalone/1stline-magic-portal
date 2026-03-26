@@ -487,6 +487,8 @@ async def register_agent(
     db.add(agent)
     await db.flush()
     await log_action(db, admin, "container_agent_register", f"Registered VPS agent: {req.name}")
+    await db.commit()
+    await db.refresh(agent)
     resp = VPSAgentRegisterResponse.model_validate(agent)
     resp.api_key = raw_key
     return resp
@@ -510,6 +512,8 @@ async def update_agent(
         setattr(agent, field, value)
     await db.flush()
     await log_action(db, admin, "container_agent_update", f"Updated VPS agent: {agent.name}")
+    await db.commit()
+    await db.refresh(agent)
     return VPSAgentResponse.model_validate(agent)
 
 
@@ -523,6 +527,7 @@ async def delete_agent(
     name = agent.name
     await db.delete(agent)
     await log_action(db, admin, "container_agent_delete", f"Deleted VPS agent: {name}")
+    await db.commit()
     return {"deleted": True}
 
 
