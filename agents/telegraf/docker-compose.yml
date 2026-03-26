@@ -6,6 +6,9 @@ services:
     restart: unless-stopped
     user: root
     privileged: true
+    security_opt:
+      - apparmor:unconfined
+      - seccomp:unconfined
     hostname: "${HOSTNAME:-}"
     environment:
       PORTAL_URL: "${PORTAL_URL}"
