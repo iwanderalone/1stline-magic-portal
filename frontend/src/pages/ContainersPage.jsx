@@ -264,7 +264,7 @@ function ContainerCard({ container, agentId, onAction, onEdit, onViewLogs, pendi
       </div>
 
       {/* Meta */}
-      <div style={{ padding: '0 12px 8px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <div style={{ padding: '0 12px 8px', display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <span style={{ fontSize: 10, fontWeight: 700, color: sc, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
             {container.status}
