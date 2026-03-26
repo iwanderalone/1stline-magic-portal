@@ -575,7 +575,7 @@ class VPSAgentResponse(BaseModel):
         from_attributes = True
 
 class VPSAgentRegisterResponse(VPSAgentResponse):
-    api_key: str  # plain token shown once; never stored again
+    api_key: Optional[str] = None  # plain token shown once; never stored again
 
 class ContainerStateInput(BaseModel):
     docker_id: str = Field(..., min_length=1, max_length=64)
