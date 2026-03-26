@@ -2,9 +2,9 @@ services:
 
   # ── Telegraf: collects system + Docker metrics, pushes to portal ─────────────
   telegraf:
-    image: telegraf:1.32-alpine
+    image: telegraf:latest
     restart: unless-stopped
-    user: root
+    user: telegraf:989
     privileged: true
     security_opt:
       - apparmor:unconfined
