@@ -32,10 +32,15 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/containers", tags=["containers"])
 
-# ─── Per-agent rate limiter ───────────────────────────────
+# ─── Per-agent rate limiters (separate buckets per endpoint type) ────────────
+# cmd-handler polls /report every 5s; Telegraf flushes to /telegraf every 15s.
+# A shared limiter causes cross-contamination, so each endpoint has its own dict.
 
-_agent_report_times: dict[str, float] = {}
-REPORT_MIN_INTERVAL = 10.0  # seconds — Telegraf flushes every 15s, this gives safe margin
+_report_times:   dict[str, float] = {}   # /report + /command-result
+_telegraf_times: dict[str, float] = {}   # /telegraf
+
+REPORT_MIN_INTERVAL   = 3.0   # cmd-handler polls every 5s — allow every 3s
+TELEGRAF_MIN_INTERVAL = 10.0  # Telegraf flushes every 15s — safe margin
 
 
 async def get_agent(
@@ -43,6 +48,7 @@ async def get_agent(
     x_agent_key: str = Header(..., alias="X-Agent-Key"),
     db: AsyncSession = Depends(get_db),
 ) -> VPSAgent:
+    """Authenticate agent key only — no rate limiting (applied per endpoint)."""
     agent = await db.scalar(
         select(VPSAgent).where(VPSAgent.id == agent_id, VPSAgent.is_enabled == True)
     )
@@ -50,12 +56,15 @@ async def get_agent(
         raise HTTPException(status_code=401, detail="Agent not found or disabled")
     if hashlib.sha256(x_agent_key.encode()).hexdigest() != agent.api_key_hash:
         raise HTTPException(status_code=401, detail="Invalid agent key")
-    now = time.monotonic()
-    key = str(agent_id)
-    if now - _agent_report_times.get(key, 0) < REPORT_MIN_INTERVAL:
-        raise HTTPException(status_code=429, detail="Rate limit exceeded — report too frequent")
-    _agent_report_times[key] = now
     return agent
+
+
+def _check_rate_limit(bucket: dict, agent_id: str, min_interval: float) -> None:
+    now = time.monotonic()
+    key = agent_id
+    if now - bucket.get(key, 0) < min_interval:
+        raise HTTPException(status_code=429, detail="Rate limit exceeded — report too frequent")
+    bucket[key] = now
 
 
 # ─── Telegram alert system ────────────────────────────────
@@ -369,6 +378,7 @@ async def agent_report(
     db: AsyncSession = Depends(get_db),
 ):
     """Generic push endpoint — structured JSON format."""
+    _check_rate_limit(_report_times, str(agent_id), REPORT_MIN_INTERVAL)
     agent.last_seen = utcnow()
     if body.ip_address: agent.ip_address = body.ip_address
     if body.hostname:   agent.hostname   = body.hostname
@@ -415,6 +425,7 @@ async def telegraf_report(
     Config:  data_format = "json"  +  use_batch_format = true
     Header:  X-Agent-Key = "<key>"
     """
+    _check_rate_limit(_telegraf_times, str(agent_id), TELEGRAF_MIN_INTERVAL)
     try:
         raw = await request.json()
     except Exception:
