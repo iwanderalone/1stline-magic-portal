@@ -485,6 +485,7 @@ class MailRoutingRuleCreate(BaseModel):
     telegram_target: Optional[str] = Field(default=None, max_length=200)
     priority: int = Field(default=10, ge=1, le=999)
     enabled: bool = True
+    mailbox_id: Optional[int] = None  # None = applies to all mailboxes
 
 class MailRoutingRuleUpdate(BaseModel):
     name: Optional[str] = Field(default=None, max_length=100)
@@ -498,6 +499,7 @@ class MailRoutingRuleUpdate(BaseModel):
     telegram_target: Optional[str] = Field(default=None, max_length=200)
     priority: Optional[int] = Field(default=None, ge=1, le=999)
     enabled: Optional[bool] = None
+    mailbox_id: Optional[int] = None  # None = applies to all mailboxes
 
 class MailRoutingRuleResponse(BaseModel):
     id: int
@@ -514,6 +516,7 @@ class MailRoutingRuleResponse(BaseModel):
     telegram_target: Optional[str]
     priority: int
     enabled: bool
+    mailbox_id: Optional[int]
     created_at: datetime
     class Config:
         from_attributes = True

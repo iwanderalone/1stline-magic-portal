@@ -629,24 +629,47 @@ function TelegramTab() {
 }
 
 function ChatModal({ chat, onClose, onSave }) {
+  const { theme: t } = useTheme();
   const [f, setF] = useState({
     chat_id:  chat?.chat_id  ?? '',
     name:     chat?.name     ?? '',
     chat_type: chat?.chat_type ?? 'group',
     topic_id: chat?.topic_id ?? '',
   });
+  const [templates, setTemplates] = useState([]);
   const s = (k, v) => setF(p => ({ ...p, [k]: v }));
   const isEdit = !!chat;
+
+  useEffect(() => {
+    api('/admin/telegram-templates').then(setTemplates).catch(() => {});
+  }, []);
+
+  const selStyle = { padding: '8px 10px', borderRadius: t.radiusSm, border: `1px solid ${t.border}`, fontSize: '13px', background: t.surfaceAlt, color: t.text, width: '100%', boxSizing: 'border-box', fontFamily: 'inherit' };
+
   return (
     <Overlay onClose={onClose} title={isEdit ? 'Edit Telegram Chat' : 'Add Telegram Chat'}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-        <Input label="Chat ID" value={f.chat_id} onChange={e => s('chat_id', e.target.value)} placeholder="-1001234567890" />
+        {templates.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <label style={{ fontSize: '11px', fontWeight: 600, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '0.06em' }}>From template</label>
+            <select style={selStyle} value="" onChange={e => {
+              const tpl = templates.find(tp => String(tp.id) === e.target.value);
+              if (tpl) { s('chat_id', tpl.chat_id); s('topic_id', tpl.topic_id ? String(tpl.topic_id) : ''); }
+            }}>
+              <option value="">— pick a template to fill fields —</option>
+              {templates.map(tp => (
+                <option key={tp.id} value={tp.id}>{tp.name}{tp.topic_id ? ` (topic ${tp.topic_id})` : ''}</option>
+              ))}
+            </select>
+          </div>
+        )}
+        <Input label="Chat / Channel ID" value={f.chat_id} onChange={e => s('chat_id', e.target.value)} placeholder="-1001234567890" />
         <Input label="Name" value={f.name} onChange={e => s('name', e.target.value)} placeholder="Support Team Chat" />
         <Select label="Type" value={f.chat_type} onChange={e => s('chat_type', e.target.value)}>
           <option value="group">Group</option>
           <option value="channel">Channel</option>
         </Select>
-        <Input label="Topic ID (optional)" value={f.topic_id} onChange={e => s('topic_id', e.target.value)} placeholder="For forum topics" />
+        <Input label="Thread / Topic ID (optional)" value={f.topic_id} onChange={e => s('topic_id', e.target.value)} placeholder="For forum topics" />
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
           <Button onClick={() => onSave({ ...f, topic_id: f.topic_id || null })} disabled={!f.chat_id || !f.name}>
