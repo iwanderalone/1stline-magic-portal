@@ -127,6 +127,8 @@ async def run_migrations():
         # VPS Agent system snapshot & alert config
         "ALTER TABLE vps_agents ADD COLUMN system_snapshot TEXT",
         "ALTER TABLE vps_agents ADD COLUMN disk_alert_threshold INTEGER DEFAULT 85",
+        # Per-mailbox routing rule scope
+        "ALTER TABLE mail_routing_rules ADD COLUMN mailbox_id INTEGER REFERENCES mailbox_configs(id) ON DELETE SET NULL",
     ]
     async with engine.begin() as conn:
         for stmt in migrations:
