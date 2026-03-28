@@ -329,6 +329,9 @@ class MailRoutingRule(Base):
     # Optional Telegram target override (empty = use mailbox target)
     telegram_target = Column(String(200), nullable=True)
 
+    # Optional mailbox scope — NULL means applies to ALL mailboxes
+    mailbox_id = Column(Integer, ForeignKey("mailbox_configs.id", ondelete="SET NULL"), nullable=True)
+
     # Control
     priority = Column(Integer, default=10)  # lower = checked first (user rules only)
     enabled = Column(Boolean, default=True)

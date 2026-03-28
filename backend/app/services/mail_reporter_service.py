@@ -598,7 +598,12 @@ async def _check_one_mailbox(mb: MailboxConfig, user_rules: list, builtin_map: d
                 extra = {}
 
                 # 1. User rules (non-builtin, ordered by priority)
-                for rule in user_rules:
+                # Filter to rules scoped to this mailbox OR global (mailbox_id is None)
+                mailbox_user_rules = [
+                    r for r in user_rules
+                    if r.mailbox_id is None or r.mailbox_id == mb.id
+                ]
+                for rule in mailbox_user_rules:
                     if _rule_matches(rule, raw["sender"], raw["subject"], raw["body"]):
                         matched_rule = rule
                         category = rule.name

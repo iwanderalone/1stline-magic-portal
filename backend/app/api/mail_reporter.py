@@ -4,8 +4,8 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from sqlalchemy import select, delete, desc, func
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from sqlalchemy import select, delete, desc, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -223,16 +223,27 @@ async def poll_now(background_tasks: BackgroundTasks, _=Depends(require_admin)):
 
 @router.get("/rules", response_model=list[MailRoutingRuleResponse])
 async def list_rules(
+    mailbox_id: Optional[int] = Query(None, description="Filter to rules for a specific mailbox (includes global rules)"),
     db: AsyncSession = Depends(get_db),
     _=Depends(require_admin),
 ):
-    """Return all routing rules ordered by priority, then id."""
-    result = await db.execute(
-        select(MailRoutingRule).order_by(
-            MailRoutingRule.priority,
-            MailRoutingRule.id,
+    """Return routing rules ordered by priority, then id.
+
+    If mailbox_id is provided, returns built-in rules + rules scoped to that
+    mailbox + global custom rules (mailbox_id IS NULL). Without mailbox_id,
+    all rules are returned.
+    """
+    q = select(MailRoutingRule)
+    if mailbox_id is not None:
+        q = q.where(
+            or_(
+                MailRoutingRule.is_builtin == True,
+                MailRoutingRule.mailbox_id == None,
+                MailRoutingRule.mailbox_id == mailbox_id,
+            )
         )
-    )
+    q = q.order_by(MailRoutingRule.priority, MailRoutingRule.id)
+    result = await db.execute(q)
     return result.scalars().all()
 
 

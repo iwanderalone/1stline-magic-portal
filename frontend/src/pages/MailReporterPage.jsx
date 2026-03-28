@@ -74,24 +74,77 @@ const PAGE_SIZE = 10;
 
 // ─── Mailbox Modal ────────────────────────────────────────────────────
 
+// Parse combined "chat_id:thread_id" into parts
+function parseTelegramTarget(target) {
+  if (!target) return { chatId: '', threadId: '' };
+  const idx = target.indexOf(':');
+  if (idx < 0) return { chatId: target.trim(), threadId: '' };
+  return { chatId: target.slice(0, idx).trim(), threadId: target.slice(idx + 1).trim() };
+}
+function buildTelegramTarget(chatId, threadId) {
+  const c = (chatId || '').trim();
+  const t = (threadId || '').trim();
+  if (!c) return '';
+  return t ? `${c}:${t}` : c;
+}
+
+// Reusable Telegram target fields with optional template picker
+function TelegramTargetFields({ chatId, threadId, onChatId, onThreadId, templates, theme: t }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+      {templates && templates.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          <label style={{ fontSize: '11px', fontWeight: 600, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+            From template
+          </label>
+          <select
+            style={{ padding: '8px 10px', borderRadius: t.radiusSm, border: `1px solid ${t.border}`, fontSize: '13px', background: t.surfaceAlt, color: t.text, width: '100%', boxSizing: 'border-box', fontFamily: 'inherit' }}
+            value=""
+            onChange={e => {
+              const tpl = templates.find(tp => String(tp.id) === e.target.value);
+              if (tpl) { onChatId(tpl.chat_id); onThreadId(tpl.topic_id ? String(tpl.topic_id) : ''); }
+            }}
+          >
+            <option value="">— pick a template to fill fields —</option>
+            {templates.map(tp => (
+              <option key={tp.id} value={tp.id}>{tp.name}{tp.topic_id ? ` (topic ${tp.topic_id})` : ''}</option>
+            ))}
+          </select>
+        </div>
+      )}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '8px', alignItems: 'flex-end' }}>
+        <Input label="Chat / Channel ID" value={chatId} onChange={e => onChatId(e.target.value)} placeholder="-1001234567890" />
+        <Input label="Thread / Topic ID" value={threadId} onChange={e => onThreadId(e.target.value)} placeholder="optional" style={{ width: '110px' }} />
+      </div>
+    </div>
+  );
+}
+
 function MailboxModal({ mailbox, onClose, onSave }) {
   const { theme: t } = useTheme();
   const { t: tr } = useLang();
   const isEdit = !!mailbox?.id;
+  const parsed = parseTelegramTarget(mailbox?.telegram_target);
   const [form, setForm] = useState({
     email: mailbox?.email || '', password: '',
     subject_filter: mailbox?.subject_filter || 'NONE',
-    telegram_target: mailbox?.telegram_target || '',
     enabled: mailbox?.enabled ?? true,
     monitor_since: mailbox?.monitor_since || '',
   });
+  const [tgChatId, setTgChatId] = useState(parsed.chatId);
+  const [tgThreadId, setTgThreadId] = useState(parsed.threadId);
+  const [templates, setTemplates] = useState([]);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
   const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }));
 
+  useEffect(() => {
+    api('/admin/telegram-templates').then(setTemplates).catch(() => {});
+  }, []);
+
   async function submit(e) {
     e.preventDefault(); setSaving(true); setErr('');
-    const payload = { ...form };
+    const payload = { ...form, telegram_target: buildTelegramTarget(tgChatId, tgThreadId) };
     if (!payload.password && isEdit) delete payload.password;
     if (!payload.monitor_since) payload.monitor_since = null;
     try {
@@ -109,7 +162,12 @@ function MailboxModal({ mailbox, onClose, onSave }) {
         <Input label={tr('emailAddress')} type="email" value={form.email} onChange={set('email')} required disabled={isEdit} />
         <Input label={isEdit ? 'New password (blank = keep current)' : tr('appPassword')} type="password" value={form.password} onChange={set('password')} required={!isEdit} />
         <Input label={tr('subjectFilter')} value={form.subject_filter} onChange={set('subject_filter')} />
-        <Input label={tr('telegramTarget')} value={form.telegram_target} onChange={set('telegram_target')} placeholder="-100123456789 or -100123456789:42" />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          <label style={{ fontSize: '11px', fontWeight: 600, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+            Telegram target (default for this mailbox)
+          </label>
+          <TelegramTargetFields chatId={tgChatId} threadId={tgThreadId} onChatId={setTgChatId} onThreadId={setTgThreadId} templates={templates} theme={t} />
+        </div>
         <Input label={tr('monitorSince')} type="date" value={form.monitor_since} onChange={set('monitor_since')} />
         <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', cursor: 'pointer' }}>
           <input type="checkbox" checked={form.enabled} onChange={e => setForm(f => ({ ...f, enabled: e.target.checked }))} />
@@ -205,14 +263,14 @@ function CommentHistoryModal({ email, onClose }) {
 
 // ─── Rule Modal ───────────────────────────────────────────────────────
 
-function RuleModal({ rule, onClose, onSave }) {
+function RuleModal({ rule, onClose, onSave, mailboxes = [] }) {
   const { theme: t } = useTheme();
   const isEdit = !!rule?.id;
   const isBuiltin = rule?.is_builtin ?? false;
   const isGeneral = rule?.builtin_key === 'general';
-  // General is the only truly locked built-in (it's a pure catch-all)
   const matchLocked = isBuiltin && isGeneral;
 
+  const parsedTg = parseTelegramTarget(rule?.telegram_target);
   const [form, setForm] = useState({
     name: rule?.name || '',
     match_type: rule?.match_type || 'keyword',
@@ -222,22 +280,29 @@ function RuleModal({ rule, onClose, onSave }) {
     hashtag: rule?.hashtag || '',
     mention_users: rule?.mention_users || '',
     include_body: rule?.include_body ?? true,
-    telegram_target: rule?.telegram_target || '',
     priority: rule?.priority ?? 10,
     enabled: rule?.enabled ?? true,
+    mailbox_id: rule?.mailbox_id ?? null,
   });
+  const [tgChatId, setTgChatId] = useState(parsedTg.chatId);
+  const [tgThreadId, setTgThreadId] = useState(parsedTg.threadId);
+  const [templates, setTemplates] = useState([]);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
   const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }));
 
+  useEffect(() => {
+    api('/admin/telegram-templates').then(setTemplates).catch(() => {});
+  }, []);
+
   async function submit(e) {
     e.preventDefault(); setSaving(true); setErr('');
-    const payload = { ...form, priority: Number(form.priority) };
+    const telegram_target = buildTelegramTarget(tgChatId, tgThreadId) || null;
+    const payload = { ...form, priority: Number(form.priority), telegram_target, mailbox_id: form.mailbox_id || null };
 
     if (isBuiltin) {
-      // General: only display fields. Others: all except is_builtin flag.
       const body = isGeneral
-        ? (() => { const { name, match_type, match_values, priority, ...d } = payload; return d; })()
+        ? (() => { const { name, match_type, match_values, priority, mailbox_id, ...d } = payload; return d; })()
         : (() => { const { ...d } = payload; return d; })();
       try {
         const result = await api(`/mail-reporter/rules/${rule.id}`, { method: 'PATCH', body: JSON.stringify(body) });
@@ -333,15 +398,27 @@ function RuleModal({ rule, onClose, onSave }) {
           </div>
         </div>
 
+        {/* Telegram target override */}
         <div style={field}>
           <label style={lbl}>Telegram target override</label>
-          <input style={inp} value={form.telegram_target} onChange={set('telegram_target')} placeholder="-100123456789 or -100123456789:42" />
+          <TelegramTargetFields chatId={tgChatId} threadId={tgThreadId} onChatId={setTgChatId} onThreadId={setTgThreadId} templates={templates} theme={t} />
         </div>
 
         <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer' }}>
           <input type="checkbox" checked={form.include_body} onChange={e => setForm(f => ({ ...f, include_body: e.target.checked }))} />
           <span style={{ color: t.textSecondary }}>Include email body in Telegram message</span>
         </label>
+
+        {/* Mailbox scope — only for non-general rules */}
+        {!isGeneral && (
+          <div style={field}>
+            <label style={lbl}>Apply to mailbox</label>
+            <select style={inp} value={form.mailbox_id ?? ''} onChange={e => setForm(f => ({ ...f, mailbox_id: e.target.value ? Number(e.target.value) : null }))}>
+              <option value="">All mailboxes (global)</option>
+              {mailboxes.map(mb => <option key={mb.id} value={mb.id}>{mb.email}</option>)}
+            </select>
+          </div>
+        )}
 
         {/* Match conditions — for custom rules AND non-general built-ins */}
         {!matchLocked && (
@@ -682,7 +759,7 @@ export default function MailReporterPage({ user }) {
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
-                  <tr>{['Badge', 'Name', 'Type', 'Match values', 'Mentions', 'Body', 'Prio', 'Status', 'Actions'].map(h => (
+                  <tr>{['Badge', 'Name', 'Mailbox scope', 'Type', 'Match values', 'Mentions', 'Body', 'Prio', 'Status', 'Actions'].map(h => (
                     <th key={h} style={{ ...headStyle, textAlign: 'left' }}>{h}</th>
                   ))}</tr>
                 </thead>
@@ -696,6 +773,13 @@ export default function MailReporterPage({ user }) {
                           <span style={{ fontWeight: 500, fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rule.name}</span>
                         </div>
                         {rule.hashtag && <div style={{ fontSize: '11px', color: t.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rule.hashtag}</div>}
+                      </td>
+                      <td style={{ ...cellStyle, fontSize: '12px', maxWidth: '130px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {rule.is_builtin
+                          ? <span style={{ color: t.textMuted, fontStyle: 'italic' }}>all (built-in)</span>
+                          : rule.mailbox_id
+                            ? <span style={{ color: t.accent, fontFamily: 'monospace' }}>{mailboxes.find(m => m.id === rule.mailbox_id)?.email || `#${rule.mailbox_id}`}</span>
+                            : <span style={{ color: t.textMuted }}>all mailboxes</span>}
                       </td>
                       <td style={{ ...cellStyle, fontSize: '12px', color: t.textMuted, maxWidth: '110px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {rule.is_builtin && !rule.match_values
@@ -867,7 +951,7 @@ export default function MailReporterPage({ user }) {
 
       {/* ── Modals ───────────────────────────────────────────────── */}
       {showMailboxModal && <MailboxModal mailbox={editMailbox} onClose={() => { setShowMailboxModal(false); setEditMailbox(null); }} onSave={onMailboxSaved} />}
-      {showRuleModal && <RuleModal rule={editRule} onClose={() => { setShowRuleModal(false); setEditRule(null); }} onSave={onRuleSaved} />}
+      {showRuleModal && <RuleModal rule={editRule} mailboxes={mailboxes} onClose={() => { setShowRuleModal(false); setEditRule(null); }} onSave={onRuleSaved} />}
 
       {confirmDelete && (
         <Overlay onClose={() => setConfirmDelete(null)} title="Delete Mailbox">
