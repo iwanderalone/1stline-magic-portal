@@ -91,7 +91,7 @@ def _get_alert_state(agent_id: str) -> dict:
     if agent_id not in _alert_state:
         _alert_state[agent_id] = {
             "disk_alerted_at":    0.0,
-            "last_login_key":     None,   # "username@ip" of most-recent login last seen
+            "seen_login_ids":     None,   # set of session_id strings; None = not yet initialised
             "updates_alerted_at": 0.0,
             "updates_count_last": -1,
             "cpu_high_count":     0,      # consecutive reports above threshold
@@ -190,21 +190,44 @@ async def _check_alerts(db: AsyncSession, agent: VPSAgent, snapshot: dict) -> No
     if _flag(agent, "login"):
         logins = snapshot.get("recent_logins") or []
         if logins:
-            first     = logins[0]
-            username  = str(first.get("username") or "unknown")
-            ip        = str(first.get("ip") or "")
-            login_key = f"{username}@{ip or 'local'}"
-            # Only alert if we have a previous baseline (avoids alerting on first ever report)
-            if state["last_login_key"] is not None and login_key != state["last_login_key"]:
-                ts = str(first.get("timestamp") or "")
-                await _tg(tpl, (
-                    f"👤 <b>New SSH login</b> — <b>{agent.name}</b>\n"
-                    f"User: <code>{username}</code>\n"
-                    f"From: <code>{ip or 'local/console'}</code>"
-                    + (f"\nTime: {ts}" if ts else "")
-                    + host
-                ), agent.name)
-            state["last_login_key"] = login_key
+            # Build a set of unique session identifiers from this report.
+            # session_id is "user@source@timestamp" (set by the agent script).
+            # Fall back to "user@ip" for older agents that don't send session_id.
+            current_ids: set[str] = set()
+            for entry in logins:
+                sid = entry.get("session_id") or (
+                    f"{entry.get('username', 'unknown')}@{entry.get('ip', 'local')}"
+                )
+                current_ids.add(sid)
+
+            if state["seen_login_ids"] is None:
+                # First report: establish baseline without alerting.
+                state["seen_login_ids"] = current_ids
+            else:
+                new_sessions = current_ids - state["seen_login_ids"]
+                for sid in new_sessions:
+                    # Find the matching entry to get display details.
+                    entry = next(
+                        (e for e in logins if (e.get("session_id") or
+                            f"{e.get('username','unknown')}@{e.get('ip','local')}") == sid),
+                        logins[0],
+                    )
+                    username = str(entry.get("username") or "unknown")
+                    ip       = str(entry.get("ip") or "")
+                    ts       = str(entry.get("timestamp") or "")
+                    await _tg(tpl, (
+                        f"👤 <b>New SSH login</b> — <b>{agent.name}</b>\n"
+                        f"User: <code>{username}</code>\n"
+                        f"From: <code>{ip or 'local/console'}</code>"
+                        + (f"\nTime: {ts}" if ts else "")
+                        + host
+                    ), agent.name)
+                # Merge so we don't re-alert on sessions that later fall off the list.
+                # Cap at 500 entries to prevent unbounded growth.
+                merged = state["seen_login_ids"] | current_ids
+                if len(merged) > 500:
+                    merged = current_ids  # reset to current snapshot
+                state["seen_login_ids"] = merged
 
     # ── 4. Pending OS updates ────────────────────────────
     if _flag(agent, "updates"):
@@ -740,7 +763,14 @@ async def queue_container_action(
         )
     )
     if existing:
-        raise HTTPException(status_code=409, detail="Command already pending for this container")
+        # Auto-expire commands that the agent never acknowledged (e.g. agent was offline,
+        # or the frontend polling window elapsed).  60 s is well past any reasonable round-trip.
+        age = (utcnow() - existing.issued_at).total_seconds()
+        if age < 60:
+            raise HTTPException(status_code=409, detail="Command already pending for this container")
+        existing.status = ContainerCommandStatus.FAILED
+        existing.result_message = "Expired — no acknowledgement from agent within 60 s"
+        existing.executed_at = utcnow()
     cmd = ContainerCommand(
         agent_id=agent_id, docker_id=docker_id, container_name=cs.display_name or cs.name,
         command=body.command, issued_by_user_id=user.id,

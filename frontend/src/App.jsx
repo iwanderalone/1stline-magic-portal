@@ -298,7 +298,7 @@ function ConstellationBackground({ t }) {
 // ─── Main App ────────────────────────────────────────────────────────────────
 
 export default function App() {
-  const { theme: t, mode, toggle } = useTheme();
+  const { theme: t, mode, toggle, isLite, toggleLite } = useTheme();
   const { lang, toggle: toggleLang, t: tr } = useLang();
   const [auth, setAuth] = useState(() => {
     const tk = getTokens();
@@ -345,9 +345,9 @@ export default function App() {
   // Login screen — cursor + constellation work before auth too
   if (!auth.loggedIn) return (
     <>
-      <style>{getGlobalCSS(t)}</style>
-      <CustomCursor />
-      <ConstellationBackground t={t} />
+      <style>{getGlobalCSS(t, isLite)}</style>
+      {!isLite && <CustomCursor />}
+      {!isLite && <ConstellationBackground t={t} />}
       <div style={{ position: 'relative', zIndex: 1 }}>
         <LoginPage onLogin={onLogin} />
       </div>
@@ -368,9 +368,9 @@ export default function App() {
 
   return (
     <>
-      <style>{getGlobalCSS(t)}</style>
-      <CustomCursor />
-      <ConstellationBackground t={t} />
+      <style>{getGlobalCSS(t, isLite)}</style>
+      {!isLite && <CustomCursor />}
+      {!isLite && <ConstellationBackground t={t} />}
 
       <div style={{ display: 'flex', minHeight: '100vh', position: 'relative', zIndex: 1 }}>
         {sidebarOpen && (
@@ -499,6 +499,12 @@ export default function App() {
             >☰</button>
             <div className="desktop-only" />
             <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <button onClick={toggleLite} title={isLite ? 'Full mode (effects on)' : 'Lite mode (no effects)'} style={{
+                background: 'none', border: `1px solid ${isLite ? t.accent : t.border}`,
+                fontSize: '10px', padding: '3px 7px', borderRadius: t.radiusSm,
+                color: isLite ? t.accent : t.textMuted, fontWeight: 700,
+                letterSpacing: '0.06em', lineHeight: 1.4,
+              }}>{isLite ? 'FULL' : 'LITE'}</button>
               <button onClick={toggle} title={mode === 'dark' ? 'Light mode' : 'Dark mode'} style={{
                 background: 'none', border: 'none',
                 fontSize: '17px', padding: '4px 8px', borderRadius: t.radiusSm,

@@ -57,7 +57,7 @@ export const shared = {
   fontMono: "'JetBrains Mono', 'SF Mono', Consolas, monospace",
 };
 
-export function getGlobalCSS(t) {
+export function getGlobalCSS(t, isLite = false) {
   return `
     @import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,300..900;1,14..32,300..700&display=swap');
 
@@ -109,6 +109,7 @@ export function getGlobalCSS(t) {
     input, button, select, textarea { font-family: inherit; }
     ::selection { background: var(--accent-light); color: var(--accent); }
 
+    ${!isLite ? `
     /* ── Custom cursor (fine pointer devices only) ───────────── */
     @media (pointer: fine) {
       *, *::before, *::after { cursor: none !important; }
@@ -127,14 +128,8 @@ export function getGlobalCSS(t) {
       background: var(--accent);
       transition: width 0.15s ease, height 0.15s ease, background 0.15s ease;
     }
-    .cursor-dot.hovering {
-      width: 7px;
-      height: 7px;
-    }
-    .cursor-dot.clicking {
-      width: 3px;
-      height: 3px;
-    }
+    .cursor-dot.hovering { width: 7px; height: 7px; }
+    .cursor-dot.clicking { width: 3px; height: 3px; }
     .cursor-ring {
       width: 22px;
       height: 22px;
@@ -142,17 +137,9 @@ export function getGlobalCSS(t) {
       opacity: 0.55;
       transition: width 0.2s ease, height 0.2s ease, opacity 0.2s ease, border-color 0.15s ease;
     }
-    .cursor-ring.hovering {
-      width: 34px;
-      height: 34px;
-      opacity: 0.7;
-      border-color: var(--accent-hover);
-    }
-    .cursor-ring.clicking {
-      width: 14px;
-      height: 14px;
-      opacity: 0.9;
-    }
+    .cursor-ring.hovering { width: 34px; height: 34px; opacity: 0.7; border-color: var(--accent-hover); }
+    .cursor-ring.clicking { width: 14px; height: 14px; opacity: 0.9; }
+    ` : ''}
 
     /* ── Background accent glow ─────────────────────────────── */
     @keyframes orb1 {
@@ -179,9 +166,11 @@ export function getGlobalCSS(t) {
       50%       { opacity: 0.45; }
     }
 
+    ${!isLite ? `
     .fade-up    { animation: fadeUp  0.25s cubic-bezier(0.16,1,0.3,1) both; }
     .fade-in    { animation: fadeIn  0.28s cubic-bezier(0.16,1,0.3,1) both; }
     .slide-in   { animation: slideIn 0.22s cubic-bezier(0.16,1,0.3,1) both; }
+    ` : ''}
 
     /* ── Focus ring ─────────────────────────────────────────── */
     input:focus, select:focus, textarea:focus {
