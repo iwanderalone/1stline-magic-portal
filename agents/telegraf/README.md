@@ -41,6 +41,7 @@ See [agent-deploy.md](agent-deploy.md) for the full manual setup guide and all o
 | `scripts/apt-updates.py` | Pending OS update list | 1h |
 | `scripts/failed-services.sh` | Failed systemd units | 1m |
 | `scripts/recent-logins.py` | Recent SSH logins | 5m |
+| `scripts/container-logs.py` | Last 15 log lines per running container | 2m |
 
 ---
 
@@ -95,13 +96,22 @@ The two processes are **independent** — if `command-handler.py` is down, Teleg
 
 ---
 
+## Security
+
+- `PORTAL_URL` **must** use `https://` — the deploy script and command-handler both refuse to start with plain HTTP. The agent sends credentials on every heartbeat.
+- The agent makes **outbound-only** connections to the portal. No ports are opened on the VPS.
+- Container commands are limited to `start`, `stop`, `restart` — no arbitrary shell execution.
+
 ## Troubleshooting
 
 | Symptom | Fix |
 |---|---|
+| Deploy script rejects URL | `PORTAL_URL` must start with `https://` |
 | Agent offline after 75s | Check `journalctl -u telegraf` or `docker compose logs telegraf` |
 | HTTP 401 | Wrong `AGENT_ID` or `AGENT_KEY` — re-register if unsure |
 | HTTP 429 | `interval` in telegraf.conf is < 5s — keep at 15s |
 | No containers shown | Telegraf not in docker group: `usermod -aG docker telegraf` then restart |
 | No updates shown | `apt-updates.py` timed out — run manually: `python3 /etc/telegraf/scripts/apt-updates.py` |
-| Commands not executing | Check `1line-cmd-handler` service / `cmd-handler` container logs |
+| No container logs | First logs appear ~2 min after deploy; check `docker compose logs telegraf` for exec errors |
+| Commands show "no response" | `cmd-handler` container not running — check `docker compose logs cmd-handler` |
+| Commands show "failed" | Check the error message in the toast; container may already be in target state |
