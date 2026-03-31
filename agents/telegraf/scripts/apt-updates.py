@@ -3,6 +3,9 @@
 Output: JSON array of pending apt updates.
 Telegraf reads this via inputs.exec (data_format = "value", data_type = "string").
 Portal metric name: apt_updates
+
+Runs `apt list --upgradable` in the host's namespaces via nsenter so the
+Telegraf container does not need apt installed.
 """
 import json
 import os
@@ -11,17 +14,20 @@ import subprocess
 import sys
 
 env = {**os.environ, "LANG": "C", "DEBIAN_FRONTEND": "noninteractive"}
+
+# nsenter -t 1 enters all namespaces of the host init process (PID 1),
+# giving us the host filesystem where apt actually lives.
+cmd = ["nsenter", "-t", "1", "-m", "-u", "-i", "-n", "-p", "--",
+       "apt", "list", "--upgradable"]
+
 try:
-    r = subprocess.run(
-        ["apt", "list", "--upgradable"],
-        capture_output=True, text=True, timeout=45, env=env,
-    )
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=45, env=env)
 except FileNotFoundError:
-    # Not a Debian/Ubuntu system — output empty list silently
+    # nsenter or apt not available — not a Debian/Ubuntu host
     print("[]")
     sys.exit(0)
-except Exception as e:
-    print("[]", file=sys.stderr)
+except Exception:
+    print("[]")
     sys.exit(0)
 
 updates = []
