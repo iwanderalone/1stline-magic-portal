@@ -869,18 +869,17 @@ export default function MailReporterPage({ user }) {
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
                 <colgroup>
-                  <col style={{ width: '110px' }} />{/* Time */}
-                  <col style={{ width: '160px' }} />{/* Mailbox */}
-                  <col style={{ width: '140px' }} />{/* From */}
+                  <col style={{ width: '100px' }} />{/* Time */}
+                  <col style={{ width: '140px' }} />{/* Mailbox */}
+                  <col style={{ width: '120px' }} />{/* From */}
                   <col />{/* Subject — fills remaining */}
-                  <col style={{ width: '110px' }} />{/* Category */}
-                  <col style={{ width: '52px' }} />{/* TG */}
-                  <col style={{ width: '75px' }} />{/* Code */}
-                  <col style={{ width: '90px' }} />{/* Status */}
-                  <col style={{ width: '160px' }} />{/* Actions */}
+                  <col style={{ width: '120px' }} />{/* Category */}
+                  <col style={{ width: '70px' }} />{/* Code */}
+                  <col style={{ width: '85px' }} />{/* Status */}
+                  <col style={{ width: '150px' }} />{/* Actions */}
                 </colgroup>
                 <thead>
-                  <tr>{['Time', 'Mailbox', 'From', 'Subject', 'Category', 'TG', 'Code', 'Status', 'Actions'].map(h => (
+                  <tr>{['Time', 'Mailbox', 'From', 'Subject', 'Category', 'Code', 'Status', 'Actions'].map(h => (
                     <th key={h} style={{ ...headStyle, textAlign: 'left' }}>{h}</th>
                   ))}</tr>
                 </thead>
@@ -889,7 +888,7 @@ export default function MailReporterPage({ user }) {
                     // Use rule_id → live rule for badge, fall back to static category map
                     const rule = em.rule_id ? ruleMap[em.rule_id] : null;
                     return (
-                      <tr key={em.id} style={{ opacity: em.skip_reason === 'filter' ? 0.5 : 1, background: em.is_solved ? `${t.success || '#10b981'}08` : (!em.telegram_sent && !em.skip_reason ? `${t.danger}08` : 'transparent') }}>
+                      <tr key={em.id} style={{ opacity: em.skip_reason === 'filter' ? 0.5 : 1, background: em.is_solved ? `${t.success || '#10b981'}08` : 'transparent' }}>
                         <td style={{ ...cellStyle, fontSize: '11px', color: t.textMuted, whiteSpace: 'nowrap', overflow: 'hidden' }}>{fmtTime(em.received_at || em.created_at)}</td>
                         <td style={{ ...cellStyle, fontSize: '12px', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{em.mailbox_email || '—'}</td>
                         <td style={{ ...cellStyle, fontSize: '12px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={em.sender}>{em.sender || '—'}</td>
@@ -903,7 +902,6 @@ export default function MailReporterPage({ user }) {
                             : <Badge color={CATEGORY_COLORS[em.category] || 'gray'}>{CATEGORY_LABELS[em.category] || em.category}</Badge>
                           }
                         </td>
-                        <td style={cellStyle}>{em.skip_reason ? <Badge color="gray">{em.skip_reason}</Badge> : em.telegram_sent ? <Badge color="green">✓</Badge> : <Badge color="red">✗</Badge>}</td>
                         <td style={cellStyle}>{em.extracted_code ? <code style={{ background: t.surfaceAlt, padding: '2px 6px', borderRadius: '4px', fontSize: '13px', fontWeight: 700, border: `1px solid ${t.border}` }}>{em.extracted_code}</code> : <span style={{ color: t.border }}>—</span>}</td>
                         <td style={cellStyle}>
                           {(() => {
@@ -922,7 +920,7 @@ export default function MailReporterPage({ user }) {
                                 border: `1px solid ${t.border}`, borderRadius: t.radiusSm,
                                 background: t.surfaceAlt, color: t.text,
                                 cursor: 'pointer', fontFamily: 'inherit',
-                                width: '115px', flexShrink: 0,
+                                width: '108px', flexShrink: 0,
                               }}
                             >
                               <option value="unchecked">Unchecked</option>

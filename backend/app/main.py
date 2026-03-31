@@ -18,6 +18,7 @@ from app.workers.reminder_worker import check_and_fire_reminders
 from app.workers.shift_notification_scheduler import schedule_pending_notifications
 from app.services.telegram_service import poll_telegram_updates
 from app.services.mail_reporter_service import check_all_mailboxes
+from app.api.containers import check_vps_offline
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -127,6 +128,9 @@ async def run_migrations():
         # VPS Agent system snapshot & alert config
         "ALTER TABLE vps_agents ADD COLUMN system_snapshot TEXT",
         "ALTER TABLE vps_agents ADD COLUMN disk_alert_threshold INTEGER DEFAULT 85",
+        # VPS Agent CPU + per-alert flags
+        "ALTER TABLE vps_agents ADD COLUMN cpu_alert_threshold INTEGER DEFAULT 80",
+        "ALTER TABLE vps_agents ADD COLUMN alert_flags TEXT",
         # Per-mailbox routing rule scope
         "ALTER TABLE mail_routing_rules ADD COLUMN mailbox_id INTEGER REFERENCES mailbox_configs(id) ON DELETE SET NULL",
     ]
@@ -214,8 +218,14 @@ async def lifespan(app: FastAPI):
         id="mail_reporter_poll", max_instances=1, coalesce=True,
     )
 
+    # VPS offline detection — runs every 60 s, fires when last_seen > 5 min ago
+    scheduler.add_job(
+        check_vps_offline, "interval", seconds=60,
+        id="vps_offline_check", max_instances=1, coalesce=True,
+    )
+
     scheduler.start()
-    logger.info("Scheduler started: reminders (30s), shift notifications (pre-scheduled), mail reporter (%ds)", settings.MAIL_POLL_INTERVAL)
+    logger.info("Scheduler started: reminders (30s), shift notifications (pre-scheduled), mail reporter (%ds), vps offline check (60s)", settings.MAIL_POLL_INTERVAL)
 
     yield
     scheduler.shutdown()

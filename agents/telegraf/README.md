@@ -1,7 +1,33 @@
-# 1line Portal — Telegraf Agent
+# 1line Portal — VPS Agent
 
-Uses **Telegraf** (by InfluxData) to collect VPS metrics and push them to the portal.
-A tiny Python companion script polls for and executes container commands (start/stop/restart).
+Monitors a VPS and reports metrics to the portal. Consists of two independent processes:
+
+- **Telegraf** — collects system + Docker metrics every 15s, pushes to portal
+- **command-handler.py** — polls portal every 5s, executes container start/stop/restart
+
+> This only installs the **monitoring agent**. The portal itself runs separately on your main server.
+
+---
+
+## Quick deploy (recommended)
+
+On the VPS you want to monitor, run as root:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/iwanderalone/1stline-magic-portal/main/agents/telegraf/deploy.sh)
+```
+
+The script will ask for your portal URL, Agent ID, and API key, then install everything automatically.
+
+For a VPS without Docker:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/iwanderalone/1stline-magic-portal/main/agents/telegraf/deploy.sh) --systemd
+```
+
+See [agent-deploy.md](agent-deploy.md) for the full manual setup guide and all options.
+
+---
 
 ## What it collects
 
@@ -18,128 +44,21 @@ A tiny Python companion script polls for and executes container commands (start/
 
 ---
 
-## Step 1 — Register the agent in the portal
+## Telegram alerts
 
-1. Log in as admin → **Containers** sidebar item → **+ Register Agent**
-2. Enter a name (e.g. `vps-berlin-01`) and optional description
-3. **Copy the API key** — it is shown only once
-4. Note the Agent UUID shown in the agent list
+Configure a Telegram template in the portal (Admin → Telegram Templates), then assign it to the agent (Containers → Edit Agent). Per-agent toggles:
 
----
+| Alert | Trigger | Cooldown |
+|---|---|---|
+| 🔴 VPS offline | No heartbeat for 5 min | 1h |
+| ✅ VPS back online | Agent reports in after offline alert | — |
+| 🔥 CPU spike | CPU ≥ threshold for ~45s | 30 min |
+| 💾 Disk full | Disk ≥ threshold | 1h |
+| 🚨 Container stopped | Running → exited/dead/oom_killed | — |
+| 👤 SSH login | New login detected | — |
+| ⬆️ OS updates | New pending packages | 24h |
 
-## Step 2 — Deploy with Docker Compose (recommended)
-
-### Create the environment file
-
-```bash
-sudo mkdir -p /etc/1line-agent
-sudo tee /etc/1line-agent/.env > /dev/null <<EOF
-PORTAL_URL=https://your-portal.example.com
-AGENT_ID=<uuid-from-portal>
-AGENT_KEY=<key-from-portal>
-EOF
-sudo chmod 600 /etc/1line-agent/.env
-```
-
-### Find your Docker GID (needed for socket access)
-
-```bash
-getent group docker | cut -d: -f3
-# e.g. 999 — add to .env:
-echo "DOCKER_GID=999" | sudo tee -a /etc/1line-agent/.env
-```
-
-### Copy agent files
-
-```bash
-git clone https://github.com/iwanderalone/1stline-magic-portal
-cd 1stline-magic-portal/agents/telegraf
-sudo cp -r . /etc/1line-agent/
-```
-
-### Start
-
-```bash
-cd /etc/1line-agent
-docker compose --env-file .env up -d
-
-# Verify
-docker compose logs -f telegraf
-docker compose logs -f cmd-handler
-```
-
-Within 15–30 seconds the agent card should appear **Online** in the portal with CPU/RAM/disk bars and container list.
-
----
-
-## Step 3 — Deploy with systemd (no Docker on the VPS itself)
-
-### Install Telegraf
-
-```bash
-# Debian / Ubuntu
-curl -s https://repos.influxdata.com/influxdb.key | sudo apt-key add -
-echo "deb https://repos.influxdata.com/debian stable main" | sudo tee /etc/apt/sources.list.d/influxdb.list
-sudo apt update && sudo apt install -y telegraf
-```
-
-### Configure
-
-```bash
-sudo cp telegraf.conf /etc/telegraf/telegraf.conf
-sudo cp -r scripts /etc/telegraf/scripts
-sudo chmod +x /etc/telegraf/scripts/*.sh /etc/telegraf/scripts/*.py
-
-# Set environment variables
-sudo tee /etc/default/telegraf > /dev/null <<EOF
-PORTAL_URL=https://your-portal.example.com
-AGENT_ID=<uuid-from-portal>
-AGENT_KEY=<key-from-portal>
-EOF
-sudo chmod 600 /etc/default/telegraf
-```
-
-### Add Telegraf to Docker group
-
-```bash
-sudo usermod -aG docker telegraf
-```
-
-### Start Telegraf
-
-```bash
-sudo systemctl enable --now telegraf
-sudo journalctl -u telegraf -f
-```
-
-### Install command handler
-
-```bash
-pip3 install requests
-
-sudo tee /etc/systemd/system/1line-cmd-handler.service > /dev/null <<'EOF'
-[Unit]
-Description=1line Portal Container Command Handler
-After=network.target telegraf.service
-
-[Service]
-Type=simple
-User=root
-EnvironmentFile=/etc/default/telegraf
-Environment=POLL_INTERVAL=5
-ExecStart=/usr/bin/python3 /etc/telegraf/command-handler.py
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-sudo cp command-handler.py /etc/telegraf/command-handler.py
-sudo systemctl daemon-reload
-sudo systemctl enable --now 1line-cmd-handler
-sudo journalctl -u 1line-cmd-handler -f
-```
+Each alert type can be individually enabled/disabled per agent.
 
 ---
 
@@ -164,7 +83,7 @@ The two processes are **independent** — if `command-handler.py` is down, Teleg
 
 ---
 
-## Environment Variables
+## Environment variables
 
 | Variable | Required | Description |
 |---|---|---|
@@ -176,18 +95,6 @@ The two processes are **independent** — if `command-handler.py` is down, Teleg
 
 ---
 
-## Telegraf Portal Endpoint
-
-`POST /api/containers/agents/{agent_id}/telegraf`
-
-- **Auth**: `X-Agent-Key: <key>` header
-- **Body**: Telegraf `outputs.http` JSON batch (`use_batch_format = true`)
-- **Response**: same as `/report` — `{"ok": true, "pending_commands": [...]}`
-
-The endpoint parses the Telegraf metric format and normalises it into the same internal structures used by all portal dashboards.
-
----
-
 ## Troubleshooting
 
 | Symptom | Fix |
@@ -195,6 +102,6 @@ The endpoint parses the Telegraf metric format and normalises it into the same i
 | Agent offline after 75s | Check `journalctl -u telegraf` or `docker compose logs telegraf` |
 | HTTP 401 | Wrong `AGENT_ID` or `AGENT_KEY` — re-register if unsure |
 | HTTP 429 | `interval` in telegraf.conf is < 5s — keep at 15s |
-| No containers | Telegraf not in docker group: `usermod -aG docker telegraf` then restart |
-| No updates shown | `apt-updates.py` timed out — run it manually: `python3 /etc/telegraf/scripts/apt-updates.py` |
+| No containers shown | Telegraf not in docker group: `usermod -aG docker telegraf` then restart |
+| No updates shown | `apt-updates.py` timed out — run manually: `python3 /etc/telegraf/scripts/apt-updates.py` |
 | Commands not executing | Check `1line-cmd-handler` service / `cmd-handler` container logs |
