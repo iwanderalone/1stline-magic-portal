@@ -327,18 +327,32 @@ function ContainerCard({ container, agentId, onAction, onEdit, onViewLogs, pendi
 
 // ─── Edit Agent Overlay ───────────────────────────────────
 
+const DEFAULT_FLAGS = { disk: true, cpu: true, container_stopped: true, login: true, updates: true, offline: true };
+const FLAG_LABELS = {
+  disk:              '💾 Disk full',
+  cpu:               '🔥 CPU spike',
+  container_stopped: '🚨 Container stopped',
+  login:             '👤 SSH login',
+  updates:           '⬆️ OS updates',
+  offline:           '🔴 VPS offline',
+};
+
 function EditAgentOverlay({ agent, onClose, onSave }) {
   const { theme: t } = useTheme();
   const [name, setName] = useState(agent.name || '');
   const [description, setDescription] = useState(agent.description || '');
   const [templateId, setTemplateId] = useState(agent.alert_template_id || '');
-  const [threshold, setThreshold] = useState(String(agent.disk_alert_threshold ?? 85));
+  const [diskThreshold, setDiskThreshold] = useState(String(agent.disk_alert_threshold ?? 85));
+  const [cpuThreshold, setCpuThreshold] = useState(String(agent.cpu_alert_threshold ?? 80));
+  const [flags, setFlags] = useState({ ...DEFAULT_FLAGS, ...(agent.alert_flags || {}) });
   const [templates, setTemplates] = useState([]);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     api('/admin/telegram-templates').then(setTemplates).catch(() => {});
   }, []);
+
+  const toggleFlag = key => setFlags(f => ({ ...f, [key]: !f[key] }));
 
   const handleSave = async () => {
     if (!name.trim()) return;
@@ -347,7 +361,9 @@ function EditAgentOverlay({ agent, onClose, onSave }) {
       name: name.trim(),
       description: description.trim() || null,
       alert_template_id: templateId || null,
-      disk_alert_threshold: parseInt(threshold, 10),
+      disk_alert_threshold: parseInt(diskThreshold, 10),
+      cpu_alert_threshold: parseInt(cpuThreshold, 10),
+      alert_flags: flags,
     });
     setSaving(false);
   };
@@ -358,9 +374,25 @@ function EditAgentOverlay({ agent, onClose, onSave }) {
     boxSizing: 'border-box', appearance: 'auto',
   };
 
+  const ThresholdRow = ({ label, hint, value, setValue, min, max, colorFn }) => (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <input type="range" min={min} max={max} value={value}
+          onChange={e => setValue(e.target.value)}
+          style={{ flex: 1, accentColor: colorFn(value) }} />
+        <span style={{ fontSize: 13, fontWeight: 700, minWidth: 36, textAlign: 'right', color: colorFn(value) }}>
+          {value}%
+        </span>
+      </div>
+      <span style={{ fontSize: 11, color: t.textMuted }}>{hint}</span>
+    </div>
+  );
+
+  const hasTemplate = !!templateId;
+
   return (
     <Overlay title={`Edit Agent — ${agent.name}`} onClose={onClose}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <Input label="Agent Name *" value={name} onChange={e => setName(e.target.value)} />
         <Input label="Description (optional)" value={description} onChange={e => setDescription(e.target.value)} />
 
@@ -372,27 +404,42 @@ function EditAgentOverlay({ agent, onClose, onSave }) {
               <option key={tpl.id} value={tpl.id}>{tpl.name}</option>
             ))}
           </select>
-          <span style={{ fontSize: 11, color: t.textMuted }}>
-            Telegram alerts will be sent via this template's chat when thresholds are crossed.
-          </span>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <label style={{ fontSize: 12, fontWeight: 600, color: t.text }}>
-            Disk Alert Threshold (%)
+        {/* Alert flags */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, opacity: hasTemplate ? 1 : 0.45, pointerEvents: hasTemplate ? 'auto' : 'none' }}>
+          <label style={{ fontSize: 12, fontWeight: 600, color: t.text, letterSpacing: '0.03em' }}>
+            Alert types {!hasTemplate && <span style={{ fontWeight: 400, color: t.textMuted }}>(select a template above)</span>}
           </label>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <input type="range" min={50} max={99} value={threshold}
-              onChange={e => setThreshold(e.target.value)}
-              style={{ flex: 1, accentColor: threshold >= 90 ? '#ef4444' : threshold >= 75 ? '#f59e0b' : t.accent }} />
-            <span style={{ fontSize: 13, fontWeight: 700, minWidth: 36, textAlign: 'right',
-              color: threshold >= 90 ? '#ef4444' : threshold >= 75 ? '#f59e0b' : '#10b981' }}>
-              {threshold}%
-            </span>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 16px' }}>
+            {Object.entries(FLAG_LABELS).map(([key, label]) => (
+              <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', fontSize: 13 }}>
+                <input type="checkbox" checked={!!flags[key]} onChange={() => toggleFlag(key)}
+                  style={{ width: 15, height: 15, accentColor: t.accent, cursor: 'pointer' }} />
+                {label}
+              </label>
+            ))}
           </div>
-          <span style={{ fontSize: 11, color: t.textMuted }}>
-            Alert fires when disk usage exceeds this percentage (with 1h cooldown).
-          </span>
+        </div>
+
+        {/* Threshold sliders — only visible when relevant alert is on */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, opacity: hasTemplate ? 1 : 0.45, pointerEvents: hasTemplate ? 'auto' : 'none' }}>
+          <div style={{ opacity: flags.disk ? 1 : 0.4 }}>
+            <label style={{ fontSize: 12, fontWeight: 600, color: t.text }}>Disk threshold (%)</label>
+            <ThresholdRow
+              min={50} max={99} value={diskThreshold} setValue={setDiskThreshold}
+              hint="Fire when disk usage exceeds this (1h cooldown)."
+              colorFn={v => v >= 90 ? '#ef4444' : v >= 75 ? '#f59e0b' : '#10b981'}
+            />
+          </div>
+          <div style={{ opacity: flags.cpu ? 1 : 0.4 }}>
+            <label style={{ fontSize: 12, fontWeight: 600, color: t.text }}>CPU threshold (%)</label>
+            <ThresholdRow
+              min={1} max={100} value={cpuThreshold} setValue={setCpuThreshold}
+              hint="Fire after ~45 s of sustained CPU above this (30 min cooldown)."
+              colorFn={v => v >= 90 ? '#ef4444' : v >= 70 ? '#f59e0b' : '#10b981'}
+            />
+          </div>
         </div>
 
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>

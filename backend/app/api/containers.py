@@ -73,8 +73,16 @@ def _check_rate_limit(bucket: dict, agent_id: str, min_interval: float) -> None:
 # A server restart may produce one extra alert per agent; that is acceptable.
 _alert_state: dict[str, dict] = {}
 
+# Agents currently considered offline (by the offline-checker job).
+# When the agent reports back in, _check_alerts clears this and sends recovery.
+_offline_agents: set[str] = set()
+
 DISK_ALERT_COOLDOWN    = 3600       # 1 h between disk alerts
+CPU_ALERT_COOLDOWN     = 1800       # 30 min between CPU spike alerts
+CPU_HIGH_COUNT_TRIGGER = 3          # fire after N consecutive high-CPU reports (~45 s at 15 s interval)
 UPDATES_ALERT_COOLDOWN = 86400      # 24 h between update-nag alerts
+OFFLINE_THRESHOLD_S    = 300        # 5 min without heartbeat = offline
+OFFLINE_ALERT_COOLDOWN = 3600       # 1 h between repeated offline alerts
 
 BAD_STATUSES = {"exited", "dead", "oom_killed"}
 
@@ -82,12 +90,23 @@ BAD_STATUSES = {"exited", "dead", "oom_killed"}
 def _get_alert_state(agent_id: str) -> dict:
     if agent_id not in _alert_state:
         _alert_state[agent_id] = {
-            "disk_alerted_at":      0.0,
-            "last_login_key":       None,   # "username@ip" of most-recent login last seen
-            "updates_alerted_at":   0.0,
-            "updates_count_last":   -1,
+            "disk_alerted_at":    0.0,
+            "last_login_key":     None,   # "username@ip" of most-recent login last seen
+            "updates_alerted_at": 0.0,
+            "updates_count_last": -1,
+            "cpu_high_count":     0,      # consecutive reports above threshold
+            "cpu_alerted_at":     0.0,
+            "offline_alerted_at": 0.0,
         }
     return _alert_state[agent_id]
+
+
+def _flag(agent: VPSAgent, key: str) -> bool:
+    """Return True if an alert type is enabled for this agent (default True when unset)."""
+    flags = getattr(agent, "alert_flags", None)
+    if not flags:
+        return True
+    return bool(flags.get(key, True))
 
 
 def _fmt_bytes(b: int) -> str:
@@ -106,9 +125,23 @@ async def _tg(tpl: TelegramTemplate, msg: str, agent_name: str) -> None:
 
 async def _check_alerts(db: AsyncSession, agent: VPSAgent, snapshot: dict) -> None:
     """
-    Evaluate disk / login / update thresholds and fire Telegram alerts when needed.
+    Evaluate disk / cpu / login / update thresholds and fire Telegram alerts when needed.
+    Also clears the offline flag and sends a recovery message if the agent was offline.
     snapshot keys: system, recent_logins, pending_updates, failed_services
     """
+    agent_id_str = str(agent.id)
+    state = _get_alert_state(agent_id_str)
+
+    # ── Recovery: agent is back online after being flagged offline ───────────
+    if agent_id_str in _offline_agents:
+        _offline_agents.discard(agent_id_str)
+        state["offline_alerted_at"] = 0.0
+        if agent.alert_template_id:
+            tpl = await db.get(TelegramTemplate, agent.alert_template_id)
+            if tpl and _flag(agent, "offline"):
+                host = f"\nHost: <code>{agent.hostname}</code>" if agent.hostname else ""
+                await _tg(tpl, f"✅ <b>VPS back online</b> — <b>{agent.name}</b>{host}", agent.name)
+
     if not agent.alert_template_id:
         return
 
@@ -116,76 +149,90 @@ async def _check_alerts(db: AsyncSession, agent: VPSAgent, snapshot: dict) -> No
     if not tpl:
         return
 
-    now   = time.monotonic()
-    state = _get_alert_state(str(agent.id))
-    host  = f"\nHost: <code>{agent.hostname}</code>" if agent.hostname else ""
+    now  = time.monotonic()
+    host = f"\nHost: <code>{agent.hostname}</code>" if agent.hostname else ""
+    sys  = snapshot.get("system") or {}
 
     # ── 1. Disk space low ────────────────────────────────
-    sys = snapshot.get("system") or {}
-    disk_used  = int(sys.get("disk_used_bytes")  or 0)
-    disk_total = int(sys.get("disk_total_bytes") or 0)
-    threshold  = int(getattr(agent, "disk_alert_threshold", None) or 85)
+    if _flag(agent, "disk"):
+        disk_used  = int(sys.get("disk_used_bytes")  or 0)
+        disk_total = int(sys.get("disk_total_bytes") or 0)
+        threshold  = int(getattr(agent, "disk_alert_threshold", None) or 85)
+        if disk_total > 0:
+            disk_pct = (disk_used / disk_total) * 100
+            if disk_pct >= threshold and (now - state["disk_alerted_at"]) > DISK_ALERT_COOLDOWN:
+                state["disk_alerted_at"] = now
+                await _tg(tpl, (
+                    f"⚠️ <b>Disk space low</b> — <b>{agent.name}</b>\n"
+                    f"Used: <b>{disk_pct:.0f}%</b>  ({_fmt_bytes(disk_used)} / {_fmt_bytes(disk_total)})\n"
+                    f"Alert threshold: {threshold}%{host}"
+                ), agent.name)
 
-    if disk_total > 0:
-        disk_pct = (disk_used / disk_total) * 100
-        if disk_pct >= threshold and (now - state["disk_alerted_at"]) > DISK_ALERT_COOLDOWN:
-            state["disk_alerted_at"] = now
+    # ── 2. CPU spike ─────────────────────────────────────
+    if _flag(agent, "cpu"):
+        cpu_pct   = sys.get("cpu_percent")
+        cpu_thresh = int(getattr(agent, "cpu_alert_threshold", None) or 80)
+        if cpu_pct is not None:
+            if cpu_pct >= cpu_thresh:
+                state["cpu_high_count"] += 1
+            else:
+                state["cpu_high_count"] = 0
+            if state["cpu_high_count"] >= CPU_HIGH_COUNT_TRIGGER and (now - state["cpu_alerted_at"]) > CPU_ALERT_COOLDOWN:
+                state["cpu_alerted_at"] = now
+                state["cpu_high_count"] = 0
+                await _tg(tpl, (
+                    f"🔥 <b>CPU spike</b> — <b>{agent.name}</b>\n"
+                    f"CPU at <b>{cpu_pct:.0f}%</b> (threshold: {cpu_thresh}%)\n"
+                    f"Sustained for {CPU_HIGH_COUNT_TRIGGER} consecutive reports{host}"
+                ), agent.name)
+
+    # ── 3. New SSH login detected ────────────────────────
+    if _flag(agent, "login"):
+        logins = snapshot.get("recent_logins") or []
+        if logins:
+            first     = logins[0]
+            username  = str(first.get("username") or "unknown")
+            ip        = str(first.get("ip") or "")
+            login_key = f"{username}@{ip or 'local'}"
+            # Only alert if we have a previous baseline (avoids alerting on first ever report)
+            if state["last_login_key"] is not None and login_key != state["last_login_key"]:
+                ts = str(first.get("timestamp") or "")
+                await _tg(tpl, (
+                    f"👤 <b>New SSH login</b> — <b>{agent.name}</b>\n"
+                    f"User: <code>{username}</code>\n"
+                    f"From: <code>{ip or 'local/console'}</code>"
+                    + (f"\nTime: {ts}" if ts else "")
+                    + host
+                ), agent.name)
+            state["last_login_key"] = login_key
+
+    # ── 4. Pending OS updates ────────────────────────────
+    if _flag(agent, "updates"):
+        updates      = snapshot.get("pending_updates") or []
+        update_count = len(updates)
+        updates_cooldown_expired = (now - state["updates_alerted_at"]) > UPDATES_ALERT_COOLDOWN
+        count_changed = update_count != state["updates_count_last"]
+        if update_count > 0 and updates_cooldown_expired and count_changed:
+            state["updates_alerted_at"] = now
+            state["updates_count_last"] = update_count
+            lines = ""
+            for u in updates[:5]:
+                pkg = u.get("package", "?")
+                cur = u.get("current_version", "")
+                new = u.get("new_version", "")
+                lines += f"\n• {pkg}" + (f": {cur} → <b>{new}</b>" if cur and new else "")
+            if update_count > 5:
+                lines += f"\n• … and {update_count - 5} more"
             await _tg(tpl, (
-                f"⚠️ <b>Disk space low</b> — <b>{agent.name}</b>\n"
-                f"Used: <b>{disk_pct:.0f}%</b>  ({_fmt_bytes(disk_used)} / {_fmt_bytes(disk_total)})\n"
-                f"Alert threshold: {threshold}%{host}"
+                f"⬆️ <b>Updates available</b> — <b>{agent.name}</b>\n"
+                f"<b>{update_count}</b> package{'s' if update_count != 1 else ''} pending:{lines}{host}"
             ), agent.name)
-
-    # ── 2. New SSH login detected ────────────────────────
-    logins = snapshot.get("recent_logins") or []
-    if logins:
-        first     = logins[0]
-        username  = str(first.get("username") or "unknown")
-        ip        = str(first.get("ip") or "")
-        login_key = f"{username}@{ip or 'local'}"
-
-        # Only alert if we have a previous baseline (avoids alerting on first ever report)
-        if state["last_login_key"] is not None and login_key != state["last_login_key"]:
-            ts = str(first.get("timestamp") or "")
-            await _tg(tpl, (
-                f"👤 <b>New login</b> — <b>{agent.name}</b>\n"
-                f"User: <code>{username}</code>\n"
-                f"From: <code>{ip or 'local/console'}</code>"
-                + (f"\nTime: {ts}" if ts else "")
-                + host
-            ), agent.name)
-
-        state["last_login_key"] = login_key
-
-    # ── 3. Pending OS updates ────────────────────────────
-    updates      = snapshot.get("pending_updates") or []
-    update_count = len(updates)
-    updates_cooldown_expired = (now - state["updates_alerted_at"]) > UPDATES_ALERT_COOLDOWN
-    count_changed = update_count != state["updates_count_last"]
-
-    if update_count > 0 and updates_cooldown_expired and count_changed:
-        state["updates_alerted_at"]   = now
-        state["updates_count_last"]   = update_count
-
-        lines = ""
-        for u in updates[:5]:
-            pkg  = u.get("package", "?")
-            cur  = u.get("current_version", "")
-            new  = u.get("new_version", "")
-            lines += f"\n• {pkg}" + (f": {cur} → <b>{new}</b>" if cur and new else "")
-        if update_count > 5:
-            lines += f"\n• … and {update_count - 5} more"
-
-        await _tg(tpl, (
-            f"⬆️ <b>Updates available</b> — <b>{agent.name}</b>\n"
-            f"<b>{update_count}</b> package{'s' if update_count != 1 else ''} pending:{lines}{host}"
-        ), agent.name)
 
 
 async def _maybe_container_alert(db, agent, cs, old_status: str, new_status: str) -> None:
     """Alert when a running container transitions to an error state."""
     if old_status.lower() == "running" and new_status.lower() in BAD_STATUSES:
-        if not agent.alert_template_id:
+        if not agent.alert_template_id or not _flag(agent, "container_stopped"):
             return
         tpl = await db.get(TelegramTemplate, agent.alert_template_id)
         if not tpl:
@@ -193,10 +240,60 @@ async def _maybe_container_alert(db, agent, cs, old_status: str, new_status: str
         label = cs.display_name or cs.name
         host  = f"\nHost: <code>{agent.hostname}</code>" if agent.hostname else ""
         await _tg(tpl, (
-            f"🚨 <b>Container alert</b> — <b>{agent.name}</b>\n"
+            f"🚨 <b>Container stopped</b> — <b>{agent.name}</b>\n"
             f"<code>{label}</code>: <code>{old_status}</code> → <code>{new_status}</code>\n"
             f"Image: <code>{cs.image}</code>{host}"
         ), agent.name)
+
+
+async def check_vps_offline() -> None:
+    """
+    APScheduler job (runs every 60 s).
+    Alerts when an agent has not reported in for OFFLINE_THRESHOLD_S seconds.
+    """
+    from datetime import datetime, timezone as tz
+    from app.core.database import AsyncSessionFactory
+
+    try:
+        async with AsyncSessionFactory() as db:
+            result = await db.execute(
+                select(VPSAgent).where(
+                    VPSAgent.is_enabled == True,
+                    VPSAgent.alert_template_id.is_not(None),
+                    VPSAgent.last_seen.is_not(None),
+                )
+            )
+            agents = result.scalars().all()
+
+            now_wall = time.monotonic()
+            now_dt   = datetime.now(tz.utc)
+
+            for agent in agents:
+                if not _flag(agent, "offline"):
+                    continue
+
+                last = agent.last_seen
+                if last.tzinfo is None:
+                    last = last.replace(tzinfo=tz.utc)
+                seconds_offline = (now_dt - last).total_seconds()
+
+                agent_id_str = str(agent.id)
+                state = _get_alert_state(agent_id_str)
+
+                if seconds_offline > OFFLINE_THRESHOLD_S:
+                    _offline_agents.add(agent_id_str)
+                    if (now_wall - state["offline_alerted_at"]) > OFFLINE_ALERT_COOLDOWN:
+                        state["offline_alerted_at"] = now_wall
+                        tpl = await db.get(TelegramTemplate, agent.alert_template_id)
+                        if tpl:
+                            mins = int(seconds_offline / 60)
+                            host = f"\nHost: <code>{agent.hostname}</code>" if agent.hostname else ""
+                            await _tg(tpl, (
+                                f"🔴 <b>VPS offline</b> — <b>{agent.name}</b>\n"
+                                f"No heartbeat for <b>{mins}m</b>{host}"
+                            ), agent.name)
+    except Exception as exc:
+        logger.error("check_vps_offline failed: %s", exc)
 
 
 # ─── Shared persistence helpers ───────────────────────────
@@ -503,6 +600,8 @@ async def register_agent(
         name=req.name, description=req.description,
         alert_template_id=req.alert_template_id,
         disk_alert_threshold=req.disk_alert_threshold,
+        cpu_alert_threshold=req.cpu_alert_threshold,
+        alert_flags=req.alert_flags,
         api_key_hash=key_hash,
     )
     db.add(agent)
