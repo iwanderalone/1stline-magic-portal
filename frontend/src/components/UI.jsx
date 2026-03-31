@@ -122,8 +122,7 @@ export function Overlay({ children, onClose, title }) {
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}
       style={{
         position: 'fixed',
-        top: 0, left: 0,
-        width: '100vw', height: '100vh',
+        inset: 0,
         zIndex: 9999,
         background: 'rgba(0,0,0,0.50)',
         display: 'flex',
