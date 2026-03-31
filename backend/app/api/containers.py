@@ -346,10 +346,13 @@ async def _upsert_containers(
             )
         )
         if existing:
-            old_status      = existing.status
-            existing.name   = name
-            existing.image  = image
-            existing.status = status
+            old_status = existing.status
+            # Only overwrite name/image/status if the incoming value is real.
+            # container_logs entries arrive without these fields (name="unknown",
+            # status="unknown", image="") — don't let them clobber the real values.
+            if name != "unknown":  existing.name  = name
+            if image:              existing.image = image
+            if status != "unknown": existing.status = status
             if ci.get("state_detail")   is not None: existing.state_detail   = _json.dumps(ci["state_detail"])
             if ci.get("ports")          is not None: existing.ports          = _json.dumps(ci["ports"])
             if ci.get("cpu_percent")    is not None: existing.cpu_percent    = ci["cpu_percent"]
@@ -360,6 +363,11 @@ async def _upsert_containers(
             existing.is_absent   = False
             await _maybe_container_alert(db, agent, existing, old_status, status)
         else:
+            # Skip inserting a stub row from a container_logs-only entry.
+            # Such entries have no real name/status and will be populated on
+            # the next docker_container_status batch (within 15 s).
+            if name == "unknown" and status == "unknown" and not image:
+                continue
             db.add(ContainerState(
                 agent_id=agent_id, docker_id=docker_id, name=name, image=image, status=status,
                 state_detail=_json.dumps(ci["state_detail"]) if ci.get("state_detail") else None,
