@@ -61,6 +61,14 @@ echo ""
 
 [[ -z "$PORTAL_URL" || -z "$AGENT_ID" || -z "$AGENT_KEY" ]] && die "All three values are required."
 
+if [[ "$PORTAL_URL" != https://* ]]; then
+  echo ""
+  echo -e "${RED}[error]${NC} PORTAL_URL must start with https://"
+  echo "        The agent sends credentials on every heartbeat — plain HTTP is not safe."
+  echo "        If you must proceed anyway (local testing only), edit the script and remove this check."
+  exit 1
+fi
+
 # ── Detect Docker GID (Docker mode only) ────────────────────────────────────
 DOCKER_GID=""
 if [[ "$MODE" == "docker" ]]; then

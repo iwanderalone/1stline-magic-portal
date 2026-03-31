@@ -728,9 +728,31 @@ export default function ContainersPage() {
     const key = `${agentId}:${dockerId}`;
     setPendingActions(p => ({ ...p, [key]: true }));
     try {
-      await api(`/containers/agents/${agentId}/containers/${dockerId}/action`, { method: 'POST', body: JSON.stringify({ command }) });
-      showToast(`${command} queued — agent will execute on next check-in`, 'success');
-      setTimeout(fetchAgents, 2000);
+      const cmd = await api(`/containers/agents/${agentId}/containers/${dockerId}/action`, {
+        method: 'POST', body: JSON.stringify({ command }),
+      });
+      showToast(`${command} queued — waiting for agent…`, 'info');
+
+      // Poll up to ~16 s for the command result (agent polls every 5 s)
+      let resolved = false;
+      for (let i = 0; i < 8; i++) {
+        await new Promise(r => setTimeout(r, 2000));
+        try {
+          const status = await api(`/containers/commands/${cmd.id}`);
+          if (status.status === 'done') {
+            showToast(`${command} completed successfully`, 'success');
+            resolved = true;
+            break;
+          }
+          if (status.status === 'failed') {
+            showToast(`${command} failed: ${status.result_message || 'unknown error'}`, 'error');
+            resolved = true;
+            break;
+          }
+        } catch { break; }
+      }
+      if (!resolved) showToast(`${command} queued — no response from agent yet`, 'info');
+      fetchAgents();
     } catch (e) {
       showToast(e.message, 'error');
     } finally {
