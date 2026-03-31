@@ -2,7 +2,7 @@ services:
 
   # ── Telegraf: collects system + Docker metrics, pushes to portal ─────────────
   telegraf:
-    image: telegraf:latest
+    build: .
     restart: unless-stopped
     user: "telegraf:${DOCKER_GID:-999}"
     privileged: true

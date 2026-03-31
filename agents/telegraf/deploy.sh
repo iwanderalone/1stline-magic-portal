@@ -109,12 +109,14 @@ success ".env written"
 info "Downloading agent files from GitHub …"
 
 FILES=(
+  "Dockerfile"
   "telegraf.conf"
   "docker-compose.yml"
   "command-handler.py"
   "scripts/apt-updates.py"
   "scripts/failed-services.sh"
   "scripts/recent-logins.py"
+  "scripts/container-logs.py"
 )
 
 for f in "${FILES[@]}"; do
@@ -141,7 +143,7 @@ if [[ "$MODE" == "docker" ]]; then
     DC="docker compose"
   fi
 
-  $DC --env-file .env pull --quiet
+  $DC --env-file .env build --quiet
   $DC --env-file .env up -d
 
   echo ""
