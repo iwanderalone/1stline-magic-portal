@@ -765,7 +765,10 @@ async def queue_container_action(
     if existing:
         # Auto-expire commands that the agent never acknowledged (e.g. agent was offline,
         # or the frontend polling window elapsed).  60 s is well past any reasonable round-trip.
-        age = (utcnow() - existing.issued_at).total_seconds()
+        # issued_at may be tz-naive (SQLite) so strip tz from utcnow() before subtracting.
+        now_naive = utcnow().replace(tzinfo=None)
+        issued_naive = existing.issued_at.replace(tzinfo=None)
+        age = (now_naive - issued_naive).total_seconds()
         if age < 60:
             raise HTTPException(status_code=409, detail="Command already pending for this container")
         existing.status = ContainerCommandStatus.FAILED
