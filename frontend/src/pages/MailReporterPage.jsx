@@ -667,7 +667,7 @@ export default function MailReporterPage({ user }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-      {toast && <Toast message={toast.msg} type={toast.type} />}
+      {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
         <div>
@@ -757,7 +757,19 @@ export default function MailReporterPage({ user }) {
             <div style={{ padding: '32px', textAlign: 'center', color: t.textMuted, fontSize: '14px' }}>No rules found — built-ins load on first startup.</div>
           ) : (
             <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+                <colgroup>
+                  <col style={{ width: '110px' }} />{/* Badge */}
+                  <col style={{ width: '140px' }} />{/* Name */}
+                  <col style={{ width: '130px' }} />{/* Mailbox scope */}
+                  <col style={{ width: '100px' }} />{/* Type */}
+                  <col />{/* Match values — fills remaining */}
+                  <col style={{ width: '110px' }} />{/* Mentions */}
+                  <col style={{ width: '46px' }} />{/* Body */}
+                  <col style={{ width: '46px' }} />{/* Prio */}
+                  <col style={{ width: '60px' }} />{/* Status */}
+                  <col style={{ width: '130px' }} />{/* Actions */}
+                </colgroup>
                 <thead>
                   <tr>{['Badge', 'Name', 'Mailbox scope', 'Type', 'Match values', 'Mentions', 'Body', 'Prio', 'Status', 'Actions'].map(h => (
                     <th key={h} style={{ ...headStyle, textAlign: 'left' }}>{h}</th>
@@ -766,8 +778,8 @@ export default function MailReporterPage({ user }) {
                 <tbody>
                   {rules.map(rule => (
                     <tr key={rule.id}>
-                      <td style={cellStyle}><RuleBadge rule={rule} /></td>
-                      <td style={{ ...cellStyle, maxWidth: '150px' }}>
+                      <td style={{ ...cellStyle, overflow: 'hidden' }}><RuleBadge rule={rule} /></td>
+                      <td style={{ ...cellStyle }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '5px', overflow: 'hidden' }}>
                           {rule.is_builtin && <span title={rule.builtin_key === 'general' ? 'General catch-all — cannot be deleted' : 'Built-in rule — re-created on server restart'} style={{ fontSize: '12px', flexShrink: 0 }}>{rule.builtin_key === 'general' ? '🔒' : '⚙️'}</span>}
                           <span style={{ fontWeight: 500, fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rule.name}</span>
@@ -781,17 +793,17 @@ export default function MailReporterPage({ user }) {
                             ? <span style={{ color: t.accent, fontFamily: 'monospace' }}>{mailboxes.find(m => m.id === rule.mailbox_id)?.email || `#${rule.mailbox_id}`}</span>
                             : <span style={{ color: t.textMuted }}>all mailboxes</span>}
                       </td>
-                      <td style={{ ...cellStyle, fontSize: '12px', color: t.textMuted, maxWidth: '110px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <td style={{ ...cellStyle, fontSize: '12px', color: t.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {rule.is_builtin && !rule.match_values
                           ? <span style={{ fontStyle: 'italic' }}>built-in</span>
                           : (MATCH_TYPE_LABELS[rule.match_type] || rule.match_type || <span style={{ fontStyle: 'italic' }}>built-in</span>)}
                       </td>
-                      <td style={{ ...cellStyle, maxWidth: '160px', fontSize: '12px' }}>
+                      <td style={{ ...cellStyle, fontSize: '12px', overflow: 'hidden' }}>
                         {rule.match_values
                           ? <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', display: 'block', whiteSpace: 'nowrap' }} title={rule.match_values}>{rule.match_values}</span>
                           : <span style={{ color: t.border }}>—</span>}
                       </td>
-                      <td style={{ ...cellStyle, fontSize: '12px', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={rule.mention_users}>
+                      <td style={{ ...cellStyle, fontSize: '12px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={rule.mention_users}>
                         {rule.mention_users || <span style={{ color: t.border }}>—</span>}
                       </td>
                       <td style={{ ...cellStyle, fontSize: '12px', textAlign: 'center' }}>{rule.include_body ? '✓' : '—'}</td>
@@ -855,7 +867,18 @@ export default function MailReporterPage({ user }) {
         ) : (
           <>
             <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+                <colgroup>
+                  <col style={{ width: '110px' }} />{/* Time */}
+                  <col style={{ width: '160px' }} />{/* Mailbox */}
+                  <col style={{ width: '140px' }} />{/* From */}
+                  <col />{/* Subject — fills remaining */}
+                  <col style={{ width: '110px' }} />{/* Category */}
+                  <col style={{ width: '52px' }} />{/* TG */}
+                  <col style={{ width: '75px' }} />{/* Code */}
+                  <col style={{ width: '90px' }} />{/* Status */}
+                  <col style={{ width: '160px' }} />{/* Actions */}
+                </colgroup>
                 <thead>
                   <tr>{['Time', 'Mailbox', 'From', 'Subject', 'Category', 'TG', 'Code', 'Status', 'Actions'].map(h => (
                     <th key={h} style={{ ...headStyle, textAlign: 'left' }}>{h}</th>
@@ -867,12 +890,12 @@ export default function MailReporterPage({ user }) {
                     const rule = em.rule_id ? ruleMap[em.rule_id] : null;
                     return (
                       <tr key={em.id} style={{ opacity: em.skip_reason === 'filter' ? 0.5 : 1, background: em.is_solved ? `${t.success || '#10b981'}08` : (!em.telegram_sent && !em.skip_reason ? `${t.danger}08` : 'transparent') }}>
-                        <td style={{ ...cellStyle, fontSize: '11px', color: t.textMuted, whiteSpace: 'nowrap' }}>{fmtTime(em.received_at || em.created_at)}</td>
-                        <td style={{ ...cellStyle, fontSize: '12px', fontFamily: 'monospace' }}>{em.mailbox_email || '—'}</td>
-                        <td style={{ ...cellStyle, fontSize: '12px', maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={em.sender}>{em.sender || '—'}</td>
-                        <td style={{ ...cellStyle, maxWidth: '200px' }}>
+                        <td style={{ ...cellStyle, fontSize: '11px', color: t.textMuted, whiteSpace: 'nowrap', overflow: 'hidden' }}>{fmtTime(em.received_at || em.created_at)}</td>
+                        <td style={{ ...cellStyle, fontSize: '12px', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{em.mailbox_email || '—'}</td>
+                        <td style={{ ...cellStyle, fontSize: '12px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={em.sender}>{em.sender || '—'}</td>
+                        <td style={cellStyle}>
                           <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={em.subject}>{em.subject || '—'}</div>
-                          {em.comment_count > 0 && <div style={{ fontSize: '11px', color: t.accent, marginTop: '2px' }}>💬 {em.comment_count} comment{em.comment_count !== 1 ? 's' : ''}</div>}
+                          {em.comment_count > 0 && <div style={{ fontSize: '11px', color: t.accent, marginTop: '2px' }}>💬 {em.comment_count}</div>}
                         </td>
                         <td style={cellStyle}>
                           {rule
@@ -899,6 +922,7 @@ export default function MailReporterPage({ user }) {
                                 border: `1px solid ${t.border}`, borderRadius: t.radiusSm,
                                 background: t.surfaceAlt, color: t.text,
                                 cursor: 'pointer', fontFamily: 'inherit',
+                                width: '115px', flexShrink: 0,
                               }}
                             >
                               <option value="unchecked">Unchecked</option>
