@@ -555,6 +555,8 @@ class VPSAgentCreate(BaseModel):
     description: Optional[str] = None
     alert_template_id: Optional[UUID] = None
     disk_alert_threshold: int = Field(default=85, ge=50, le=99)
+    cpu_alert_threshold: int = Field(default=80, ge=1, le=100)
+    alert_flags: Optional[dict] = None
 
 class VPSAgentUpdate(BaseModel):
     name: Optional[str] = Field(default=None, max_length=100)
@@ -562,6 +564,8 @@ class VPSAgentUpdate(BaseModel):
     alert_template_id: Optional[UUID] = None
     is_enabled: Optional[bool] = None
     disk_alert_threshold: Optional[int] = Field(default=None, ge=50, le=99)
+    cpu_alert_threshold: Optional[int] = Field(default=None, ge=1, le=100)
+    alert_flags: Optional[dict] = None
 
 class VPSAgentResponse(BaseModel):
     id: UUID
@@ -574,6 +578,8 @@ class VPSAgentResponse(BaseModel):
     created_at: datetime
     alert_template_id: Optional[UUID]
     disk_alert_threshold: int = 85
+    cpu_alert_threshold: int = 80
+    alert_flags: Optional[dict] = None
     class Config:
         from_attributes = True
 

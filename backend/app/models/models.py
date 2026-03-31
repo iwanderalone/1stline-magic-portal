@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime, timezone
 from sqlalchemy import (
     Column, String, Boolean, DateTime, Integer, ForeignKey,
-    Text, Enum as SAEnum, Date, Time, UniqueConstraint, Table, Float, Uuid, Index,
+    Text, Enum as SAEnum, Date, Time, UniqueConstraint, Table, Float, Uuid, Index, JSON,
 )
 from sqlalchemy.orm import relationship
 from app.core.database import Base
@@ -413,7 +413,9 @@ class VPSAgent(Base):
                                nullable=True)
 
     system_snapshot      = Column(Text, nullable=True)   # JSON: system metrics, logins, updates
-    disk_alert_threshold = Column(Integer, default=85, nullable=False)  # % — alert when disk >= this
+    disk_alert_threshold = Column(Integer, default=85, nullable=True)   # % — alert when disk >= this
+    cpu_alert_threshold  = Column(Integer, default=80, nullable=True)   # % — alert when sustained CPU >= this
+    alert_flags          = Column(JSON, nullable=True)                  # {disk,cpu,container_stopped,login,updates,offline}
 
     alert_template = relationship("TelegramTemplate")
     containers     = relationship("ContainerState", back_populates="agent",
