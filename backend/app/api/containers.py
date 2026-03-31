@@ -462,6 +462,15 @@ def _parse_telegraf_batch(raw: Any) -> dict:
             try:    logins = _json.loads(str(fields.get("value", "[]")))
             except Exception: pass
 
+        elif name == "container_logs":
+            try:
+                logs_map = _json.loads(str(fields.get("value", "{}")))
+                for cid, lines in logs_map.items():
+                    if isinstance(lines, list):
+                        containers.setdefault(cid, {"docker_id": cid})["last_logs"] = lines[:15]
+            except Exception:
+                pass
+
     return {
         "hostname":        hostname,
         "containers":      list(containers.values()),
@@ -657,6 +666,17 @@ async def list_commands(admin: User = Depends(require_admin), db: AsyncSession =
         select(ContainerCommand).order_by(ContainerCommand.issued_at.desc()).limit(100)
     )
     return [ContainerCommandResponse.model_validate(c) for c in result.scalars().all()]
+
+
+@router.get("/commands/{cmd_id}", response_model=ContainerCommandResponse)
+async def get_command_status(
+    cmd_id: UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db),
+):
+    """Poll command execution status. Used by the frontend to show success/failure feedback."""
+    cmd = await db.get(ContainerCommand, cmd_id)
+    if not cmd:
+        raise HTTPException(status_code=404, detail="Command not found")
+    return ContainerCommandResponse.model_validate(cmd)
 
 
 # ─── User dashboard endpoints ─────────────────────────────

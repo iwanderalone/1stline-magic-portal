@@ -6,7 +6,7 @@ Full reference for deploying the 1line Portal VPS agent. For most cases the [one
 
 ## Prerequisites
 
-- A running 1line Portal instance
+- A running 1line Portal instance **served over HTTPS** — the agent sends credentials on every heartbeat and will refuse to start with a plain `http://` URL
 - Root access on the VPS you want to monitor
 - Internet access from the VPS to reach the portal
 
@@ -122,7 +122,7 @@ sudo yum install -y telegraf
 BASE="https://raw.githubusercontent.com/iwanderalone/1stline-magic-portal/main/agents/telegraf"
 sudo curl -fsSL "$BASE/telegraf.conf"              -o /etc/telegraf/telegraf.conf
 sudo mkdir -p /etc/telegraf/scripts
-for f in apt-updates.py failed-services.sh recent-logins.py; do
+for f in apt-updates.py failed-services.sh recent-logins.py container-logs.py; do
   sudo curl -fsSL "$BASE/scripts/$f" -o "/etc/telegraf/scripts/$f"
 done
 sudo chmod +x /etc/telegraf/scripts/*.sh /etc/telegraf/scripts/*.py
@@ -221,11 +221,15 @@ Then delete the agent from the portal: Admin → Containers → agent menu → D
 
 | Symptom | Fix |
 |---|---|
+| Deploy script rejects URL | `PORTAL_URL` must start with `https://` — plain HTTP is blocked |
+| cmd-handler refuses to start | Same — check `PORTAL_URL` in `.env` starts with `https://` |
 | Agent offline after 75s | Check `journalctl -u telegraf` or `docker compose logs telegraf` |
 | HTTP 401 | Wrong `AGENT_ID` or `AGENT_KEY` — re-register if unsure |
 | HTTP 429 | `interval` in telegraf.conf is < 5s — keep at 15s |
 | No containers shown | Telegraf not in docker group: `usermod -aG docker telegraf` then restart |
 | No updates shown | `apt-updates.py` timed out — test manually: `python3 /etc/telegraf/scripts/apt-updates.py` |
-| Commands not executing | Check `1line-cmd-handler` service / `cmd-handler` container logs |
+| No container logs | First batch appears ~2 min after deploy; test: `python3 /etc/telegraf/scripts/container-logs.py` |
+| Commands show "no response from agent" | `cmd-handler` not running — check `docker compose logs cmd-handler` or `journalctl -u 1line-cmd-handler` |
+| Commands show "failed: …" | Error message is from `docker` itself — container may already be in the target state |
 | CPU/mem bars missing | Telegraf running but Docker socket not mounted — check `docker compose logs telegraf` |
-| Can't reach portal | Verify `PORTAL_URL` has no trailing slash and is reachable: `curl $PORTAL_URL/api/health` |
+| Can't reach portal | Verify `PORTAL_URL` has no trailing slash: `curl $PORTAL_URL/api/health` |

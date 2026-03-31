@@ -23,6 +23,12 @@ AGENT_ID   = os.environ["AGENT_ID"]
 AGENT_KEY  = os.environ["AGENT_KEY"]
 POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL", "5"))  # seconds
 
+if not PORTAL_URL.startswith("https://"):
+    raise SystemExit(
+        f"PORTAL_URL must use HTTPS (got: {PORTAL_URL!r}). "
+        "Refusing to send credentials over plain HTTP."
+    )
+
 HEADERS = {"X-Agent-Key": AGENT_KEY, "Content-Type": "application/json"}
 SESSION = requests.Session()
 SESSION.headers.update(HEADERS)
