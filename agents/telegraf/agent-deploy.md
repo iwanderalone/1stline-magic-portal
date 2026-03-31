@@ -231,5 +231,7 @@ Then delete the agent from the portal: Admin → Containers → agent menu → D
 | No container logs | First batch appears ~2 min after deploy; test: `python3 /etc/telegraf/scripts/container-logs.py` |
 | Commands show "no response from agent" | `cmd-handler` not running — check `docker compose logs cmd-handler` or `journalctl -u 1line-cmd-handler` |
 | Commands show "failed: …" | Error message is from `docker` itself — container may already be in the target state |
+| "Command already pending" error | A previous command was queued but the agent didn't acknowledge it in time; it auto-expires after 60 s — retry |
+| SSH login alert never fires on first login | Expected — the first report after deploy establishes a silent baseline; alert fires on the *next* new session |
 | CPU/mem bars missing | Telegraf running but Docker socket not mounted — check `docker compose logs telegraf` |
 | Can't reach portal | Verify `PORTAL_URL` has no trailing slash: `curl $PORTAL_URL/api/health` |

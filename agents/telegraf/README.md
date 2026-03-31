@@ -56,7 +56,7 @@ Configure a Telegram template in the portal (Admin → Telegram Templates), then
 | 🔥 CPU spike | CPU ≥ threshold for ~45s | 30 min |
 | 💾 Disk full | Disk ≥ threshold | 1h |
 | 🚨 Container stopped | Running → exited/dead/oom_killed | — |
-| 👤 SSH login | New login detected | — |
+| 👤 SSH login | New unique session detected (user+IP+time) | — |
 | ⬆️ OS updates | New pending packages | 24h |
 
 Each alert type can be individually enabled/disabled per agent.
@@ -115,3 +115,5 @@ The two processes are **independent** — if `command-handler.py` is down, Teleg
 | No container logs | First logs appear ~2 min after deploy; check `docker compose logs telegraf` for exec errors |
 | Commands show "no response" | `cmd-handler` container not running — check `docker compose logs cmd-handler` |
 | Commands show "failed" | Check the error message in the toast; container may already be in target state |
+| "Command already pending" error | A previous command timed out and was auto-expired after 60 s — retry the action |
+| SSH login alert never fires | First report after deploy sets the baseline silently; alert fires on the *next* new session |
