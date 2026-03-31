@@ -4,8 +4,9 @@ services:
   telegraf:
     image: telegraf:latest
     restart: unless-stopped
-    user: telegraf:989
+    user: "telegraf:${DOCKER_GID:-999}"
     privileged: true
+    pid: "host"
     security_opt:
       - apparmor:unconfined
       - seccomp:unconfined
@@ -35,4 +36,4 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     working_dir: /app
     command: >
-      sh -c "pip install requests --quiet && python3 command-handler.py"
+      sh -c "apk add --no-cache docker-cli --quiet && pip install requests --quiet && python3 command-handler.py"
