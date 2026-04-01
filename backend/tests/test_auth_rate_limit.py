@@ -3,20 +3,27 @@ os.environ.setdefault("SECRET_KEY", "a" * 32)
 os.environ.setdefault("JWT_SECRET", "b" * 64)
 
 import pytest
+from app.api import auth as auth_module
+
+
+@pytest.fixture(autouse=True)
+def reset_rate_limit_state():
+    auth_module._refresh_attempts.clear()
+    auth_module._fail_counts.clear()
+    yield
+    auth_module._refresh_attempts.clear()
+    auth_module._fail_counts.clear()
 
 
 async def test_refresh_rate_limited(client):
-    """Hammering refresh with invalid tokens should eventually yield 429."""
-    got_429 = False
-    for _ in range(25):
-        resp = await client.post(
-            "/api/auth/refresh",
-            json={"refresh_token": "invalid.token.value"}
-        )
-        if resp.status_code == 429:
-            got_429 = True
+    """Rate limiter should allow 20 attempts then return 429 on the 21st."""
+    for i in range(25):
+        resp = await client.post("/api/auth/refresh", json={"refresh_token": "invalid"})
+        if i < 20:
+            assert resp.status_code != 429, f"Got 429 too early on attempt {i + 1}"
+        else:
+            assert resp.status_code == 429
             break
-    assert got_429, "Expected 429 after repeated refresh attempts, got none"
 
 
 async def test_login_still_works_after_refresh_limit(client):
