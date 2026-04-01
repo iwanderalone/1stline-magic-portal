@@ -203,7 +203,7 @@ async def list_time_off(
     db: AsyncSession = Depends(get_db),
 ):
     query = select(TimeOffRequest).options(selectinload(TimeOffRequest.user))
-    if user.role != "admin":
+    if user.role != UserRole.ADMIN:
         query = query.where(TimeOffRequest.user_id == user.id)
     query = query.order_by(TimeOffRequest.created_at.desc())
     result = await db.execute(query)
@@ -261,7 +261,7 @@ async def delete_time_off(
     time_off = result.scalar_one_or_none()
     if not time_off:
         raise HTTPException(status_code=404)
-    if user.role != "admin" and time_off.user_id != user.id:
+    if user.role != UserRole.ADMIN and time_off.user_id != user.id:
         raise HTTPException(status_code=403, detail="Not allowed")
     await db.delete(time_off)
     return {"deleted": True}
