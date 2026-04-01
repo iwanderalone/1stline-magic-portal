@@ -468,7 +468,8 @@ def _parse_telegraf_batch(raw: Any) -> dict:
 
         elif name == "apt_updates":
             try:    updates = _json.loads(str(fields.get("value", "[]")))
-            except Exception: pass
+            except Exception as e:
+                logger.debug("Failed to parse telegraf field '%s': %s", name, e)
 
         elif name == "systemd_failed":
             val = str(fields.get("value", "")).strip()
@@ -477,7 +478,8 @@ def _parse_telegraf_batch(raw: Any) -> dict:
 
         elif name == "recent_logins":
             try:    logins = _json.loads(str(fields.get("value", "[]")))
-            except Exception: pass
+            except Exception as e:
+                logger.debug("Failed to parse telegraf field '%s': %s", name, e)
 
         elif name == "container_logs":
             try:
@@ -485,8 +487,8 @@ def _parse_telegraf_batch(raw: Any) -> dict:
                 for cid, lines in logs_map.items():
                     if isinstance(lines, list):
                         containers.setdefault(cid, {"docker_id": cid})["last_logs"] = lines[:15]
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Failed to parse telegraf field '%s': %s", name, e)
 
     return {
         "hostname":        hostname,
