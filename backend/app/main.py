@@ -29,7 +29,7 @@ async def seed_defaults():
     """Create admin, demo users, and default shift configs."""
     from sqlalchemy import select
     from app.core.database import AsyncSessionFactory
-    from app.models.models import User, UserRole, ShiftConfig, Group
+    from app.models.models import User, UserRole, ShiftConfig, ShiftType, Group
 
     async with AsyncSessionFactory() as db:
         # Default admin
@@ -182,6 +182,30 @@ async def seed_routing_rules():
     logger.info("Built-in routing rules seeded")
 
 
+async def _migrate_imap_passwords() -> None:
+    """One-time migration: encrypt any remaining plaintext IMAP passwords."""
+    from cryptography.fernet import InvalidToken
+    from app.core.encryption import encrypt, decrypt
+    from app.core.database import AsyncSessionFactory
+    from app.models.models import MailboxConfig
+    from sqlalchemy import select
+
+    async with AsyncSessionFactory() as db:
+        result = await db.execute(select(MailboxConfig))
+        migrated = 0
+        for mb in result.scalars().all():
+            if not mb.password:
+                continue
+            try:
+                decrypt(mb.password)  # Already encrypted — no-op
+            except Exception:
+                mb.password = encrypt(mb.password)  # Plaintext — encrypt it
+                migrated += 1
+        if migrated:
+            await db.commit()
+            logger.info("Encrypted %d IMAP passwords", migrated)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Ensure the data directory exists (needed for the SQLite file path)
@@ -198,6 +222,7 @@ async def lifespan(app: FastAPI):
     await run_migrations()
     await seed_defaults()
     await seed_routing_rules()
+    await _migrate_imap_passwords()
 
     # Reminder worker
     scheduler.add_job(check_and_fire_reminders, "interval", seconds=30)

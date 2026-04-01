@@ -19,6 +19,7 @@ from app.schemas.schemas import (
 from app.services.mail_reporter_service import (
     _test_imap_connection, check_all_mailboxes,
 )
+from app.core.encryption import encrypt, decrypt
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/mail-reporter", tags=["mail-reporter"])
@@ -48,7 +49,10 @@ async def create_mailbox(
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="Mailbox with this email already exists")
 
-    mb = MailboxConfig(**body.model_dump())
+    data = body.model_dump()
+    if data.get("password"):
+        data["password"] = encrypt(data["password"])
+    mb = MailboxConfig(**data)
     db.add(mb)
     await db.commit()
     await db.refresh(mb)
@@ -68,6 +72,8 @@ async def update_mailbox(
         raise HTTPException(status_code=404, detail="Mailbox not found")
 
     for field, value in body.model_dump(exclude_unset=True).items():
+        if field == "password" and value:
+            value = encrypt(value)
         setattr(mb, field, value)
     mb.updated_at = datetime.now(timezone.utc)
 
@@ -104,7 +110,7 @@ async def test_mailbox_connection(
     mb = await db.get(MailboxConfig, mailbox_id)
     if not mb:
         raise HTTPException(status_code=404, detail="Mailbox not found")
-    result = await asyncio.to_thread(_test_imap_connection, mb.email, mb.password)
+    result = await asyncio.to_thread(_test_imap_connection, mb.email, decrypt(mb.password))
     return result
 
 
