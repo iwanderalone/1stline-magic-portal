@@ -245,6 +245,13 @@ _bot_offset = 0
 
 
 async def poll_telegram_updates():
+    try:
+        await _poll_telegram_updates()
+    except Exception as exc:
+        logger.exception("poll_telegram_updates crashed: %s", exc)
+
+
+async def _poll_telegram_updates():
     """Poll for Telegram bot updates via getUpdates short-polling (2s timeout).
     APScheduler runs this every 5s with max_instances=1 so runs never overlap."""
     global _bot_offset

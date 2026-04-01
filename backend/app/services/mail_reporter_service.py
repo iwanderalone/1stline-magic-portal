@@ -705,6 +705,13 @@ async def _check_one_mailbox(mb: MailboxConfig, user_rules: list, builtin_map: d
 
 
 async def check_all_mailboxes():
+    try:
+        await _check_all_mailboxes()
+    except Exception as exc:
+        logger.exception("check_all_mailboxes crashed: %s", exc)
+
+
+async def _check_all_mailboxes():
     """APScheduler entry point. Loads rules once, then checks all enabled mailboxes."""
     async with AsyncSessionFactory() as db:
         mb_result = await db.execute(
