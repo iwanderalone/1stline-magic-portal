@@ -164,11 +164,13 @@ class Shift(Base):
     __tablename__ = "shifts"
     __table_args__ = (
         UniqueConstraint("user_id", "date", "shift_type", name="uq_user_date_type"),
+        Index("ix_shifts_date", "date"),
+        Index("ix_shifts_user_id", "user_id"),
     )
 
     id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(Uuid(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    date = Column(Date, nullable=False, index=True)
+    date = Column(Date, nullable=False)
     shift_type = Column(SAEnum(ShiftType), nullable=False)
     start_time = Column(Time, nullable=True)
     end_time = Column(Time, nullable=True)
@@ -201,12 +203,16 @@ class TimeOffRequest(Base):
 
 class Reminder(Base):
     __tablename__ = "reminders"
+    __table_args__ = (
+        Index("ix_reminders_remind_at", "remind_at"),
+        Index("ix_reminders_user_id", "user_id"),
+    )
 
     id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(Uuid(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
-    remind_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    remind_at = Column(DateTime(timezone=True), nullable=False)
     status = Column(SAEnum(ReminderStatus), default=ReminderStatus.ACTIVE, nullable=False)
     is_recurring = Column(Boolean, default=False)
     recurrence_minutes = Column(Integer, nullable=True)
@@ -355,6 +361,11 @@ class EmailComment(Base):
 
 class EmailLog(Base):
     __tablename__ = "email_logs"
+    __table_args__ = (
+        Index("ix_email_logs_mailbox_id", "mailbox_id"),
+        Index("ix_email_logs_created_at", "created_at"),
+        Index("ix_email_logs_status", "status"),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     mailbox_id = Column(Integer, ForeignKey("mailbox_configs.id", ondelete="CASCADE"), nullable=False)
