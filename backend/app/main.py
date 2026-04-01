@@ -3,15 +3,17 @@ import logging
 import os
 from datetime import time as dtime
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Send, Scope
 from starlette.datastructures import MutableHeaders
 from starlette.responses import Response
 
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
-from app.core.database import engine, Base, _is_sqlite
+from app.core.database import engine, Base, _is_sqlite, get_db
 from app.core.security import hash_password
 from app.core.scheduler import scheduler
 from app.api import auth, users, groups, schedule, reminders, notifications, admin_config
@@ -89,7 +91,6 @@ async def seed_defaults():
 
 async def run_migrations():
     """Apply additive schema migrations (safe to run on every startup)."""
-    from sqlalchemy import text
     if not _is_sqlite:
         return  # PostgreSQL users should use Alembic
     migrations = [
@@ -362,8 +363,20 @@ async def _unhandled_exception_handler(request: Request, exc: Exception):
 
 
 @app.get("/api/health")
-async def health():
-    return {"status": "ok", "version": settings.APP_VERSION}
+async def health(db: AsyncSession = Depends(get_db)):
+    db_status = "ok"
+    try:
+        await db.execute(text("SELECT 1"))
+    except Exception as e:
+        logger.error("Health check: DB unreachable: %s", e)
+        db_status = "error"
+    status_code = 200 if db_status == "ok" else 503
+    return JSONResponse(
+        status_code=status_code,
+        content={"status": "ok" if db_status == "ok" else "degraded",
+                 "db": db_status,
+                 "version": settings.APP_VERSION},
+    )
 
 
 @app.get("/api/config")
