@@ -25,7 +25,8 @@ from app.services.telegram_service import poll_telegram_updates
 from app.services.mail_reporter_service import check_all_mailboxes
 from app.api.containers import check_vps_offline
 
-logging.basicConfig(level=logging.INFO)
+from app.core.logging_config import configure_logging
+configure_logging()
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
