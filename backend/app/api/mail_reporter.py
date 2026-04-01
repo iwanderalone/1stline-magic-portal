@@ -160,19 +160,12 @@ async def update_email_log(
     for field, value in updates.items():
         setattr(log, field, value)
 
-    # Sync status ↔ is_solved
+    # Maintain solved_at based on status
     if "status" in updates:
-        log.is_solved = (updates["status"] == "solved")
-        if log.is_solved and not log.solved_at:
+        if updates["status"] == "solved" and not log.solved_at:
             log.solved_at = datetime.now(timezone.utc)
-        elif not log.is_solved:
+        elif updates["status"] != "solved":
             log.solved_at = None
-    elif updates.get("is_solved") is True and not log.solved_at:
-        log.solved_at = datetime.now(timezone.utc)
-        log.status = "solved"
-    elif updates.get("is_solved") is False:
-        log.solved_at = None
-        log.status = "unchecked"
 
     await db.commit()
     await db.refresh(log)

@@ -370,7 +370,6 @@ class EmailLog(Base):
     received_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), default=utcnow)
     status = Column(String(20), default="unchecked", nullable=False)  # unchecked | solved | on_pause | blocked
-    is_solved = Column(Boolean, default=False, nullable=False)
     solver_comment = Column(Text, nullable=True)
     solved_at = Column(DateTime(timezone=True), nullable=True)
 
