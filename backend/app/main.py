@@ -144,8 +144,11 @@ async def run_migrations():
         for stmt in migrations:
             try:
                 await conn.execute(text(stmt))
-            except Exception:
-                pass  # Column already exists — safe to ignore
+            except Exception as e:
+                msg = str(e).lower()
+                # Additive migrations: "already exists" / "duplicate column" are expected
+                if "already exists" not in msg and "duplicate column" not in msg:
+                    logger.warning("Migration step may have failed: %s — stmt: %.80s", e, stmt)
 
 
 async def seed_routing_rules():
