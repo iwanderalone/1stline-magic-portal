@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from app.core.database import get_db
-from app.core.deps import get_current_user, require_admin
+from app.core.deps import get_current_user, require_admin, get_or_404
 from app.core.security import hash_password
 from app.models.models import User, Group, UserRole, user_groups
 from app.schemas.schemas import (
@@ -149,14 +149,8 @@ async def unlink_telegram(
     db: AsyncSession = Depends(get_db),
 ):
     """Unlink Telegram so the user can link a different account."""
-    result = await db.execute(
-        select(User).options(selectinload(User.groups)).where(User.id == user.id)
-    )
-    u = result.scalar_one_or_none()
-    if not u:
-        raise HTTPException(status_code=404)
-    u.telegram_chat_id = None
-    u.telegram_link_code = None
+    user.telegram_chat_id = None
+    user.telegram_link_code = None
     await db.commit()
     result2 = await db.execute(
         select(User).options(selectinload(User.groups)).where(User.id == user.id)
@@ -172,10 +166,7 @@ async def reactivate_user(
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(User).where(User.id == user_id))
-    user = result.scalar_one_or_none()
-    if not user:
-        raise HTTPException(status_code=404)
+    user = await get_or_404(db, User, user_id)
     user.is_active = True
     await db.flush()
     return {"reactivated": True}
@@ -187,10 +178,7 @@ async def hard_delete_user(
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(User).where(User.id == user_id))
-    user = result.scalar_one_or_none()
-    if not user:
-        raise HTTPException(status_code=404)
+    user = await get_or_404(db, User, user_id)
     if user.id == admin.id:
         raise HTTPException(status_code=400, detail="Cannot delete yourself")
     await db.delete(user)
@@ -204,12 +192,8 @@ async def update_user(
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(User).options(selectinload(User.groups)).where(User.id == user_id)
-    )
-    user = result.scalar_one_or_none()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+    user = await get_or_404(db, User, user_id)
+    await db.refresh(user, ["groups"])
 
     data = req.model_dump(exclude_unset=True)
     group_ids = data.pop("group_ids", None)
@@ -243,10 +227,7 @@ async def delete_user(
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(User).where(User.id == user_id))
-    user = result.scalar_one_or_none()
-    if not user:
-        raise HTTPException(status_code=404)
+    user = await get_or_404(db, User, user_id)
     if str(user.id) == str(admin.id):
         raise HTTPException(status_code=400, detail="Cannot delete yourself")
     user.is_active = False
@@ -261,10 +242,7 @@ async def reset_password(
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(User).where(User.id == user_id))
-    user = result.scalar_one_or_none()
-    if not user:
-        raise HTTPException(status_code=404)
+    user = await get_or_404(db, User, user_id)
     user.hashed_password = hash_password(req.new_password)
     await db.flush()
     return {"ok": True}
@@ -276,10 +254,7 @@ async def generate_telegram_link_code(
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(User).where(User.id == user_id))
-    user = result.scalar_one_or_none()
-    if not user:
-        raise HTTPException(status_code=404)
+    user = await get_or_404(db, User, user_id)
     code = secrets.token_hex(4).upper()
     user.telegram_link_code = code
     await db.flush()
@@ -293,10 +268,7 @@ async def reset_otp(
     db: AsyncSession = Depends(get_db),
 ):
     """Admin resets OTP for a user (disables 2FA)."""
-    result = await db.execute(select(User).where(User.id == user_id))
-    user = result.scalar_one_or_none()
-    if not user:
-        raise HTTPException(status_code=404)
+    user = await get_or_404(db, User, user_id)
     if str(user.id) == str(admin.id):
         raise HTTPException(status_code=400, detail="Use /auth/setup-otp to manage your own OTP")
     user.otp_secret = None
