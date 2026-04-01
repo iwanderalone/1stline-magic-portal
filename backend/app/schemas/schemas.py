@@ -7,7 +7,6 @@ from uuid import UUID
 from app.models.models import (
     UserRole, ShiftType, WorkLocation, TimeOffStatus,
     TimeOffType, ReminderStatus, TelegramChatType,
-    ContainerCommandType, ContainerCommandStatus,
 )
 
 
@@ -635,15 +634,8 @@ class AgentReportRequest(BaseModel):
     pending_updates: Optional[list[PendingUpdate]] = None
     failed_services: Optional[list[str]] = None
 
-class PendingCommandItem(BaseModel):
-    id: UUID
-    docker_id: str
-    container_name: Optional[str]
-    command: ContainerCommandType
-
 class AgentReportResponse(BaseModel):
     ok: bool = True
-    pending_commands: list[PendingCommandItem] = Field(default_factory=list)
 
 class ContainerStateResponse(BaseModel):
     id: UUID
@@ -681,27 +673,6 @@ class ContainerMetaUpdate(BaseModel):
     display_name: Optional[str] = Field(default=None, max_length=100)
     description: Optional[str] = None
     hosted_on: Optional[str] = Field(default=None, max_length=150)
-
-class ContainerCommandCreate(BaseModel):
-    command: ContainerCommandType
-
-class ContainerCommandResponse(BaseModel):
-    id: UUID
-    agent_id: UUID
-    docker_id: str
-    container_name: Optional[str]
-    command: ContainerCommandType
-    status: ContainerCommandStatus
-    issued_by_user_id: Optional[UUID]
-    issued_at: datetime
-    executed_at: Optional[datetime]
-    result_message: Optional[str]
-    class Config:
-        from_attributes = True
-
-class CommandResultRequest(BaseModel):
-    status: ContainerCommandStatus
-    result_message: Optional[str] = None
 
 class AgentWithContainersResponse(VPSAgentResponse):
     containers: list[ContainerStateResponse] = Field(default_factory=list)

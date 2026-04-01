@@ -25,6 +25,7 @@ from sqlalchemy import select
 
 from app.core.config import get_settings
 from app.core.database import AsyncSessionFactory
+from app.core.encryption import decrypt
 from app.models.models import MailboxConfig, EmailLog, MailRoutingRule
 
 logger = logging.getLogger(__name__)
@@ -550,7 +551,7 @@ async def _check_one_mailbox(mb: MailboxConfig, user_rules: list, builtin_map: d
 
     try:
         raw_emails = await asyncio.to_thread(
-            _fetch_imap_emails, mb.email, mb.password, monitor_since
+            _fetch_imap_emails, mb.email, decrypt(mb.password), monitor_since
         )
     except RuntimeError as e:
         logger.error(f"[mail-reporter] IMAP failed for {mb.email}: {e}")
