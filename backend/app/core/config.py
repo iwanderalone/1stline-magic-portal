@@ -37,6 +37,19 @@ class Settings(BaseSettings):
             )
         return v
 
+    @field_validator("CORS_ORIGINS")
+    @classmethod
+    def warn_if_localhost_in_production(cls, v: str) -> str:
+        import os, logging as _logging
+        _log = _logging.getLogger("config")
+        if os.environ.get("ENVIRONMENT", "development").lower() == "production":
+            if "localhost" in v or "127.0.0.1" in v:
+                _log.warning(
+                    "CORS_ORIGINS contains localhost/127.0.0.1 in production mode. "
+                    "Set CORS_ORIGINS to your actual frontend domain."
+                )
+        return v
+
     @field_validator("JWT_SECRET")
     @classmethod
     def jwt_secret_must_be_strong(cls, v: str) -> str:
