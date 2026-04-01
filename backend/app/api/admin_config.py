@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.core.database import get_db
-from app.core.deps import require_admin
+from app.core.deps import require_admin, get_or_404
 from app.models.models import User, ShiftConfig, TelegramChat, Notification, ActivityLog, ShiftType, Shift, TelegramTemplate
 from app.schemas.schemas import (
     ShiftConfigCreate, ShiftConfigUpdate, ShiftConfigResponse,
@@ -53,10 +53,7 @@ async def update_shift_config(
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(ShiftConfig).where(ShiftConfig.id == config_id))
-    config = result.scalar_one_or_none()
-    if not config:
-        raise HTTPException(status_code=404)
+    config = await get_or_404(db, ShiftConfig, config_id)
     for field, value in req.model_dump(exclude_unset=True).items():
         setattr(config, field, value)
     await db.flush()
@@ -93,10 +90,7 @@ async def update_telegram_chat(
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(TelegramChat).where(TelegramChat.id == chat_db_id))
-    chat = result.scalar_one_or_none()
-    if not chat:
-        raise HTTPException(status_code=404)
+    chat = await get_or_404(db, TelegramChat, chat_db_id)
     for field, value in req.model_dump(exclude_unset=True).items():
         setattr(chat, field, value)
     await db.flush()
@@ -109,10 +103,7 @@ async def delete_telegram_chat(
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(TelegramChat).where(TelegramChat.id == chat_db_id))
-    chat = result.scalar_one_or_none()
-    if not chat:
-        raise HTTPException(status_code=404)
+    chat = await get_or_404(db, TelegramChat, chat_db_id)
     await db.delete(chat)
     return {"deleted": True}
 
@@ -331,9 +322,7 @@ async def update_telegram_template(
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    tpl = await db.get(TelegramTemplate, template_id)
-    if not tpl:
-        raise HTTPException(status_code=404)
+    tpl = await get_or_404(db, TelegramTemplate, template_id)
     for field, value in req.model_dump(exclude_unset=True).items():
         setattr(tpl, field, value)
     await db.flush()
@@ -347,9 +336,7 @@ async def delete_telegram_template(
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    tpl = await db.get(TelegramTemplate, template_id)
-    if not tpl:
-        raise HTTPException(status_code=404)
+    tpl = await get_or_404(db, TelegramTemplate, template_id)
     name = tpl.name
     await db.delete(tpl)
     await log_action(db, admin, "telegram_template_delete", f"Deleted template: {name}")

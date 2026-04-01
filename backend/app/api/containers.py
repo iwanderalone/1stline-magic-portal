@@ -13,15 +13,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
-from app.core.deps import get_current_user, require_admin
+from app.core.deps import get_current_user, require_admin, get_or_404
 from app.models.models import (
-    ContainerCommand, ContainerCommandStatus, ContainerState,
+    ContainerState,
     TelegramTemplate, User, VPSAgent, utcnow,
 )
 from app.schemas.schemas import (
     AgentReportRequest, AgentReportResponse, AgentWithContainersResponse,
-    CommandResultRequest, ContainerCommandCreate, ContainerCommandResponse,
-    ContainerMetaUpdate, ContainerStateResponse, PendingCommandItem,
+    ContainerMetaUpdate, ContainerStateResponse,
     SystemSnapshotResponse,
     VPSAgentCreate, VPSAgentRegisterResponse, VPSAgentResponse, VPSAgentUpdate,
 )
@@ -36,10 +35,10 @@ router = APIRouter(prefix="/containers", tags=["containers"])
 # cmd-handler polls /report every 5s; Telegraf flushes to /telegraf every 15s.
 # A shared limiter causes cross-contamination, so each endpoint has its own dict.
 
-_report_times:   dict[str, float] = {}   # /report + /command-result
+_report_times:   dict[str, float] = {}   # /report
 _telegraf_times: dict[str, float] = {}   # /telegraf
 
-REPORT_MIN_INTERVAL   = 3.0   # cmd-handler polls every 5s — allow every 3s
+REPORT_MIN_INTERVAL   = 3.0   # allow at most one report every 3s
 TELEGRAF_MIN_INTERVAL = 10.0  # Telegraf flushes every 15s — safe margin
 
 
@@ -391,19 +390,6 @@ async def _upsert_containers(
         )
 
 
-async def _claim_pending_commands(db: AsyncSession, agent_id: UUID) -> list:
-    result = await db.execute(
-        select(ContainerCommand).where(
-            ContainerCommand.agent_id == agent_id,
-            ContainerCommand.status == ContainerCommandStatus.PENDING,
-        )
-    )
-    pending = result.scalars().all()
-    for cmd in pending:
-        cmd.status = ContainerCommandStatus.EXECUTING
-    return pending
-
-
 # ─── Telegraf batch parser ────────────────────────────────
 
 def _parse_telegraf_batch(raw: Any) -> dict:
@@ -547,17 +533,9 @@ async def agent_report(
         for c in body.containers
     ]
     # Only update container state when the report actually includes container data.
-    # cmd-handler sends empty lists just to poll for commands — don't wipe container state.
     if containers:
         await _upsert_containers(db, agent_id, agent, containers)
-    pending = await _claim_pending_commands(db, agent_id)
-    return AgentReportResponse(
-        pending_commands=[
-            PendingCommandItem(id=c.id, docker_id=c.docker_id,
-                               container_name=c.container_name, command=c.command)
-            for c in pending
-        ]
-    )
+    return AgentReportResponse()
 
 
 @router.post("/agents/{agent_id}/telegraf", response_model=AgentReportResponse)
@@ -596,32 +574,7 @@ async def telegraf_report(
         await _check_alerts(db, agent, snapshot)
 
     await _upsert_containers(db, agent_id, agent, parsed.get("containers", []))
-    pending = await _claim_pending_commands(db, agent_id)
-    return AgentReportResponse(
-        pending_commands=[
-            PendingCommandItem(id=c.id, docker_id=c.docker_id,
-                               container_name=c.container_name, command=c.command)
-            for c in pending
-        ]
-    )
-
-
-@router.post("/agents/{agent_id}/commands/{cmd_id}/result")
-async def agent_command_result(
-    agent_id: UUID, cmd_id: UUID, body: CommandResultRequest,
-    agent: VPSAgent = Depends(get_agent), db: AsyncSession = Depends(get_db),
-):
-    cmd = await db.scalar(
-        select(ContainerCommand).where(
-            ContainerCommand.id == cmd_id, ContainerCommand.agent_id == agent_id,
-        )
-    )
-    if not cmd:
-        raise HTTPException(status_code=404, detail="Command not found")
-    cmd.status = body.status
-    cmd.executed_at = utcnow()
-    cmd.result_message = body.result_message
-    return {"ok": True}
+    return AgentReportResponse()
 
 
 # ─── Admin management endpoints ───────────────────────────
@@ -665,9 +618,7 @@ async def update_agent(
     agent_id: UUID, req: VPSAgentUpdate,
     admin: User = Depends(require_admin), db: AsyncSession = Depends(get_db),
 ):
-    agent = await db.get(VPSAgent, agent_id)
-    if not agent:
-        raise HTTPException(status_code=404)
+    agent = await get_or_404(db, VPSAgent, agent_id)
     for field, value in req.model_dump(exclude_unset=True).items():
         setattr(agent, field, value)
     await db.flush()
@@ -681,33 +632,12 @@ async def update_agent(
 async def delete_agent(
     agent_id: UUID, admin: User = Depends(require_admin), db: AsyncSession = Depends(get_db),
 ):
-    agent = await db.get(VPSAgent, agent_id)
-    if not agent:
-        raise HTTPException(status_code=404)
+    agent = await get_or_404(db, VPSAgent, agent_id)
     name = agent.name
     await db.delete(agent)
     await log_action(db, admin, "container_agent_delete", f"Deleted VPS agent: {name}")
     await db.commit()
     return {"deleted": True}
-
-
-@router.get("/commands", response_model=list[ContainerCommandResponse])
-async def list_commands(admin: User = Depends(require_admin), db: AsyncSession = Depends(get_db)):
-    result = await db.execute(
-        select(ContainerCommand).order_by(ContainerCommand.issued_at.desc()).limit(100)
-    )
-    return [ContainerCommandResponse.model_validate(c) for c in result.scalars().all()]
-
-
-@router.get("/commands/{cmd_id}", response_model=ContainerCommandResponse)
-async def get_command_status(
-    cmd_id: UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db),
-):
-    """Poll command execution status. Used by the frontend to show success/failure feedback."""
-    cmd = await db.get(ContainerCommand, cmd_id)
-    if not cmd:
-        raise HTTPException(status_code=404, detail="Command not found")
-    return ContainerCommandResponse.model_validate(cmd)
 
 
 # ─── User dashboard endpoints ─────────────────────────────
@@ -746,51 +676,6 @@ async def get_dashboard(
         out.append(resp)
     out.sort(key=lambda a: (0 if a.online else 1, a.name))
     return out
-
-
-@router.post("/agents/{agent_id}/containers/{docker_id}/action", response_model=ContainerCommandResponse)
-async def queue_container_action(
-    agent_id: UUID, docker_id: str, body: ContainerCommandCreate,
-    user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db),
-):
-    agent = await db.scalar(select(VPSAgent).where(VPSAgent.id == agent_id, VPSAgent.is_enabled == True))
-    if not agent:
-        raise HTTPException(status_code=404, detail="Agent not found")
-    cs = await db.scalar(
-        select(ContainerState).where(
-            ContainerState.agent_id == agent_id, ContainerState.docker_id == docker_id,
-            ContainerState.is_absent == False,
-        )
-    )
-    if not cs:
-        raise HTTPException(status_code=404, detail="Container not found")
-    existing = await db.scalar(
-        select(ContainerCommand).where(
-            ContainerCommand.agent_id == agent_id, ContainerCommand.docker_id == docker_id,
-            ContainerCommand.status.in_([ContainerCommandStatus.PENDING, ContainerCommandStatus.EXECUTING]),
-        )
-    )
-    if existing:
-        # Auto-expire commands that the agent never acknowledged (e.g. agent was offline,
-        # or the frontend polling window elapsed).  60 s is well past any reasonable round-trip.
-        # issued_at may be tz-naive (SQLite) so strip tz from utcnow() before subtracting.
-        now_naive = utcnow().replace(tzinfo=None)
-        issued_naive = existing.issued_at.replace(tzinfo=None)
-        age = (now_naive - issued_naive).total_seconds()
-        if age < 60:
-            raise HTTPException(status_code=409, detail="Command already pending for this container")
-        existing.status = ContainerCommandStatus.FAILED
-        existing.result_message = "Expired — no acknowledgement from agent within 60 s"
-        existing.executed_at = utcnow()
-    cmd = ContainerCommand(
-        agent_id=agent_id, docker_id=docker_id, container_name=cs.display_name or cs.name,
-        command=body.command, issued_by_user_id=user.id,
-    )
-    db.add(cmd)
-    await db.flush()
-    await log_action(db, user, "container_action",
-                     f"Queued {body.command} on '{cs.display_name or cs.name}' @ agent '{agent.name}'")
-    return ContainerCommandResponse.model_validate(cmd)
 
 
 @router.patch("/agents/{agent_id}/containers/{docker_id}", response_model=ContainerStateResponse)
