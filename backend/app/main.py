@@ -136,6 +136,9 @@ async def run_migrations():
         "ALTER TABLE vps_agents ADD COLUMN alert_flags TEXT",
         # Per-mailbox routing rule scope
         "ALTER TABLE mail_routing_rules ADD COLUMN mailbox_id INTEGER REFERENCES mailbox_configs(id) ON DELETE SET NULL",
+        # B3: backfill status from is_solved, then drop redundant column
+        "UPDATE email_logs SET status = 'solved' WHERE is_solved = 1 AND status = 'unchecked'",
+        "ALTER TABLE email_logs DROP COLUMN is_solved",
     ]
     async with engine.begin() as conn:
         for stmt in migrations:

@@ -399,7 +399,6 @@ class MailboxConfigUpdate(BaseModel):
     monitor_since: Optional[date] = None
 
 class EmailLogUpdate(BaseModel):
-    is_solved: Optional[bool] = None
     solver_comment: Optional[str] = Field(default=None, max_length=1000)
     status: Optional[str] = Field(default=None, pattern="^(unchecked|solved|on_pause|blocked)$")
 
@@ -442,7 +441,6 @@ class EmailLogResponse(BaseOrmModel):
     received_at: Optional[datetime]
     created_at: datetime
     status: str = "unchecked"
-    is_solved: bool = False
     solver_comment: Optional[str] = None
     solved_at: Optional[datetime] = None
     comment_count: int = 0
