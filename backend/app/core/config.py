@@ -1,5 +1,6 @@
 """Application configuration with security best practices."""
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import field_validator
 from functools import lru_cache
 
 
@@ -20,6 +21,36 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+
+    @field_validator("SECRET_KEY")
+    @classmethod
+    def secret_key_must_be_strong(cls, v: str) -> str:
+        """Reject weak or placeholder SECRET_KEY values."""
+        weak_patterns = ["change-me", "change_me", "changeme", "example", "placeholder"]
+        if len(v) < 32:
+            raise ValueError(
+                "SECRET_KEY must be at least 32 characters. Generate with: openssl rand -hex 32"
+            )
+        if any(p in v.lower() for p in weak_patterns):
+            raise ValueError(
+                "SECRET_KEY looks like a default placeholder. Generate with: openssl rand -hex 32"
+            )
+        return v
+
+    @field_validator("JWT_SECRET")
+    @classmethod
+    def jwt_secret_must_be_strong(cls, v: str) -> str:
+        """Reject weak or placeholder JWT_SECRET values."""
+        weak_patterns = ["change-me", "change_me", "changeme", "example", "placeholder"]
+        if len(v) < 32:
+            raise ValueError(
+                "JWT_SECRET must be at least 32 characters. Generate with: openssl rand -hex 64"
+            )
+        if any(p in v.lower() for p in weak_patterns):
+            raise ValueError(
+                "JWT_SECRET looks like a default placeholder. Generate with: openssl rand -hex 64"
+            )
+        return v
 
     # OTP
     OTP_ISSUER: str = "SupportPortal"
