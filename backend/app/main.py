@@ -141,6 +141,14 @@ async def run_migrations():
         # B3: backfill status from is_solved, then drop redundant column
         "UPDATE email_logs SET status = 'solved' WHERE is_solved = 1 AND status = 'unchecked'",
         "ALTER TABLE email_logs DROP COLUMN is_solved",
+        # C4: performance indexes
+        "CREATE INDEX IF NOT EXISTS ix_email_logs_mailbox_id ON email_logs(mailbox_id)",
+        "CREATE INDEX IF NOT EXISTS ix_email_logs_created_at ON email_logs(created_at)",
+        "CREATE INDEX IF NOT EXISTS ix_email_logs_status ON email_logs(status)",
+        "CREATE INDEX IF NOT EXISTS ix_reminders_remind_at ON reminders(remind_at)",
+        "CREATE INDEX IF NOT EXISTS ix_reminders_user_id ON reminders(user_id)",
+        "CREATE INDEX IF NOT EXISTS ix_shifts_date ON shifts(date)",
+        "CREATE INDEX IF NOT EXISTS ix_shifts_user_id ON shifts(user_id)",
     ]
     async with engine.begin() as conn:
         for stmt in migrations:
