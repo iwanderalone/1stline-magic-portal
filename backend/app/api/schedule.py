@@ -6,7 +6,7 @@ from sqlalchemy import select, and_
 from sqlalchemy.orm import selectinload
 from datetime import date
 from app.core.database import get_db
-from app.core.deps import get_current_user, require_admin
+from app.core.deps import get_current_user, require_admin, get_or_404
 from app.core.scheduler import scheduler
 from app.workers.shift_notification_scheduler import schedule_pending_notifications
 from app.models.models import User, Shift, TimeOffRequest, ShiftType, ShiftConfig, UserRole
@@ -112,12 +112,7 @@ async def update_shift(
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(Shift).options(selectinload(Shift.user)).where(Shift.id == shift_id)
-    )
-    shift = result.scalar_one_or_none()
-    if not shift:
-        raise HTTPException(status_code=404)
+    shift = await get_or_404(db, Shift, shift_id)
     for field, value in req.model_dump(exclude_unset=True).items():
         setattr(shift, field, value)
     await db.flush()
@@ -131,10 +126,7 @@ async def delete_shift(
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(Shift).where(Shift.id == shift_id))
-    shift = result.scalar_one_or_none()
-    if not shift:
-        raise HTTPException(status_code=404)
+    shift = await get_or_404(db, Shift, shift_id)
     await db.delete(shift)
     return {"deleted": True}
 
@@ -234,13 +226,7 @@ async def review_time_off(
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(TimeOffRequest).options(selectinload(TimeOffRequest.user))
-        .where(TimeOffRequest.id == request_id)
-    )
-    time_off = result.scalar_one_or_none()
-    if not time_off:
-        raise HTTPException(status_code=404)
+    time_off = await get_or_404(db, TimeOffRequest, request_id)
     time_off.status = req.status
     if req.admin_comment:
         time_off.admin_comment = req.admin_comment
@@ -257,10 +243,7 @@ async def delete_time_off(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(TimeOffRequest).where(TimeOffRequest.id == request_id))
-    time_off = result.scalar_one_or_none()
-    if not time_off:
-        raise HTTPException(status_code=404)
+    time_off = await get_or_404(db, TimeOffRequest, request_id)
     if user.role != UserRole.ADMIN and time_off.user_id != user.id:
         raise HTTPException(status_code=403, detail="Not allowed")
     await db.delete(time_off)
