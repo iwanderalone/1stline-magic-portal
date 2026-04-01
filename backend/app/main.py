@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Send, Scope
 from starlette.datastructures import MutableHeaders
+from starlette.responses import Response
 
 from app.core.config import get_settings
 from app.core.database import engine, Base, _is_sqlite
@@ -273,6 +274,38 @@ app.add_middleware(
 )
 
 
+class LimitBodySizeMiddleware:
+    """Reject requests whose Content-Length exceeds MAX_BODY_BYTES.
+
+    Checks Content-Length header only (not streaming bodies). Clients sending
+    chunked transfer-encoding without Content-Length are not caught here — that
+    is an acceptable trade-off for an internal portal with trusted clients.
+    """
+    MAX_BODY_BYTES = 1 * 1024 * 1024  # 1 MB
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http":
+            headers = dict(scope.get("headers", []))
+            content_length_raw = headers.get(b"content-length")
+            if content_length_raw is not None:
+                try:
+                    content_length = int(content_length_raw)
+                except (ValueError, TypeError):
+                    content_length = None
+                if content_length is not None and content_length > self.MAX_BODY_BYTES:
+                    response = Response(
+                        content='{"detail": "Request body too large"}',
+                        status_code=413,
+                        media_type="application/json",
+                    )
+                    await response(scope, receive, send)
+                    return
+        await self.app(scope, receive, send)
+
+
 class SecurityHeadersMiddleware:
     """Pure-ASGI security headers middleware.
 
@@ -303,6 +336,7 @@ class SecurityHeadersMiddleware:
         await self.app(scope, receive, send_with_headers)
 
 app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(LimitBodySizeMiddleware)
 
 app.include_router(auth.router, prefix="/api")
 app.include_router(users.router, prefix="/api")
