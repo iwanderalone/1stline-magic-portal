@@ -6,7 +6,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.types import ASGIApp, Receive, Send, Scope
+from starlette.datastructures import MutableHeaders
 
 from app.core.config import get_settings
 from app.core.database import engine, Base, _is_sqlite
@@ -260,6 +261,9 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title=settings.APP_NAME, version=settings.APP_VERSION, lifespan=lifespan)
 
+# Middleware is applied in reverse registration order (last added = outermost = runs first).
+# SecurityHeadersMiddleware is added after CORSMiddleware so it runs outermost,
+# ensuring headers are set on every response including CORS preflights.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
@@ -269,15 +273,34 @@ app.add_middleware(
 )
 
 
-class SecurityHeadersMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request, call_next):
-        response = await call_next(request)
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "DENY"
-        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        response.headers["X-XSS-Protection"] = "0"  # Disable legacy XSS filter (CSP is better)
-        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
-        return response
+class SecurityHeadersMiddleware:
+    """Pure-ASGI security headers middleware.
+
+    Injects security headers by wrapping the ASGI send callable rather than
+    subclassing BaseHTTPMiddleware. This avoids the known Starlette issue where
+    BaseHTTPMiddleware intercepts unhandled exceptions before FastAPI's exception
+    handlers can log them.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_with_headers(message) -> None:
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                headers["X-Content-Type-Options"] = "nosniff"
+                headers["X-Frame-Options"] = "DENY"
+                headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+                headers["X-XSS-Protection"] = "0"
+                headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+            await send(message)
+
+        await self.app(scope, receive, send_with_headers)
 
 app.add_middleware(SecurityHeadersMiddleware)
 
