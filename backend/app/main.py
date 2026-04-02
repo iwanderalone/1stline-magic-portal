@@ -10,6 +10,12 @@ from starlette.types import ASGIApp, Receive, Send, Scope
 from starlette.datastructures import MutableHeaders
 from starlette.responses import Response
 
+# Configure logging before any application modules are imported so that
+# log messages emitted during module-level code (e.g. settings validation)
+# are captured by the configured formatter.
+from app.core.logging_config import configure_logging
+configure_logging()
+
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
@@ -25,8 +31,6 @@ from app.services.telegram_service import poll_telegram_updates
 from app.services.mail_reporter_service import check_all_mailboxes
 from app.api.containers import check_vps_offline
 
-from app.core.logging_config import configure_logging
-configure_logging()
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
