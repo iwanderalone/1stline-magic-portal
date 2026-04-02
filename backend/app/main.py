@@ -27,6 +27,7 @@ from app.api import mail_reporter
 from app.api import containers
 from app.workers.reminder_worker import check_and_fire_reminders
 from app.workers.shift_notification_scheduler import schedule_pending_notifications
+from app.workers.shift_notification_worker import check_shift_notifications
 from app.services.telegram_service import poll_telegram_updates
 from app.services.mail_reporter_service import check_all_mailboxes
 from app.api.containers import check_vps_offline
@@ -267,13 +268,20 @@ async def lifespan(app: FastAPI):
     )
 
     # VPS offline detection — runs every 60 s, fires when last_seen > 5 min ago
+    # Shift notification safety-net: fires if a precise 'date' job was missed
+    # (e.g. server was down at exact start time). Dedup via ShiftNotificationLog.
+    scheduler.add_job(
+        check_shift_notifications, "interval", seconds=60,
+        id="shift_notification_fallback", max_instances=1, coalesce=True,
+    )
+
     scheduler.add_job(
         check_vps_offline, "interval", seconds=60,
         id="vps_offline_check", max_instances=1, coalesce=True,
     )
 
     scheduler.start()
-    logger.info("Scheduler started: reminders (30s), shift notifications (pre-scheduled), mail reporter (%ds), vps offline check (60s)", settings.MAIL_POLL_INTERVAL)
+    logger.info("Scheduler started: reminders (30s), shift notifications (pre-scheduled + 60s fallback), mail reporter (%ds), vps offline check (60s)", settings.MAIL_POLL_INTERVAL)
 
     yield
     scheduler.shutdown()
