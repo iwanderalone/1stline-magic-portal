@@ -23,16 +23,23 @@ A lightweight internal operations portal for first-line support teams. Provides 
 │  · Mail Reporter (IMAP → classify → Telegram) │
 │  · Notifications (in-app + Telegram)          │
 │  · Admin config  (shift types, Telegram chats)│
-└───────────────────┬──────────────────────────┘
-                    │
-          ┌─────────▼──────────┐   ┌──────────────┐
-          │  SQLite (aiosqlite) │   │ Telegram      │
-          │  WAL mode           │   │ Bot API       │
-          │  data/portal.db     │   │ (optional)    │
-          └────────────────────┘   └──────────────┘
+│  · Containers    (VPS monitoring dashboard)   │
+└────────────┬──────────────────────┬──────────┘
+             │                      │ push metrics (15s)
+   ┌─────────▼──────────┐   ┌───────▼───────────────┐
+   │  SQLite (aiosqlite) │   │ Remote VPS nodes       │
+   │  WAL mode           │   │ Telegraf agent         │
+   │  data/portal.db     │   │ (outbound-only push)   │
+   └────────────────────┘   └───────────────────────┘
+          │
+   ┌──────▼───────┐
+   │ Telegram      │
+   │ Bot API       │
+   │ (optional)    │
+   └──────────────┘
 ```
 
-**No PostgreSQL. No Redis.** SQLite with WAL mode handles concurrent reads/writes from both the HTTP server and the APScheduler background worker without locking issues.
+**No PostgreSQL. No Redis.** SQLite with WAL mode handles concurrent reads/writes from both the HTTP server and the APScheduler background workers without locking issues.
 
 ## Quick Start
 
@@ -167,7 +174,16 @@ npm run dev      # Vite dev server on :5173 — proxies /api to :8000
 - **Groups tab**: manage team groupings; assign members
 - **Shift config tab**: edit shift type labels, durations, times, emoji, colours, location requirement
 - **Telegram tab**: configure group chats and which notification types they receive
+- **Telegram Templates tab**: named presets for Telegram destinations (used by mail rules, VPS agents, reminders)
 - **Logs tab**: last 200 audit log entries (login, time-off, schedule generation/publish, etc.)
+
+### Containers / VPS Monitoring
+- Push-based monitoring — agents on remote VPS nodes push metrics every 15 seconds
+- Per-agent dashboard: CPU, RAM, disk, load average, uptime, pending OS updates, failed systemd services, recent SSH logins
+- Docker container grid per agent: status, CPU %, memory usage, last log lines
+- Telegram alerts per agent (individually toggleable): VPS offline/recovery, CPU spike, disk full, container stopped, SSH login, OS updates available
+- Alert thresholds and Telegram template configurable per agent
+- Portal is **read-only** — no remote container control
 
 ### Profile (self-service)
 - Change display name, name colour, avatar URL
@@ -250,7 +266,15 @@ POST   /api/mail-reporter/rules              # Create custom rule (admin)
 PATCH  /api/mail-reporter/rules/:id          # Update rule (admin)
 DELETE /api/mail-reporter/rules/:id          # Delete custom rule (admin)
 
-GET    /api/health                           # Health check
+GET    /api/containers/agents                # List VPS agents (admin)
+POST   /api/containers/agents                # Register agent (admin)
+GET    /api/containers/agents/:id            # Agent detail + containers
+PATCH  /api/containers/agents/:id           # Update agent config (admin)
+DELETE /api/containers/agents/:id           # Remove agent (admin)
+POST   /api/containers/:id/telegraf         # Ingest Telegraf metrics (agent API key auth)
+
+GET    /api/health                           # Health check — includes DB connectivity
+GET    /api/config                           # Public config (Telegram bot username, portal timezone)
 ```
 
 ## Database Schema
@@ -271,10 +295,14 @@ SQLite at `data/portal.db`, persisted via Docker volume. Schema created automati
 | `notifications` | In-app notification feed per user |
 | `activity_logs` | Audit trail — action + details; username denormalised so entries survive user deletion |
 | `telegram_chats` | Configured group chats/channels with per-notification-type enable flags |
+| `telegram_templates` | Named presets for Telegram destinations (chat + optional topic) — referenced by mail rules, VPS agents, reminders |
 | `shift_notification_logs` | Deduplication log — one row per (date, shift_type) prevents duplicate shift notifications |
-| `mailbox_configs` | IMAP mailbox credentials, poll settings, Telegram target, last-poll status |
-| `mail_routing_rules` | Categorisation rules (built-in + user-defined) — match conditions, display config, Telegram target override |
-| `email_logs` | Processed email history — category, Telegram delivery status, extracted codes, solve workflow |
+| `mailbox_configs` | IMAP mailbox credentials (password encrypted at rest), poll settings, Telegram target, last-poll status |
+| `mail_routing_rules` | Categorisation rules (built-in + user-defined) — match conditions, display config, Telegram target override; `mailbox_id = NULL` means global |
+| `email_logs` | Processed email history — category, status (unchecked/solved/on_pause/blocked), Telegram delivery, extracted codes, comments |
+| `email_comments` | Per-email thread of comments from team members |
+| `vps_agents` | Registered VPS monitoring agents — API key hash, last-seen, alert thresholds, per-type alert flags |
+| `container_states` | Latest Docker container snapshot per agent — status, CPU %, memory, last logs |
 
 ## Security
 
@@ -282,7 +310,12 @@ SQLite at `data/portal.db`, persisted via Docker volume. Schema created automati
 - JWT tokens signed with HS256: 30-minute access + 7-day refresh; token `type` claim validated on use
 - TOTP 2FA (RFC 6238, pyotp) with ±1 step clock-drift window
 - RBAC: `admin` and `engineer` roles; API enforces via `require_admin` dependency, frontend hides admin UI
-- CORS restricted to `localhost:5173` / `localhost:3000` (configurable)
+- IMAP passwords encrypted at rest with Fernet (AES-128-CBC, key derived from `SECRET_KEY`)
+- `SECRET_KEY` and `JWT_SECRET` validated at startup — refuses to start with defaults or values < 32 characters
+- Rate limiting on login and token refresh (20 requests/min per IP, rolling window)
+- Security response headers on every response: `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`
+- Request body size capped at 1 MB
+- CORS restricted to configured origins; warns if `localhost` appears in production mode
 - SQL injection prevention via SQLAlchemy ORM with parameterised queries
 - Input validation via Pydantic v2 schemas
 - All UUID primary keys stored and queried as native `uuid.UUID` objects (not strings) to match SQLAlchemy `Uuid(as_uuid=True)` bind processor
@@ -305,14 +338,16 @@ SQLite at `data/portal.db`, persisted via Docker volume. Schema created automati
 
 | Variable                | Required | Default                              | Description                                    |
 |-------------------------|----------|--------------------------------------|------------------------------------------------|
-| `SECRET_KEY`            | yes      | insecure default                     | App secret key                                 |
-| `JWT_SECRET`            | yes      | insecure default                     | JWT signing key                                |
+| `SECRET_KEY`            | **yes**  | *(none)*                             | App secret; also derives Fernet encryption key. Generate: `openssl rand -hex 32` |
+| `JWT_SECRET`            | **yes**  | *(none)*                             | JWT signing key. Generate: `openssl rand -hex 64` |
 | `DATABASE_URL`          | no       | `sqlite+aiosqlite:///./portal.db`    | SQLAlchemy async URL                           |
 | `PORTAL_TIMEZONE`       | no       | `UTC`                                | IANA timezone for shift times and crons        |
 | `CORS_ORIGINS`          | no       | `http://localhost:5173,...`          | Comma-separated allowed origins                |
+| `ENVIRONMENT`           | no       | `development`                        | Set to `production` to enable CORS origin warnings |
 | `TELEGRAM_BOT_TOKEN`    | no       | *(empty)*                            | @BotFather token; leave empty to disable       |
 | `TELEGRAM_BOT_USERNAME` | no       | *(empty)*                            | Bot username shown in the UI link flow         |
-| `DEBUG`                 | no       | `false`                              | SQLAlchemy echo logging                        |
+| `LOG_LEVEL`             | no       | `INFO`                               | Python log level (`DEBUG`, `INFO`, `WARNING`)  |
+| `LOG_DIR`               | no       | *(empty — stderr only)*              | Directory for rotating log files (10 MB × 5 backups) |
 | `MAIL_IMAP_SERVER`      | no       | `imap.yandex.com`                    | IMAP server hostname                           |
 | `MAIL_IMAP_PORT`        | no       | `993`                                | IMAP SSL port                                  |
 | `MAIL_IMAP_TIMEOUT`     | no       | `30`                                 | IMAP connection timeout (seconds)              |
@@ -326,33 +361,47 @@ In Docker Compose the database URL is overridden to `sqlite+aiosqlite:////app/da
 
 ```
 backend/app/
-├── main.py                         # FastAPI app, lifespan (DB init + seed + migrations), APScheduler jobs
+├── main.py                         # FastAPI app, lifespan (DB init + seed + migrations + scheduler)
 ├── core/
-│   ├── config.py                   # Settings via pydantic-settings; get_settings() (lru_cache)
+│   ├── config.py                   # Settings via pydantic-settings; startup secret validation
 │   ├── database.py                 # Async SQLAlchemy engine; WAL mode pragmas; get_db() dependency
-│   ├── deps.py                     # get_current_user, require_admin FastAPI dependencies
+│   ├── deps.py                     # get_current_user, require_admin, get_or_404 dependencies
 │   ├── security.py                 # hash_password, verify_password, create/decode JWT tokens
-│   └── scheduler.py                # Shared AsyncIOScheduler instance
-├── models/models.py                # All SQLAlchemy ORM models
-├── schemas/schemas.py              # All Pydantic v2 request/response schemas
+│   ├── scheduler.py                # Shared AsyncIOScheduler instance
+│   ├── encryption.py               # Fernet encrypt/decrypt for sensitive fields (IMAP passwords)
+│   └── logging_config.py           # Structured log format + optional rotating file handler
+├── models/models.py                # All SQLAlchemy ORM models (18 tables)
+├── schemas/schemas.py              # All Pydantic v2 request/response schemas (BaseOrmModel base)
 ├── api/
-│   ├── auth.py                     # Login, OTP setup/confirm/disable, token refresh
+│   ├── auth.py                     # Login, OTP setup/confirm/disable, token refresh (rate-limited)
 │   ├── users.py                    # User CRUD (admin) + self-service profile/telegram endpoints
 │   ├── groups.py                   # Group CRUD + member management (admin)
 │   ├── schedule.py                 # Shifts, auto-generation, publish, time-off requests
 │   ├── reminders.py                # Reminder CRUD for current user
 │   ├── notifications.py            # In-app notification feed
-│   ├── admin_config.py             # Shift configs, Telegram chats, test notifications, audit logs
-│   └── mail_reporter.py            # Mailbox CRUD, email log, routing rules, manual poll trigger
+│   ├── admin_config.py             # Shift configs, Telegram chats/templates, audit logs
+│   ├── mail_reporter.py            # Mailbox CRUD, email log, routing rules, manual poll trigger
+│   └── containers.py               # VPS agent registration, Telegraf ingest, dashboard read, alerts
 ├── services/
 │   ├── schedule_service.py         # Greedy auto-generation algorithm with constraint satisfaction
 │   ├── telegram_service.py         # Shift start + office roster Telegram notifications
 │   ├── mail_reporter_service.py    # IMAP polling, email classification, Telegram delivery
 │   └── audit.py                    # log_action() helper for activity_logs table
-└── workers/
-    ├── reminder_worker.py          # Fires due reminders every 30s; advances recurring reminders
-    ├── shift_notification_worker.py    # 60s fallback: fires shift notifications based on UTC clock
-    └── shift_notification_scheduler.py # On startup/publish: registers precise APScheduler 'date' jobs
+├── workers/
+│   ├── reminder_worker.py          # Fires due reminders every 30s; advances recurring reminders
+│   ├── shift_notification_worker.py    # 60s safety-net: fires shift notifications based on UTC clock
+│   └── shift_notification_scheduler.py # On startup/publish: registers precise APScheduler 'date' jobs
+└── tests/
+    ├── conftest.py                 # pytest fixtures: in-memory SQLite, async httpx client
+    ├── test_health.py              # /api/health smoke + DB check
+    ├── test_config.py              # Secret validation tests
+    ├── test_encryption.py          # Fernet roundtrip tests
+    ├── test_auth_rate_limit.py     # Rate limiter boundary tests
+    ├── test_security_headers.py    # Security headers presence
+    ├── test_body_limit.py          # 1 MB body rejection
+    ├── test_schedule_auth.py       # Enum role check static analysis
+    ├── test_schema_consistency.py  # BaseOrmModel + get_or_404 structural tests
+    └── test_model_consistency.py   # ORM model structural tests
 ```
 
 ## Frontend Structure
