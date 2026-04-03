@@ -24,6 +24,7 @@ The sidebar contains:
 | 📅 Schedule | Shift calendar (weekly/monthly view) |
 | 📧 Mail | Email monitoring and routing rules |
 | 🌴 Time Off | Submit and track time-off requests |
+| 🖥️ Containers | VPS monitoring dashboard |
 | ⚙️ Admin | Team and system administration *(admin only)* |
 
 The bell icon 🔔 in the top bar shows your unread in-app notification count.
@@ -84,13 +85,51 @@ Each row shows:
 - **Category badge** — the routing rule that matched (e.g. 🔴 Adobe, 🔵 Onboarding, 📩 General)
 - **Subject** and **sender**
 - **Received** time
-- **Solved** status — click to toggle, optionally add a comment
+- **Status** — current handling state (see below)
 
-Use the **Solved / All** filter to focus on open items.
+Use the status filter to focus on open items.
 
-### Marking as solved
+### Email statuses
 
-Click the checkmark icon on any email row to mark it as solved. You can add a short comment describing the resolution. Click again to reopen.
+| Status | Meaning |
+|--------|---------|
+| Unchecked | Newly arrived, not yet reviewed |
+| Solved | Handled and closed |
+| On pause | Waiting on something (e.g. customer reply) |
+| Blocked | Requires escalation or external action |
+
+Change an email's status using the dropdown on its row. You can add a comment when changing status to document what was done or why it is blocked.
+
+### Comments
+
+Each email has a comment thread visible to all authenticated users. Use comments to coordinate on an issue without leaving the portal.
+
+---
+
+## Containers
+
+The Containers page shows a live view of all registered VPS nodes and their Docker containers. It is read-only — you can observe but not control services from here.
+
+### Agent cards
+
+Each registered VPS is shown as an agent card with:
+- **System metrics**: CPU %, RAM usage, disk usage, load average, uptime
+- **Pending OS updates** and **failed systemd services** (if any)
+- **Recent SSH logins**
+- **Last seen** timestamp — goes red if the agent has been silent for more than 5 minutes
+
+### Container grid
+
+Below each agent card, all Docker containers on that VPS are listed with:
+- Status badge (running / exited / error)
+- CPU % and memory usage
+- Last log lines (expandable)
+
+Containers that are absent from the latest report (e.g. removed from Docker) are shown as dimmed.
+
+### Alerts
+
+VPS agents can send Telegram alerts for notable events (CPU spike, disk full, container stopped, SSH login, etc.). Alerts are configured per agent by an admin under **Edit Agent**.
 
 ---
 
@@ -174,6 +213,14 @@ Configure the three shift types (Day, Night, Office):
 - Whether the shift requires a location (onsite / remote)
 
 Times are interpreted in the portal timezone shown in the banner at the top of this tab. Changing a shift type's default start time automatically adjusts when Telegram notifications fire for that shift type.
+
+### Telegram Templates tab
+
+Named presets for Telegram destinations (chat + optional topic). Templates are referenced by mailbox routing rules, VPS agents, and reminders so you can define a destination once and reuse it.
+
+1. Click **+ Add template**.
+2. Give it a name (e.g. "Alerts channel", "On-call thread").
+3. Enter the chat ID and optional topic/thread ID.
 
 ### Telegram tab
 
