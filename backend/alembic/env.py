@@ -4,15 +4,15 @@ import os
 import sys
 from logging.config import fileConfig
 
+# Ensure the backend app package is importable when running `alembic` from
+# the backend/ directory (where alembic.ini lives).
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
-
-# Ensure the backend app package is importable when running `alembic` from
-# the backend/ directory (where alembic.ini lives).
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 # Import Base (triggers model registration) and all models so Alembic
 # can introspect target_metadata.
