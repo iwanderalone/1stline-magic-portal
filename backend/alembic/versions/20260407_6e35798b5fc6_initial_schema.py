@@ -179,7 +179,7 @@ def upgrade() -> None:
     sa.Column('recurrence_minutes', sa.Integer(), nullable=True),
     sa.Column('notify_telegram', sa.Boolean(), nullable=True),
     sa.Column('notify_in_app', sa.Boolean(), nullable=True),
-    sa.Column('telegram_target', sa.String(length=10), nullable=True),
+    sa.Column('telegram_target', sa.String(length=200), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=True),
     sa.Column('fired_at', sa.DateTime(timezone=True), nullable=True),
     sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
