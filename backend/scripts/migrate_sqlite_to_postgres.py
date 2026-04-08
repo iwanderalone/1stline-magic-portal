@@ -23,8 +23,10 @@ import logging
 # Must be set before importing app modules that call get_settings()
 os.environ.setdefault("DATABASE_URL", os.environ.get("SQLITE_URL", ""))
 
+import re
+
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy import select, text
+from sqlalchemy import Table, select, text
 
 # ── Ensure app is importable ──────────────────────────────────────────────────
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
@@ -57,7 +59,7 @@ ORDERED_MODELS = [
 
 async def copy_table(src_session: AsyncSession, dst_engine, model):
     """Copy all rows from src to dst for a given model or association table."""
-    if hasattr(model, "__table__"):
+    if isinstance(model, Table):
         # Association table (e.g. user_groups)
         table = model
         rows = (await src_session.execute(table.select())).fetchall()
@@ -90,7 +92,7 @@ async def copy_table(src_session: AsyncSession, dst_engine, model):
 
 async def main():
     log.info("Source:      %s", SQLITE_URL)
-    log.info("Destination: %s", POSTGRES_URL[:POSTGRES_URL.index("@") + 1] + "***")
+    log.info("Destination: %s", re.sub(r":[^:@]+@", ":***@", POSTGRES_URL))
 
     src_engine = create_async_engine(SQLITE_URL, connect_args={"check_same_thread": False})
     dst_engine = create_async_engine(POSTGRES_URL, pool_size=5)
@@ -108,12 +110,23 @@ async def main():
     log.info("Starting migration...")
     async with src_factory() as src_session:
         for model in ORDERED_MODELS:
-            name = getattr(model, "name", None) or getattr(model, "__tablename__", str(model))
+            name = getattr(model, "__tablename__", None) or getattr(model, "name", str(model))
             try:
                 await copy_table(src_session, dst_engine, model)
             except Exception as e:
                 log.error("Failed on %s: %s", name, e)
                 raise
+
+    # Reset PostgreSQL sequences for integer-PK tables after bulk insert.
+    # Without this, the next app INSERT into these tables will collide with migrated IDs.
+    int_pk_tables = ["mailbox_configs", "mail_routing_rules", "email_logs", "email_comments"]
+    async with dst_engine.begin() as conn:
+        for table_name in int_pk_tables:
+            await conn.execute(text(
+                f"SELECT setval(pg_get_serial_sequence('{table_name}', 'id'), "
+                f"COALESCE((SELECT MAX(id) FROM {table_name}), 0))"
+            ))
+            log.info("  reset sequence for %s", table_name)
 
     await src_engine.dispose()
     await dst_engine.dispose()
