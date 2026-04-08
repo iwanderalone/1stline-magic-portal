@@ -232,18 +232,23 @@ async def _migrate_imap_passwords() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Ensure the data directory exists (needed for the SQLite file path)
     if _is_sqlite:
+        # Ensure the SQLite data directory exists
         db_url = settings.DATABASE_URL
         # Extract file path from sqlite+aiosqlite:///path
         db_path = db_url.split("///", 1)[-1]
         db_dir = os.path.dirname(db_path)
         if db_dir:
             os.makedirs(db_dir, exist_ok=True)
-
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    await run_migrations()
+        # SQLite: create tables and run additive ALTER TABLE migrations
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        await run_migrations()
+    else:
+        # PostgreSQL: schema is managed by Alembic.
+        # `alembic upgrade head` must be run before starting the app
+        # (see docker-compose.yml command).
+        logger.info("PostgreSQL mode — skipping create_all (Alembic manages schema)")
     await seed_defaults()
     await seed_routing_rules()
     await _migrate_imap_passwords()
