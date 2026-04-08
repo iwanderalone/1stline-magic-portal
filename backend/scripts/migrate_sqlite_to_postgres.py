@@ -124,7 +124,7 @@ async def main():
         for table_name in int_pk_tables:
             await conn.execute(text(
                 f"SELECT setval(pg_get_serial_sequence('{table_name}', 'id'), "
-                f"COALESCE((SELECT MAX(id) FROM {table_name}), 0))"
+                f"COALESCE((SELECT MAX(id) FROM {table_name}), 1))"
             ))
             log.info("  reset sequence for %s", table_name)
 
