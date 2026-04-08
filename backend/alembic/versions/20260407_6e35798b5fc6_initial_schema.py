@@ -47,7 +47,7 @@ def upgrade() -> None:
     op.create_index(op.f('ix_mailbox_configs_email'), 'mailbox_configs', ['email'], unique=True)
     op.create_table('shift_configs',
     sa.Column('id', sa.Uuid(), nullable=False),
-    sa.Column('shift_type', sa.Enum('DAY', 'NIGHT', 'OFFICE', name='shifttype'), nullable=False),
+    sa.Column('shift_type', sa.Enum('day', 'night', 'office', name='shifttype'), nullable=False),
     sa.Column('label', sa.String(length=50), nullable=False),
     sa.Column('duration_hours', sa.Float(), nullable=False),
     sa.Column('default_start_time', sa.Time(), nullable=True),
@@ -63,7 +63,7 @@ def upgrade() -> None:
     op.create_table('shift_notification_logs',
     sa.Column('id', sa.Uuid(), nullable=False),
     sa.Column('date', sa.Date(), nullable=False),
-    sa.Column('shift_type', sa.Enum('DAY', 'NIGHT', 'OFFICE', name='shifttype'), nullable=False),
+    sa.Column('shift_type', sa.Enum('day', 'night', 'office', name='shifttype'), nullable=False),
     sa.Column('sent_at', sa.DateTime(timezone=True), nullable=True),
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('date', 'shift_type')
@@ -72,7 +72,7 @@ def upgrade() -> None:
     sa.Column('id', sa.Uuid(), nullable=False),
     sa.Column('chat_id', sa.String(length=50), nullable=False),
     sa.Column('name', sa.String(length=200), nullable=False),
-    sa.Column('chat_type', sa.Enum('PERSONAL', 'GROUP', 'CHANNEL', name='telegramchattype'), nullable=False),
+    sa.Column('chat_type', sa.Enum('personal', 'group', 'channel', name='telegramchattype'), nullable=False),
     sa.Column('topic_id', sa.String(length=50), nullable=True),
     sa.Column('is_active', sa.Boolean(), nullable=True),
     sa.Column('notify_day_shift_start', sa.Boolean(), nullable=True),
@@ -101,7 +101,7 @@ def upgrade() -> None:
     sa.Column('display_name', sa.String(length=100), nullable=False),
     sa.Column('email', sa.String(length=255), nullable=True),
     sa.Column('hashed_password', sa.String(length=255), nullable=False),
-    sa.Column('role', sa.Enum('ADMIN', 'ENGINEER', name='userrole'), nullable=False),
+    sa.Column('role', sa.Enum('admin', 'engineer', name='userrole'), nullable=False),
     sa.Column('is_active', sa.Boolean(), nullable=False),
     sa.Column('avatar_url', sa.String(length=500), nullable=True),
     sa.Column('name_color', sa.String(length=7), nullable=True),
@@ -174,7 +174,7 @@ def upgrade() -> None:
     sa.Column('title', sa.String(length=255), nullable=False),
     sa.Column('description', sa.Text(), nullable=True),
     sa.Column('remind_at', sa.DateTime(timezone=True), nullable=False),
-    sa.Column('status', sa.Enum('ACTIVE', 'FIRED', 'CANCELLED', name='reminderstatus'), nullable=False),
+    sa.Column('status', sa.Enum('active', 'fired', 'cancelled', name='reminderstatus'), nullable=False),
     sa.Column('is_recurring', sa.Boolean(), nullable=True),
     sa.Column('recurrence_minutes', sa.Integer(), nullable=True),
     sa.Column('notify_telegram', sa.Boolean(), nullable=True),
@@ -191,10 +191,10 @@ def upgrade() -> None:
     sa.Column('id', sa.Uuid(), nullable=False),
     sa.Column('user_id', sa.Uuid(), nullable=False),
     sa.Column('date', sa.Date(), nullable=False),
-    sa.Column('shift_type', sa.Enum('DAY', 'NIGHT', 'OFFICE', name='shifttype'), nullable=False),
+    sa.Column('shift_type', sa.Enum('day', 'night', 'office', name='shifttype'), nullable=False),
     sa.Column('start_time', sa.Time(), nullable=True),
     sa.Column('end_time', sa.Time(), nullable=True),
-    sa.Column('location', sa.Enum('ONSITE', 'REMOTE', name='worklocation'), nullable=True),
+    sa.Column('location', sa.Enum('onsite', 'remote', name='worklocation'), nullable=True),
     sa.Column('notes', sa.Text(), nullable=True),
     sa.Column('is_published', sa.Boolean(), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=True),
@@ -209,8 +209,8 @@ def upgrade() -> None:
     sa.Column('user_id', sa.Uuid(), nullable=False),
     sa.Column('start_date', sa.Date(), nullable=False),
     sa.Column('end_date', sa.Date(), nullable=False),
-    sa.Column('off_type', sa.Enum('DAY_OFF', 'VACATION', 'SICK_LEAVE', name='timeofftype'), nullable=False),
-    sa.Column('status', sa.Enum('PENDING', 'APPROVED', 'REJECTED', name='timeoffstatus'), nullable=False),
+    sa.Column('off_type', sa.Enum('day_off', 'vacation', 'sick_leave', name='timeofftype'), nullable=False),
+    sa.Column('status', sa.Enum('pending', 'approved', 'rejected', name='timeoffstatus'), nullable=False),
     sa.Column('comment', sa.Text(), nullable=True),
     sa.Column('admin_comment', sa.Text(), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=True),
@@ -249,8 +249,8 @@ def upgrade() -> None:
     sa.Column('agent_id', sa.Uuid(), nullable=False),
     sa.Column('docker_id', sa.String(length=64), nullable=False),
     sa.Column('container_name', sa.String(length=255), nullable=True),
-    sa.Column('command', sa.Enum('START', 'STOP', 'RESTART', name='containercommandtype'), nullable=False),
-    sa.Column('status', sa.Enum('PENDING', 'EXECUTING', 'DONE', 'FAILED', name='containercommandstatus'), nullable=False),
+    sa.Column('command', sa.Enum('start', 'stop', 'restart', name='containercommandtype'), nullable=False),
+    sa.Column('status', sa.Enum('pending', 'executing', 'done', 'failed', name='containercommandstatus'), nullable=False),
     sa.Column('issued_by_user_id', sa.Uuid(), nullable=True),
     sa.Column('issued_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('executed_at', sa.DateTime(timezone=True), nullable=True),
@@ -328,8 +328,8 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_email_logs_fingerprint'), table_name='email_logs')
     op.drop_index('ix_email_logs_created_at', table_name='email_logs')
     op.drop_table('email_logs')
-    op.drop_table('container_states')
     op.drop_table('container_commands')
+    op.drop_table('container_states')
     op.drop_table('vps_agents')
     op.drop_table('user_groups')
     op.drop_table('time_off_requests')
@@ -344,8 +344,6 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_activity_logs_created_at'), table_name='activity_logs')
     op.drop_index(op.f('ix_activity_logs_action'), table_name='activity_logs')
     op.drop_table('activity_logs')
-    op.drop_index(op.f('ix_users_username'), table_name='users')
-    op.drop_table('users')
     op.drop_table('telegram_templates')
     op.drop_table('telegram_chats')
     op.drop_table('shift_notification_logs')
@@ -353,4 +351,17 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_mailbox_configs_email'), table_name='mailbox_configs')
     op.drop_table('mailbox_configs')
     op.drop_table('groups')
+    op.drop_index(op.f('ix_users_username'), table_name='users')
+    op.drop_table('users')
+    # Drop PostgreSQL enum types (PostgreSQL only — SQLite has no native enum types)
+    if op.get_context().dialect.name == "postgresql":
+        op.execute("DROP TYPE IF EXISTS shifttype")
+        op.execute("DROP TYPE IF EXISTS userrole")
+        op.execute("DROP TYPE IF EXISTS telegramchattype")
+        op.execute("DROP TYPE IF EXISTS reminderstatus")
+        op.execute("DROP TYPE IF EXISTS worklocation")
+        op.execute("DROP TYPE IF EXISTS timeofftype")
+        op.execute("DROP TYPE IF EXISTS timeoffstatus")
+        op.execute("DROP TYPE IF EXISTS containercommandtype")
+        op.execute("DROP TYPE IF EXISTS containercommandstatus")
     # ### end Alembic commands ###
