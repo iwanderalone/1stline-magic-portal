@@ -371,7 +371,7 @@ backend/
 │   ├── main.py                     # FastAPI app, lifespan (DB init + seed + migrations + scheduler)
 │   ├── core/
 │   │   ├── config.py               # Settings via pydantic-settings; startup secret validation
-│   │   ├── database.py             # Async SQLAlchemy engine; WAL mode pragmas; get_db() dependency
+│   │   ├── database.py             # Async SQLAlchemy engine (PostgreSQL/asyncpg); SQLite WAL pragmas for local dev; get_db() dependency
 │   │   ├── deps.py                 # get_current_user, require_admin, get_or_404 dependencies
 │   │   ├── security.py             # hash_password, verify_password, create/decode JWT tokens
 │   │   ├── scheduler.py            # Shared AsyncIOScheduler instance
