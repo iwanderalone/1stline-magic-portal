@@ -27,9 +27,9 @@ A lightweight internal operations portal for first-line support teams. Provides 
 └────────────┬──────────────────────┬──────────┘
              │                      │ push metrics (15s)
    ┌─────────▼──────────┐   ┌───────▼───────────────┐
-   │  SQLite (aiosqlite) │   │ Remote VPS nodes       │
-   │  WAL mode           │   │ Telegraf agent         │
-   │  data/portal.db     │   │ (outbound-only push)   │
+   │  PostgreSQL        │   │ Remote VPS nodes       │
+   │  (asyncpg)         │   │ Telegraf agent         │
+   │  Docker: db:5432   │   │ (outbound-only push)   │
    └────────────────────┘   └───────────────────────┘
           │
    ┌──────▼───────┐
@@ -39,7 +39,7 @@ A lightweight internal operations portal for first-line support teams. Provides 
    └──────────────┘
 ```
 
-**No PostgreSQL. No Redis.** SQLite with WAL mode handles concurrent reads/writes from both the HTTP server and the APScheduler background workers without locking issues.
+**Docker Compose runs PostgreSQL** (asyncpg driver, `postgres:16-alpine`). Schema is managed by Alembic — `alembic upgrade head` runs automatically before uvicorn starts. For local development outside Docker, SQLite via aiosqlite is still supported (set `DATABASE_URL=sqlite+aiosqlite:///./portal.db`).
 
 ## Quick Start
 
@@ -72,7 +72,7 @@ CORS_ORIGINS=http://YOUR_SERVER_IP,https://portal.example.com
 mkdir -p data
 ```
 
-The SQLite database lands at `./data/portal.db` (mounted into the container as `/app/data/portal.db`).
+The `./data` directory is mounted into the container for log files (`LOG_DIR=/app/data/logs`). PostgreSQL data is stored in the `postgres_data` named Docker volume.
 
 ### 3. Start with Docker Compose
 
@@ -280,7 +280,7 @@ GET    /api/config                           # Public config (Telegram bot usern
 
 ## Database Schema
 
-SQLite at `data/portal.db`, persisted via Docker volume. Schema created automatically on first startup via `Base.metadata.create_all`. Additive column migrations applied via `run_migrations()` on every startup (safe to re-run).
+PostgreSQL in Docker (named volume `postgres_data`). Schema managed by Alembic — `alembic upgrade head` runs on every `docker compose up` before the API starts. For local development with SQLite, schema is created via `Base.metadata.create_all` on startup.
 
 **Tables:**
 
@@ -327,13 +327,13 @@ SQLite at `data/portal.db`, persisted via Docker volume. Schema created automati
 |------------|---------------------------------------------------------|-----------|
 | Frontend   | React, Vite, CSS-in-JS (no UI library)                 | 18 / 5    |
 | Backend    | FastAPI, Python                                         | 0.115 / 3.12 |
-| Database   | SQLite via aiosqlite (WAL mode, zero external deps)     | 0.20.0    |
+| Database   | PostgreSQL 16 (Docker) / SQLite (local dev)             | asyncpg 0.29 |
 | ORM        | SQLAlchemy async                                        | 2.0.35    |
 | Auth       | python-jose (JWT HS256), passlib/bcrypt, pyotp (TOTP)  | —         |
 | Workers    | APScheduler asyncio (reminders every 30s, shift crons) | 3.10.4    |
 | Telegram   | httpx direct Bot API calls                              | 0.27.2    |
 | Validation | Pydantic v2 + pydantic-settings                         | 2.9.2     |
-| Container  | Docker Compose — 2 services: `api` + `frontend`        | —         |
+| Container  | Docker Compose — 3 services: `db` + `api` + `frontend` | —         |
 
 ## Configuration
 
@@ -357,7 +357,7 @@ SQLite at `data/portal.db`, persisted via Docker volume. Schema created automati
 | `MAIL_DEFAULT_CHAT_ID`  | no       | *(empty)*                            | Fallback Telegram chat_id if mailbox has no target |
 | `MAIL_DEFAULT_THREAD_ID`| no       | *(empty)*                            | Fallback Telegram thread/topic id              |
 
-In Docker Compose the database URL is overridden to `sqlite+aiosqlite:////app/data/portal.db` so the file lands in the persisted `./data` volume mount.
+In Docker Compose `DATABASE_URL` is set to `postgresql+asyncpg://portal:<pw>@db:5432/portal`. For local development outside Docker, set `DATABASE_URL=sqlite+aiosqlite:///./portal.db` to use SQLite instead.
 
 ## Backend Structure
 
