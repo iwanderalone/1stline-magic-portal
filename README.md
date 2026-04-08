@@ -57,6 +57,7 @@ Edit `.env` and set real values:
 # Generate secrets (run these, paste output into .env)
 openssl rand -hex 32   # → SECRET_KEY
 openssl rand -hex 64   # → JWT_SECRET
+openssl rand -hex 32   # → POSTGRES_PASSWORD
 ```
 
 For a VPS deployment also set `CORS_ORIGINS` in `.env`:
@@ -340,7 +341,8 @@ SQLite at `data/portal.db`, persisted via Docker volume. Schema created automati
 |-------------------------|----------|--------------------------------------|------------------------------------------------|
 | `SECRET_KEY`            | **yes**  | *(none)*                             | App secret; also derives Fernet encryption key. Generate: `openssl rand -hex 32` |
 | `JWT_SECRET`            | **yes**  | *(none)*                             | JWT signing key. Generate: `openssl rand -hex 64` |
-| `DATABASE_URL`          | no       | `sqlite+aiosqlite:///./portal.db`    | SQLAlchemy async URL                           |
+| `POSTGRES_PASSWORD`     | **yes**  | *(none)*                             | PostgreSQL password (used by Docker Compose). Generate: `openssl rand -hex 32` |
+| `DATABASE_URL`          | no       | `postgresql+asyncpg://portal:<pw>@db:5432/portal` (Docker) | SQLAlchemy async URL                           |
 | `PORTAL_TIMEZONE`       | no       | `UTC`                                | IANA timezone for shift times and crons        |
 | `CORS_ORIGINS`          | no       | `http://localhost:5173,...`          | Comma-separated allowed origins                |
 | `ENVIRONMENT`           | no       | `development`                        | Set to `production` to enable CORS origin warnings |
@@ -360,48 +362,53 @@ In Docker Compose the database URL is overridden to `sqlite+aiosqlite:////app/da
 ## Backend Structure
 
 ```
-backend/app/
-├── main.py                         # FastAPI app, lifespan (DB init + seed + migrations + scheduler)
-├── core/
-│   ├── config.py                   # Settings via pydantic-settings; startup secret validation
-│   ├── database.py                 # Async SQLAlchemy engine; WAL mode pragmas; get_db() dependency
-│   ├── deps.py                     # get_current_user, require_admin, get_or_404 dependencies
-│   ├── security.py                 # hash_password, verify_password, create/decode JWT tokens
-│   ├── scheduler.py                # Shared AsyncIOScheduler instance
-│   ├── encryption.py               # Fernet encrypt/decrypt for sensitive fields (IMAP passwords)
-│   └── logging_config.py           # Structured log format + optional rotating file handler
-├── models/models.py                # All SQLAlchemy ORM models (18 tables)
-├── schemas/schemas.py              # All Pydantic v2 request/response schemas (BaseOrmModel base)
-├── api/
-│   ├── auth.py                     # Login, OTP setup/confirm/disable, token refresh (rate-limited)
-│   ├── users.py                    # User CRUD (admin) + self-service profile/telegram endpoints
-│   ├── groups.py                   # Group CRUD + member management (admin)
-│   ├── schedule.py                 # Shifts, auto-generation, publish, time-off requests
-│   ├── reminders.py                # Reminder CRUD for current user
-│   ├── notifications.py            # In-app notification feed
-│   ├── admin_config.py             # Shift configs, Telegram chats/templates, audit logs
-│   ├── mail_reporter.py            # Mailbox CRUD, email log, routing rules, manual poll trigger
-│   └── containers.py               # VPS agent registration, Telegraf ingest, dashboard read, alerts
-├── services/
-│   ├── schedule_service.py         # Greedy auto-generation algorithm with constraint satisfaction
-│   ├── telegram_service.py         # Shift start + office roster Telegram notifications
-│   ├── mail_reporter_service.py    # IMAP polling, email classification, Telegram delivery
-│   └── audit.py                    # log_action() helper for activity_logs table
-├── workers/
-│   ├── reminder_worker.py          # Fires due reminders every 30s; advances recurring reminders
-│   ├── shift_notification_worker.py    # 60s safety-net: fires shift notifications based on UTC clock
-│   └── shift_notification_scheduler.py # On startup/publish: registers precise APScheduler 'date' jobs
-└── tests/
-    ├── conftest.py                 # pytest fixtures: in-memory SQLite, async httpx client
-    ├── test_health.py              # /api/health smoke + DB check
-    ├── test_config.py              # Secret validation tests
-    ├── test_encryption.py          # Fernet roundtrip tests
-    ├── test_auth_rate_limit.py     # Rate limiter boundary tests
-    ├── test_security_headers.py    # Security headers presence
-    ├── test_body_limit.py          # 1 MB body rejection
-    ├── test_schedule_auth.py       # Enum role check static analysis
-    ├── test_schema_consistency.py  # BaseOrmModel + get_or_404 structural tests
-    └── test_model_consistency.py   # ORM model structural tests
+backend/
+├── alembic.ini                     # Alembic config — used by `alembic upgrade head`
+├── alembic/
+│   ├── env.py                      # Async Alembic environment (reads DATABASE_URL from Settings)
+│   └── versions/                   # Migration files — one per schema change
+├── app/
+│   ├── main.py                     # FastAPI app, lifespan (DB init + seed + migrations + scheduler)
+│   ├── core/
+│   │   ├── config.py               # Settings via pydantic-settings; startup secret validation
+│   │   ├── database.py             # Async SQLAlchemy engine; WAL mode pragmas; get_db() dependency
+│   │   ├── deps.py                 # get_current_user, require_admin, get_or_404 dependencies
+│   │   ├── security.py             # hash_password, verify_password, create/decode JWT tokens
+│   │   ├── scheduler.py            # Shared AsyncIOScheduler instance
+│   │   ├── encryption.py           # Fernet encrypt/decrypt for sensitive fields (IMAP passwords)
+│   │   └── logging_config.py       # Structured log format + optional rotating file handler
+│   ├── models/models.py            # All SQLAlchemy ORM models (18 tables)
+│   ├── schemas/schemas.py          # All Pydantic v2 request/response schemas (BaseOrmModel base)
+│   ├── api/
+│   │   ├── auth.py                 # Login, OTP setup/confirm/disable, token refresh (rate-limited)
+│   │   ├── users.py                # User CRUD (admin) + self-service profile/telegram endpoints
+│   │   ├── groups.py               # Group CRUD + member management (admin)
+│   │   ├── schedule.py             # Shifts, auto-generation, publish, time-off requests
+│   │   ├── reminders.py            # Reminder CRUD for current user
+│   │   ├── notifications.py        # In-app notification feed
+│   │   ├── admin_config.py         # Shift configs, Telegram chats/templates, audit logs
+│   │   ├── mail_reporter.py        # Mailbox CRUD, email log, routing rules, manual poll trigger
+│   │   └── containers.py           # VPS agent registration, Telegraf ingest, dashboard read, alerts
+│   ├── services/
+│   │   ├── schedule_service.py     # Greedy auto-generation algorithm with constraint satisfaction
+│   │   ├── telegram_service.py     # Shift start + office roster Telegram notifications
+│   │   ├── mail_reporter_service.py # IMAP polling, email classification, Telegram delivery
+│   │   └── audit.py                # log_action() helper for activity_logs table
+│   ├── workers/
+│   │   ├── reminder_worker.py      # Fires due reminders every 30s; advances recurring reminders
+│   │   ├── shift_notification_worker.py # 60s safety-net: fires shift notifications based on UTC clock
+│   │   └── shift_notification_scheduler.py # On startup/publish: registers precise APScheduler 'date' jobs
+│   └── tests/
+│       ├── conftest.py             # pytest fixtures: in-memory SQLite, async httpx client
+│       ├── test_health.py          # /api/health smoke + DB check
+│       ├── test_config.py          # Secret validation tests
+│       ├── test_encryption.py      # Fernet roundtrip tests
+│       ├── test_auth_rate_limit.py # Rate limiter boundary tests
+│       ├── test_security_headers.py # Security headers presence
+│       ├── test_body_limit.py      # 1 MB body rejection
+│       ├── test_schedule_auth.py   # Enum role check static analysis
+│       ├── test_schema_consistency.py # BaseOrmModel + get_or_404 structural tests
+│       └── test_model_consistency.py # ORM model structural tests
 ```
 
 ## Frontend Structure
