@@ -1,10 +1,7 @@
 import json
-import logging
 from dataclasses import dataclass
 from datetime import date
 from typing import Optional
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -41,9 +38,15 @@ class MailboxConfig:
     catch_all: Optional[CatchAll]
 
 
+VALID_MATCH_TYPES = {"keyword", "subject_keyword", "sender", "sender_domain"}
+
+
 def load_config(path: str) -> list[MailboxConfig]:
-    with open(path) as f:
-        data = json.load(f)
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid JSON in {path!r}: {exc}") from exc
 
     raw_mailboxes = data.get("mailboxes", [])
     if not raw_mailboxes:
@@ -58,6 +61,14 @@ def load_config(path: str) -> list[MailboxConfig]:
 
         rules: list[RoutingRule] = []
         for r in mb.get("rules", []):
+            for field in ("name", "match_type", "match_values"):
+                if field not in r:
+                    raise ValueError(f"Rule missing required field: '{field}'")
+            if r["match_type"] not in VALID_MATCH_TYPES:
+                raise ValueError(
+                    f"Rule {r['name']!r}: unknown match_type {r['match_type']!r}. "
+                    f"Valid values: {sorted(VALID_MATCH_TYPES)}"
+                )
             rules.append(RoutingRule(
                 name=r["name"],
                 match_type=r["match_type"],
