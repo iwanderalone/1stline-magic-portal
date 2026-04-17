@@ -25,8 +25,11 @@ def classify(
         elif match_type == "subject_keyword":
             if any(v in subject_l for v in values):
                 return rule
-        elif match_type in ("sender", "sender_domain"):
+        elif match_type == "sender":
             if any(v in sender_l for v in values):
+                return rule
+        elif match_type == "sender_domain":
+            if any("@" + v in sender_l for v in values):
                 return rule
 
     return None

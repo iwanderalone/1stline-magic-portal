@@ -86,6 +86,10 @@ async def run() -> None:
         format="%(asctime)s %(levelname)-8s %(name)s — %(message)s",
     )
 
+    if not settings.TELEGRAM_BOT_TOKEN:
+        logger.critical("TELEGRAM_BOT_TOKEN is not set — add it to .env and restart")
+        raise SystemExit(1)
+
     try:
         mailboxes = load_config(settings.CONFIG_PATH)
     except (ValueError, FileNotFoundError) as e:
