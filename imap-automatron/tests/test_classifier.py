@@ -1,6 +1,6 @@
 import pytest
 from app.classifier import classify
-from app.config_loader import RoutingRule, CatchAll
+from app.config_loader import RoutingRule
 
 
 def _rule(name, match_type, match_values, priority=100, telegram_target="") -> RoutingRule:
