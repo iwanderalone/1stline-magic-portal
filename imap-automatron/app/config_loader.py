@@ -72,7 +72,7 @@ def load_config(path: str) -> list[MailboxConfig]:
             rules.append(RoutingRule(
                 name=r["name"],
                 match_type=r["match_type"],
-                match_values=r.get("match_values", []),
+                match_values=r["match_values"],
                 label=r.get("label", "📩 Email"),
                 hashtag=r.get("hashtag", ""),
                 mention_users=r.get("mention_users", ""),
