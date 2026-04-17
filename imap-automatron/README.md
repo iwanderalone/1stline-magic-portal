@@ -1,6 +1,6 @@
 # imap-automatron
 
-Polls IMAP mailboxes and forwards matching emails to Telegram chats — zero database, zero web UI, configure via files.
+Polls IMAP mailboxes and forwards matching emails to Telegram chats — no web UI, configure via files.
 
 ## What it does
 

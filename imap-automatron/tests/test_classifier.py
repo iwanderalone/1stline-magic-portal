@@ -50,6 +50,12 @@ def test_sender_domain_match():
     assert result is not None
 
 
+def test_sender_domain_does_not_match_spoofed_domain():
+    rules = [_rule("Corp", "sender_domain", ["bigcorp.com"])]
+    result = classify("anyone@fakebigcorp.com", "Subject", "body", rules)
+    assert result is None
+
+
 def test_no_match_returns_none():
     rules = [_rule("Billing", "keyword", ["invoice"])]
     result = classify("from@x.com", "Hello", "How are you", rules)
