@@ -1,0 +1,96 @@
+# ── Dev instance — portal.dev.wanderalone.moe ────────────────────────────────
+#
+# Runs alongside production (portal.wanderalone.moe, ports 8000/3000).
+# Uses separate ports, volumes, and DB name to avoid any conflict.
+#
+# Start:
+#   docker compose -p portal-dev -f docker-compose.dev.yml --env-file .env.dev up -d --build
+#
+# Stop:
+#   docker compose -p portal-dev -f docker-compose.dev.yml down
+#
+# Logs:
+#   docker compose -p portal-dev -f docker-compose.dev.yml logs -f api
+#
+# nginx reverse-proxy snippet for portal.dev.wanderalone.moe:
+#   location / {
+#       proxy_pass http://127.0.0.1:3001;
+#       proxy_set_header Host $host;
+#       proxy_set_header X-Real-IP $remote_addr;
+#   }
+#   location /api {
+#       proxy_pass http://127.0.0.1:8001;
+#       proxy_set_header Host $host;
+#       proxy_set_header X-Real-IP $remote_addr;
+#   }
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  # ── PostgreSQL (dev) ─────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: portal_dev
+      POSTGRES_USER: portal
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env.dev}"
+    volumes:
+      - postgres_data_dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U portal -d portal_dev"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  # ── Backend API (dev) ────────────────────────────────────
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: >
+      sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    ports:
+      - "127.0.0.1:8001:8000"
+    environment:
+      DATABASE_URL: "postgresql+asyncpg://portal:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env.dev}@db:5432/portal_dev"
+      SECRET_KEY: "${SECRET_KEY:-change-me-dev}"
+      JWT_SECRET: "${JWT_SECRET:-change-me-dev}"
+      TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN:-}"
+      TELEGRAM_BOT_USERNAME: "${TELEGRAM_BOT_USERNAME:-}"
+      CORS_ORIGINS: "${CORS_ORIGINS:-https://portal.dev.wanderalone.moe}"
+      PORTAL_TIMEZONE: "${PORTAL_TIMEZONE:-UTC}"
+      LOG_DIR: /app/data/logs
+    volumes:
+      - ./data-dev:/app/data
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')\" || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ── Frontend (dev) ───────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "127.0.0.1:3001:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:80/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  postgres_data_dev:
