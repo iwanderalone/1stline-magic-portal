@@ -14,6 +14,10 @@ def utcnow():
     return datetime.now(timezone.utc)
 
 
+def _enum(cls, **kw):
+    return SAEnum(cls, values_callable=lambda obj: [e.value for e in obj], **kw)
+
+
 # ─── Enums ───────────────────────────────────────────────
 
 class UserRole(str, enum.Enum):
@@ -94,7 +98,7 @@ class User(Base):
     display_name = Column(String(100), nullable=False)
     email = Column(String(255), unique=True, nullable=True)
     hashed_password = Column(String(255), nullable=False)
-    role = Column(SAEnum(UserRole), default=UserRole.ENGINEER, nullable=False)
+    role = Column(_enum(UserRole), default=UserRole.ENGINEER, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
 
     # Profile customization
@@ -146,7 +150,7 @@ class ShiftConfig(Base):
     __tablename__ = "shift_configs"
 
     id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    shift_type = Column(SAEnum(ShiftType), unique=True, nullable=False)
+    shift_type = Column(_enum(ShiftType), unique=True, nullable=False)
     label = Column(String(50), nullable=False)
     duration_hours = Column(Float, nullable=False, default=12)
     default_start_time = Column(Time, nullable=True)
@@ -171,10 +175,10 @@ class Shift(Base):
     id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(Uuid(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     date = Column(Date, nullable=False)
-    shift_type = Column(SAEnum(ShiftType), nullable=False)
+    shift_type = Column(_enum(ShiftType), nullable=False)
     start_time = Column(Time, nullable=True)
     end_time = Column(Time, nullable=True)
-    location = Column(SAEnum(WorkLocation), nullable=True)
+    location = Column(_enum(WorkLocation), nullable=True)
     notes = Column(Text, nullable=True)
     is_published = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), default=utcnow)
@@ -189,8 +193,8 @@ class TimeOffRequest(Base):
     user_id = Column(Uuid(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     start_date = Column(Date, nullable=False)
     end_date = Column(Date, nullable=False)
-    off_type = Column(SAEnum(TimeOffType), nullable=False)
-    status = Column(SAEnum(TimeOffStatus), default=TimeOffStatus.PENDING, nullable=False)
+    off_type = Column(_enum(TimeOffType), nullable=False)
+    status = Column(_enum(TimeOffStatus), default=TimeOffStatus.PENDING, nullable=False)
     comment = Column(Text, nullable=True)
     admin_comment = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), default=utcnow)
@@ -213,7 +217,7 @@ class Reminder(Base):
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
     remind_at = Column(DateTime(timezone=True), nullable=False)
-    status = Column(SAEnum(ReminderStatus), default=ReminderStatus.ACTIVE, nullable=False)
+    status = Column(_enum(ReminderStatus), default=ReminderStatus.ACTIVE, nullable=False)
     is_recurring = Column(Boolean, default=False)
     recurrence_minutes = Column(Integer, nullable=True)
     notify_telegram = Column(Boolean, default=True)
@@ -259,7 +263,7 @@ class TelegramChat(Base):
     id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     chat_id = Column(String(50), unique=True, nullable=False)
     name = Column(String(200), nullable=False)
-    chat_type = Column(SAEnum(TelegramChatType), nullable=False, default=TelegramChatType.GROUP)
+    chat_type = Column(_enum(TelegramChatType), nullable=False, default=TelegramChatType.GROUP)
     topic_id = Column(String(50), nullable=True)  # Forum topic ID inside groups
     is_active = Column(Boolean, default=True)
 
@@ -303,7 +307,7 @@ class ShiftNotificationLog(Base):
 
     id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     date = Column(Date, nullable=False)
-    shift_type = Column(SAEnum(ShiftType), nullable=False)
+    shift_type = Column(_enum(ShiftType), nullable=False)
     sent_at = Column(DateTime(timezone=True), default=utcnow)
 
 
@@ -470,8 +474,8 @@ class ContainerCommand(Base):
                                nullable=False)
     docker_id         = Column(String(64), nullable=False)
     container_name    = Column(String(255), nullable=True)
-    command           = Column(SAEnum(ContainerCommandType), nullable=False)
-    status            = Column(SAEnum(ContainerCommandStatus),
+    command           = Column(_enum(ContainerCommandType), nullable=False)
+    status            = Column(_enum(ContainerCommandStatus),
                                default=ContainerCommandStatus.PENDING, nullable=False)
     issued_by_user_id = Column(Uuid(as_uuid=True),
                                ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
