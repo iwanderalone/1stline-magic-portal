@@ -554,7 +554,7 @@ async def _check_one_mailbox(mb: MailboxConfig, user_rules: list, builtin_map: d
             _fetch_imap_emails, mb.email, decrypt(mb.password), monitor_since
         )
     except RuntimeError as e:
-        logger.error(f"[mail-reporter] IMAP failed for {mb.email}: {e}")
+        logger.error(f"[mail-reporter] IMAP failed for {mb.email}: {e!r}")
         async with AsyncSessionFactory() as db:
             row = await db.get(MailboxConfig, mb.id)
             if row:
@@ -740,5 +740,5 @@ async def _check_all_mailboxes():
     for mb in mailboxes:
         try:
             await _check_one_mailbox(mb, user_rules, builtin_map, custom_builtin_rules)
-        except Exception as e:
-            logger.error(f"[mail-reporter] Unhandled error for {mb.email}: {e}")
+        except Exception:
+            logger.exception(f"[mail-reporter] Unhandled error for {mb.email}")
