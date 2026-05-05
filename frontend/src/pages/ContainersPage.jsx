@@ -225,7 +225,7 @@ function SystemPanel({ snapshot }) {
 
 // ─── Container Card ───────────────────────────────────────
 
-function ContainerCard({ container, agentId, onAction, onEdit, onViewLogs, pending }) {
+function ContainerCard({ container, agentId, onEdit, onViewLogs }) {
   const { theme: t } = useTheme();
   const label = container.display_name || container.name;
   const sc = statusColor(container.status);
@@ -234,11 +234,8 @@ function ContainerCard({ container, agentId, onAction, onEdit, onViewLogs, pendi
   const ports = fmtPorts(container.ports);
 
   return (
-    <div style={{ background: t.surface, border: `1px solid ${t.border}`, borderRadius: t.radius,
-      display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: t.shadow }}>
-
-      {/* Status strip */}
-      <div style={{ height: 3, background: sc }} />
+    <div style={{ background: t.surface, border: `1px solid ${t.border}`, borderLeft: `3px solid ${sc}`,
+      borderRadius: t.radius, display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: t.shadow }}>
 
       {/* Header */}
       <div style={{ padding: '10px 12px 6px', display: 'flex', alignItems: 'flex-start', gap: 8 }}>
@@ -266,9 +263,12 @@ function ContainerCard({ container, agentId, onAction, onEdit, onViewLogs, pendi
       {/* Meta */}
       <div style={{ padding: '0 12px 8px', display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ fontSize: 10, fontWeight: 700, color: sc, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            {container.status}
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 4 }}>
+            <div style={{ width: 6, height: 6, borderRadius: '50%', background: sc, flexShrink: 0 }} />
+            <span style={{ fontSize: 11, color: t.textSecondary, fontWeight: 500 }}>
+              {(container.status || 'unknown').toLowerCase()}
+            </span>
+          </div>
           {ports && <span style={{ fontSize: 10, color: t.textMuted }}>🔌 {ports}</span>}
         </div>
         {container.hosted_on && (
@@ -304,23 +304,6 @@ function ContainerCard({ container, agentId, onAction, onEdit, onViewLogs, pendi
         )}
       </div>
 
-      {/* Actions */}
-      <div style={{ padding: '7px 12px', borderTop: `1px solid ${t.border}`, display: 'flex', gap: 5 }}>
-        {[['▶', 'start', '#10b981'], ['■', 'stop', '#ef4444'], ['↺', 'restart', '#f59e0b']].map(([icon, cmd, col]) => (
-          <button key={cmd}
-            disabled={pending || container.is_absent}
-            onClick={() => onAction(agentId, container.docker_id, cmd)}
-            title={cmd}
-            style={{ flex: 1, padding: '4px 0', fontSize: 11, fontWeight: 600,
-              background: t.surfaceAlt, border: `1px solid ${t.border}`,
-              borderRadius: t.radiusSm, cursor: pending ? 'not-allowed' : 'pointer',
-              color: pending ? t.textMuted : t.textSecondary, transition: 'all 0.15s' }}
-            onMouseEnter={e => { if (!pending) { e.currentTarget.style.borderColor = col; e.currentTarget.style.color = col; } }}
-            onMouseLeave={e => { e.currentTarget.style.borderColor = t.border; e.currentTarget.style.color = t.textSecondary; }}>
-            {icon} {cmd}
-          </button>
-        ))}
-      </div>
     </div>
   );
 }
@@ -455,7 +438,7 @@ function EditAgentOverlay({ agent, onClose, onSave }) {
 
 // ─── Agent Section ────────────────────────────────────────
 
-function AgentSection({ agent, onAction, onEdit, onViewLogs, pendingActions, onDeleteAgent, onEditAgent }) {
+function AgentSection({ agent, onEdit, onViewLogs, onDeleteAgent, onEditAgent }) {
   const { theme: t } = useTheme();
   const online = isOnline(agent);
   const active = (agent.containers || []).filter(c => !c.is_absent);
@@ -532,8 +515,7 @@ function AgentSection({ agent, onAction, onEdit, onViewLogs, pendingActions, onD
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 10 }}>
                 {active.map(c => (
                   <ContainerCard key={c.docker_id} container={c} agentId={agent.id}
-                    onAction={onAction} onEdit={onEdit} onViewLogs={onViewLogs}
-                    pending={!!pendingActions[`${agent.id}:${c.docker_id}`]} />
+                    onEdit={onEdit} onViewLogs={onViewLogs} />
                 ))}
               </div>
             )}
@@ -702,8 +684,6 @@ export default function ContainersPage() {
   const [newAgent, setNewAgent] = useState(null);        // { id, api_key }
   const [editingContainer, setEditingContainer] = useState(null);
   const [viewingLogs, setViewingLogs] = useState(null);
-  const [pendingActions, setPendingActions] = useState({});
-
   const showToast = (message, type) => { setToast({ message, type }); setTimeout(() => setToast(null), 3500); };
 
   const fetchAgents = useCallback(async () => {
@@ -723,42 +703,6 @@ export default function ContainersPage() {
     const i = setInterval(fetchAgents, 15000);
     return () => clearInterval(i);
   }, [fetchAgents]);
-
-  const handleAction = async (agentId, dockerId, command) => {
-    const key = `${agentId}:${dockerId}`;
-    setPendingActions(p => ({ ...p, [key]: true }));
-    try {
-      const cmd = await api(`/containers/agents/${agentId}/containers/${dockerId}/action`, {
-        method: 'POST', body: JSON.stringify({ command }),
-      });
-      showToast(`${command} queued — waiting for agent…`, 'info');
-
-      // Poll up to ~16 s for the command result (agent polls every 5 s)
-      let resolved = false;
-      for (let i = 0; i < 8; i++) {
-        await new Promise(r => setTimeout(r, 2000));
-        try {
-          const status = await api(`/containers/commands/${cmd.id}`);
-          if (status.status === 'done') {
-            showToast(`${command} completed successfully`, 'success');
-            resolved = true;
-            break;
-          }
-          if (status.status === 'failed') {
-            showToast(`${command} failed: ${status.result_message || 'unknown error'}`, 'error');
-            resolved = true;
-            break;
-          }
-        } catch { break; }
-      }
-      if (!resolved) showToast(`${command} queued — no response from agent yet`, 'info');
-      fetchAgents();
-    } catch (e) {
-      showToast(e.message, 'error');
-    } finally {
-      setPendingActions(p => { const n = { ...p }; delete n[key]; return n; });
-    }
-  };
 
   const handleMetaSave = async (agentId, dockerId, meta) => {
     try {
@@ -841,12 +785,10 @@ export default function ContainersPage() {
       )}
       {!loading && !error && agents.map(agent => (
         <AgentSection key={agent.id} agent={agent}
-          onAction={handleAction}
           onEdit={c => setEditingContainer({ agentId: agent.id, container: c })}
           onViewLogs={c => setViewingLogs(c)}
           onDeleteAgent={handleDeleteAgent}
-          onEditAgent={handleAgentSave}
-          pendingActions={pendingActions} />
+          onEditAgent={handleAgentSave} />
       ))}
 
       {showRegister && <RegisterAgentOverlay onClose={() => setShowRegister(false)} onRegister={handleRegister} />}
