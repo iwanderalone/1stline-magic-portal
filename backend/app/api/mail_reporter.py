@@ -9,7 +9,7 @@ from sqlalchemy import select, delete, desc, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.deps import get_current_user, require_admin
+from app.core.deps import get_current_user, require_admin, get_or_404
 from app.models.models import MailboxConfig, EmailLog, EmailComment, MailRoutingRule, User
 from app.schemas.schemas import (
     MailboxConfigCreate, MailboxConfigUpdate, MailboxConfigResponse, EmailLogResponse,
@@ -19,6 +19,7 @@ from app.schemas.schemas import (
 from app.services.mail_reporter_service import (
     _test_imap_connection, check_all_mailboxes,
 )
+from app.core.encryption import encrypt, decrypt
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/mail-reporter", tags=["mail-reporter"])
@@ -48,7 +49,10 @@ async def create_mailbox(
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="Mailbox with this email already exists")
 
-    mb = MailboxConfig(**body.model_dump())
+    data = body.model_dump()
+    if data.get("password"):
+        data["password"] = encrypt(data["password"])
+    mb = MailboxConfig(**data)
     db.add(mb)
     await db.commit()
     await db.refresh(mb)
@@ -63,11 +67,11 @@ async def update_mailbox(
     db: AsyncSession = Depends(get_db),
     _=Depends(require_admin),
 ):
-    mb = await db.get(MailboxConfig, mailbox_id)
-    if not mb:
-        raise HTTPException(status_code=404, detail="Mailbox not found")
+    mb = await get_or_404(db, MailboxConfig, mailbox_id)
 
     for field, value in body.model_dump(exclude_unset=True).items():
+        if field == "password" and value:
+            value = encrypt(value)
         setattr(mb, field, value)
     mb.updated_at = datetime.now(timezone.utc)
 
@@ -83,9 +87,7 @@ async def delete_mailbox(
     db: AsyncSession = Depends(get_db),
     _=Depends(require_admin),
 ):
-    mb = await db.get(MailboxConfig, mailbox_id)
-    if not mb:
-        raise HTTPException(status_code=404, detail="Mailbox not found")
+    mb = await get_or_404(db, MailboxConfig, mailbox_id)
     email = mb.email
     await db.delete(mb)
     await db.commit()
@@ -101,10 +103,8 @@ async def test_mailbox_connection(
     db: AsyncSession = Depends(get_db),
     _=Depends(require_admin),
 ):
-    mb = await db.get(MailboxConfig, mailbox_id)
-    if not mb:
-        raise HTTPException(status_code=404, detail="Mailbox not found")
-    result = await asyncio.to_thread(_test_imap_connection, mb.email, mb.password)
+    mb = await get_or_404(db, MailboxConfig, mailbox_id)
+    result = await asyncio.to_thread(_test_imap_connection, mb.email, decrypt(mb.password))
     return result
 
 
@@ -154,27 +154,18 @@ async def update_email_log(
 ):
     """Mark an email as solved / add a comment. Accessible to all authenticated users."""
     from datetime import datetime, timezone
-    log = await db.get(EmailLog, email_id)
-    if not log:
-        raise HTTPException(status_code=404, detail="Email log not found")
+    log = await get_or_404(db, EmailLog, email_id)
 
     updates = body.model_dump(exclude_unset=True)
     for field, value in updates.items():
         setattr(log, field, value)
 
-    # Sync status ↔ is_solved
+    # Maintain solved_at based on status
     if "status" in updates:
-        log.is_solved = (updates["status"] == "solved")
-        if log.is_solved and not log.solved_at:
+        if updates["status"] == "solved" and not log.solved_at:
             log.solved_at = datetime.now(timezone.utc)
-        elif not log.is_solved:
+        elif updates["status"] != "solved":
             log.solved_at = None
-    elif updates.get("is_solved") is True and not log.solved_at:
-        log.solved_at = datetime.now(timezone.utc)
-        log.status = "solved"
-    elif updates.get("is_solved") is False:
-        log.solved_at = None
-        log.status = "unchecked"
 
     await db.commit()
     await db.refresh(log)
@@ -268,9 +259,7 @@ async def update_rule(
     db: AsyncSession = Depends(get_db),
     _=Depends(require_admin),
 ):
-    rule = await db.get(MailRoutingRule, rule_id)
-    if not rule:
-        raise HTTPException(status_code=404, detail="Rule not found")
+    rule = await get_or_404(db, MailRoutingRule, rule_id)
 
     updates = body.model_dump(exclude_unset=True)
 
@@ -301,9 +290,7 @@ async def delete_rule(
     db: AsyncSession = Depends(get_db),
     _=Depends(require_admin),
 ):
-    rule = await db.get(MailRoutingRule, rule_id)
-    if not rule:
-        raise HTTPException(status_code=404, detail="Rule not found")
+    rule = await get_or_404(db, MailRoutingRule, rule_id)
     if rule.is_builtin and rule.builtin_key == "general":
         raise HTTPException(status_code=400, detail="Cannot delete the General catch-all rule")
 
@@ -337,9 +324,7 @@ async def add_comment(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    log = await db.get(EmailLog, email_id)
-    if not log:
-        raise HTTPException(status_code=404, detail="Email log not found")
+    log = await get_or_404(db, EmailLog, email_id)
     comment = EmailComment(
         email_id=email_id,
         user_id=current_user.id,
