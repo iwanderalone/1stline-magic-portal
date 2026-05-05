@@ -494,6 +494,7 @@ export default function MailReporterPage({ user }) {
   const [loading, setLoading] = useState(true);
   const [emailsLoading, setEmailsLoading] = useState(false);
   const [page, setPage] = useState(0);
+  const [pendingStatus, setPendingStatus] = useState(null);
 
   const [showMailboxModal, setShowMailboxModal] = useState(false);
   const [editMailbox, setEditMailbox] = useState(null);
@@ -917,11 +918,13 @@ export default function MailReporterPage({ user }) {
                             const cfg = EMAIL_STATUS_CONFIG[st] || EMAIL_STATUS_CONFIG.unchecked;
                             return (
                               <span
-                                style={{ cursor: 'pointer', userSelect: 'none' }}
+                                style={{ cursor: pendingStatus === em.id ? 'wait' : 'pointer', userSelect: 'none', opacity: pendingStatus === em.id ? 0.6 : 1 }}
                                 onClick={async () => {
+                                  if (pendingStatus === em.id) return;
                                   const idx = STATUS_CYCLE.indexOf(st);
                                   const next = STATUS_CYCLE[(idx + 1) % STATUS_CYCLE.length];
-                                  await setEmailStatus(em, next);
+                                  setPendingStatus(em.id);
+                                  try { await setEmailStatus(em, next); } finally { setPendingStatus(null); }
                                 }}
                               >
                                 <Badge color={cfg.color}>{cfg.label}</Badge>
