@@ -18,10 +18,11 @@ const CATEGORY_LABELS = {
 
 const EMAIL_STATUS_CONFIG = {
   unchecked: { label: 'Unchecked', color: 'yellow' },
-  solved:    { label: '✓ Solved',  color: 'green'  },
-  on_pause:  { label: '⏸ Paused',  color: 'blue'   },
-  blocked:   { label: '🚫 Blocked', color: 'red'    },
+  solved:    { label: 'Solved',    color: 'green'  },
+  on_pause:  { label: 'Paused',    color: 'blue'   },
+  blocked:   { label: 'Blocked',   color: 'red'    },
 };
+const STATUS_CYCLE = ['unchecked', 'on_pause', 'blocked', 'solved'];
 
 const MATCH_TYPE_LABELS = {
   keyword: 'Keyword (subject + body)',
@@ -38,7 +39,7 @@ function toUtc(dt) {
 function fmtTime(dt) {
   const d = toUtc(dt);
   if (!d) return '—';
-  return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
 }
 function fmtSince(dt) {
   if (!dt) return 'Never';
@@ -660,10 +661,11 @@ export default function MailReporterPage({ user }) {
 
   const totalPages = Math.ceil(emails.length / PAGE_SIZE);
   const pagedEmails = emails.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+  const hasAdobeCode = emails.some(em => em.extracted_code);
 
   const labelStyle = { fontSize: '11px', fontWeight: 600, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '0.06em' };
-  const cellStyle = { padding: '10px 12px', fontSize: '13px', borderBottom: `1px solid ${t.border}`, verticalAlign: 'middle' };
-  const headStyle = { ...cellStyle, ...labelStyle, padding: '8px 12px', background: t.surfaceAlt, borderBottom: `1px solid ${t.border}` };
+  const cellStyle = { padding: '8px 10px', fontSize: '13px', borderBottom: `1px solid ${t.border}`, verticalAlign: 'middle' };
+  const headStyle = { ...cellStyle, fontSize: 11, fontWeight: 500, color: t.textMuted, padding: '8px 10px', background: t.surfaceAlt, borderBottom: `1px solid ${t.border}` };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -855,7 +857,7 @@ export default function MailReporterPage({ user }) {
           </div>
           <div style={{ display: 'flex', gap: '8px' }}>
             <Button variant="ghost" size="sm" onClick={loadEmails}>Refresh</Button>
-            {isAdmin && <Button variant="ghost" size="sm" onClick={clearLogs} style={{ color: '#ef4444' }}>{tr('clearLogs')}</Button>}
+            {isAdmin && <Button variant="ghost" size="sm" onClick={clearLogs}>{tr('clearLogs')}</Button>}
           </div>
         </div>
 
@@ -874,14 +876,20 @@ export default function MailReporterPage({ user }) {
                   <col style={{ width: '120px' }} />{/* From */}
                   <col />{/* Subject — fills remaining */}
                   <col style={{ width: '120px' }} />{/* Category */}
-                  <col style={{ width: '70px' }} />{/* Code */}
+                  {hasAdobeCode && <col style={{ width: '70px' }} />}{/* Code */}
                   <col style={{ width: '85px' }} />{/* Status */}
                   <col style={{ width: '150px' }} />{/* Actions */}
                 </colgroup>
                 <thead>
-                  <tr>{['Time', 'Mailbox', 'From', 'Subject', 'Category', 'Code', 'Status', 'Actions'].map(h => (
-                    <th key={h} style={{ ...headStyle, textAlign: 'left' }}>{h}</th>
-                  ))}</tr>
+                  <tr>
+                    {['Time', 'Mailbox', 'From', 'Subject', 'Category'].map(h => (
+                      <th key={h} style={{ ...headStyle, textAlign: 'left' }}>{h}</th>
+                    ))}
+                    {hasAdobeCode && <th style={{ ...headStyle, textAlign: 'left' }}>Code</th>}
+                    {['Status', 'Actions'].map(h => (
+                      <th key={h} style={{ ...headStyle, textAlign: 'left' }}>{h}</th>
+                    ))}
+                  </tr>
                 </thead>
                 <tbody>
                   {pagedEmails.map(em => {
@@ -902,32 +910,27 @@ export default function MailReporterPage({ user }) {
                             : <Badge color={CATEGORY_COLORS[em.category] || 'gray'}>{CATEGORY_LABELS[em.category] || em.category}</Badge>
                           }
                         </td>
-                        <td style={cellStyle}>{em.extracted_code ? <code style={{ background: t.surfaceAlt, padding: '2px 6px', borderRadius: '4px', fontSize: '13px', fontWeight: 700, border: `1px solid ${t.border}` }}>{em.extracted_code}</code> : <span style={{ color: t.border }}>—</span>}</td>
+                        {hasAdobeCode && <td style={cellStyle}>{em.extracted_code ? <code style={{ background: t.surfaceAlt, padding: '2px 6px', borderRadius: '4px', fontSize: '13px', fontWeight: 700, border: `1px solid ${t.border}` }}>{em.extracted_code}</code> : <span style={{ color: t.border }}>—</span>}</td>}
                         <td style={cellStyle}>
                           {(() => {
                             const st = em.status || 'unchecked';
                             const cfg = EMAIL_STATUS_CONFIG[st] || EMAIL_STATUS_CONFIG.unchecked;
-                            return <Badge color={cfg.color}>{cfg.label}</Badge>;
+                            return (
+                              <span
+                                style={{ cursor: 'pointer', userSelect: 'none' }}
+                                onClick={async () => {
+                                  const idx = STATUS_CYCLE.indexOf(st);
+                                  const next = STATUS_CYCLE[(idx + 1) % STATUS_CYCLE.length];
+                                  await setEmailStatus(em, next);
+                                }}
+                              >
+                                <Badge color={cfg.color}>{cfg.label}</Badge>
+                              </span>
+                            );
                           })()}
                         </td>
                         <td style={{ ...cellStyle, whiteSpace: 'nowrap' }}>
                           <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-                            <select
-                              value={em.status || 'unchecked'}
-                              onChange={e => setEmailStatus(em, e.target.value)}
-                              style={{
-                                fontSize: '11px', padding: '3px 6px',
-                                border: `1px solid ${t.border}`, borderRadius: t.radiusSm,
-                                background: t.surfaceAlt, color: t.text,
-                                cursor: 'pointer', fontFamily: 'inherit',
-                                width: '108px', flexShrink: 0,
-                              }}
-                            >
-                              <option value="unchecked">Unchecked</option>
-                              <option value="solved">✓ Solved</option>
-                              <option value="on_pause">⏸ Paused</option>
-                              <option value="blocked">🚫 Blocked</option>
-                            </select>
                             <button
                               onClick={() => setCommentTarget(em)}
                               title={em.comment_count > 0 ? `${em.comment_count} comment${em.comment_count !== 1 ? 's' : ''}` : 'Add comment'}
