@@ -1,9 +1,6 @@
 # 1line Portal — VPS Agent
 
-Monitors a VPS and reports metrics to the portal. Consists of two independent processes:
-
-- **Telegraf** — collects system + Docker metrics every 15s, pushes to portal
-- **command-handler.py** — polls portal every 5s, executes container start/stop/restart
+Monitors a VPS and reports metrics to the portal every 15 seconds via Telegraf.
 
 > This only installs the **monitoring agent**. The portal itself runs separately on your main server.
 
@@ -67,20 +64,16 @@ Each alert type can be individually enabled/disabled per agent.
 
 ```
 VPS
-├── Telegraf (15s interval)
-│   ├── inputs.cpu / mem / disk / system  ──┐
-│   ├── inputs.docker                       │  POST /api/containers/agents/{id}/telegraf
-│   ├── inputs.exec (apt-updates.py, 1h)    ├─────────────────────────────────────────► Portal
-│   ├── inputs.exec (failed-services.sh)    │                                           ◄── pending commands
-│   ├── inputs.exec (recent-logins.py)   ───┘
-│   └── outputs.http → portal
-│
-└── command-handler.py (every 5s)
-    ├── POST /api/containers/agents/{id}/report  ← poll for commands
-    └── docker start/stop/restart <container>
+└── Telegraf (15s interval)
+    ├── inputs.cpu / mem / disk / system  ──┐
+    ├── inputs.docker                       │  POST /api/containers/{id}/telegraf
+    ├── inputs.exec (apt-updates.py, 1h)    ├─────────────────────────────────────► Portal
+    ├── inputs.exec (failed-services.sh)    │                                       (read-only display)
+    ├── inputs.exec (recent-logins.py)   ───┘
+    └── outputs.http → portal
 ```
 
-The two processes are **independent** — if `command-handler.py` is down, Telegraf still reports metrics. If Telegraf is down, commands still execute.
+The agent makes **outbound-only** connections — no ports are opened on the VPS. The portal is a pure receiver and display layer with no remote control capability.
 
 ---
 
@@ -92,15 +85,15 @@ The two processes are **independent** — if `command-handler.py` is down, Teleg
 | `AGENT_ID` | ✅ | UUID from Register Agent dialog |
 | `AGENT_KEY` | ✅ | API key shown once at registration |
 | `DOCKER_GID` | Docker Compose only | GID of the `docker` group on the host |
-| `POLL_INTERVAL` | ❌ (default: 5) | Seconds between command polls |
 
 ---
 
 ## Security
 
-- `PORTAL_URL` **must** use `https://` — the deploy script and command-handler both refuse to start with plain HTTP. The agent sends credentials on every heartbeat.
+- `PORTAL_URL` **must** use `https://` — the deploy script refuses to start with plain HTTP. The agent sends its API key on every heartbeat.
 - The agent makes **outbound-only** connections to the portal. No ports are opened on the VPS.
-- Container commands are limited to `start`, `stop`, `restart` — no arbitrary shell execution.
+
+---
 
 ## Troubleshooting
 
@@ -113,7 +106,4 @@ The two processes are **independent** — if `command-handler.py` is down, Teleg
 | No containers shown | Telegraf not in docker group: `usermod -aG docker telegraf` then restart |
 | No updates shown | `apt-updates.py` timed out — run manually: `python3 /etc/telegraf/scripts/apt-updates.py` |
 | No container logs | First logs appear ~2 min after deploy; check `docker compose logs telegraf` for exec errors |
-| Commands show "no response" | `cmd-handler` container not running — check `docker compose logs cmd-handler` |
-| Commands show "failed" | Check the error message in the toast; container may already be in target state |
-| "Command already pending" error | A previous command timed out and was auto-expired after 60 s — retry the action |
 | SSH login alert never fires | First report after deploy sets the baseline silently; alert fires on the *next* new session |

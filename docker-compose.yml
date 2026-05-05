@@ -1,22 +1,52 @@
 services:
-  # ── Backend API ─────────────────────────────────────
+  # ── PostgreSQL ───────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: portal
+      POSTGRES_USER: portal
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U portal -d portal"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  # ── Backend API ─────────────────────────────────────────
   api:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    # Run Alembic migration before starting uvicorn
+    command: >
+      sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
     ports:
       - "127.0.0.1:8000:8000"
     environment:
-      DATABASE_URL: "sqlite+aiosqlite:////app/data/portal.db"
+      DATABASE_URL: "postgresql+asyncpg://portal:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}@db:5432/portal"
       SECRET_KEY: "${SECRET_KEY:-change-me-in-production}"
       JWT_SECRET: "${JWT_SECRET:-change-me-in-production}"
       TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN:-}"
       TELEGRAM_BOT_USERNAME: "${TELEGRAM_BOT_USERNAME:-}"
       CORS_ORIGINS: "${CORS_ORIGINS:-http://localhost:3000,http://localhost:5173}"
       PORTAL_TIMEZONE: "${PORTAL_TIMEZONE:-UTC}"
+      LOG_DIR: /app/data/logs
     volumes:
       - ./data:/app/data
+    depends_on:
+      db:
+        condition: service_healthy
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')\" || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
   # ── Frontend (nginx, serves built React bundle) ──────
   frontend:
@@ -26,5 +56,15 @@ services:
     ports:
       - "127.0.0.1:3000:80"
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:80/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  postgres_data:

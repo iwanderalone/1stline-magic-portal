@@ -888,7 +888,7 @@ export default function MailReporterPage({ user }) {
                     // Use rule_id → live rule for badge, fall back to static category map
                     const rule = em.rule_id ? ruleMap[em.rule_id] : null;
                     return (
-                      <tr key={em.id} style={{ opacity: em.skip_reason === 'filter' ? 0.5 : 1, background: em.is_solved ? `${t.success || '#10b981'}08` : 'transparent' }}>
+                      <tr key={em.id} style={{ opacity: em.skip_reason === 'filter' ? 0.5 : 1, background: em.status === 'solved' ? `${t.success || '#10b981'}08` : 'transparent' }}>
                         <td style={{ ...cellStyle, fontSize: '11px', color: t.textMuted, whiteSpace: 'nowrap', overflow: 'hidden' }}>{fmtTime(em.received_at || em.created_at)}</td>
                         <td style={{ ...cellStyle, fontSize: '12px', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{em.mailbox_email || '—'}</td>
                         <td style={{ ...cellStyle, fontSize: '12px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={em.sender}>{em.sender || '—'}</td>
@@ -905,7 +905,7 @@ export default function MailReporterPage({ user }) {
                         <td style={cellStyle}>{em.extracted_code ? <code style={{ background: t.surfaceAlt, padding: '2px 6px', borderRadius: '4px', fontSize: '13px', fontWeight: 700, border: `1px solid ${t.border}` }}>{em.extracted_code}</code> : <span style={{ color: t.border }}>—</span>}</td>
                         <td style={cellStyle}>
                           {(() => {
-                            const st = em.status || (em.is_solved ? 'solved' : 'unchecked');
+                            const st = em.status || 'unchecked';
                             const cfg = EMAIL_STATUS_CONFIG[st] || EMAIL_STATUS_CONFIG.unchecked;
                             return <Badge color={cfg.color}>{cfg.label}</Badge>;
                           })()}
@@ -913,7 +913,7 @@ export default function MailReporterPage({ user }) {
                         <td style={{ ...cellStyle, whiteSpace: 'nowrap' }}>
                           <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
                             <select
-                              value={em.status || (em.is_solved ? 'solved' : 'unchecked')}
+                              value={em.status || 'unchecked'}
                               onChange={e => setEmailStatus(em, e.target.value)}
                               style={{
                                 fontSize: '11px', padding: '3px 6px',

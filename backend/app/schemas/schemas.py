@@ -1,14 +1,19 @@
 """Pydantic schemas — expanded."""
 import json as _json
-from pydantic import BaseModel, Field, model_validator, field_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator, field_validator
 from datetime import date, time, datetime
 from typing import Optional, Any
 from uuid import UUID
 from app.models.models import (
     UserRole, ShiftType, WorkLocation, TimeOffStatus,
     TimeOffType, ReminderStatus, TelegramChatType,
-    ContainerCommandType, ContainerCommandStatus,
 )
+
+
+
+class BaseOrmModel(BaseModel):
+    """Base class for all SQLAlchemy ORM response schemas."""
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ─── Auth ────────────────────────────────────────────────
@@ -48,15 +53,13 @@ class GroupUpdate(BaseModel):
     description: Optional[str] = None
     color: Optional[str] = None
 
-class GroupResponse(BaseModel):
+class GroupResponse(BaseOrmModel):
     id: UUID
     name: str
     description: Optional[str]
     color: str
     member_ids: list[UUID] = []
     created_at: datetime
-    class Config:
-        from_attributes = True
 
 class GroupMemberUpdate(BaseModel):
     user_ids: list[UUID]
@@ -112,7 +115,7 @@ class ProfileUpdate(BaseModel):
     telegram_notify_shifts: Optional[bool] = None
     telegram_notify_reminders: Optional[bool] = None
 
-class PublicUserResponse(BaseModel):
+class PublicUserResponse(BaseOrmModel):
     """Safe subset of user data returned to non-admin users (e.g. embedded in shifts)."""
     id: UUID
     display_name: str
@@ -132,11 +135,8 @@ class PublicUserResponse(BaseModel):
             self.timezone = "UTC"
         return self
 
-    class Config:
-        from_attributes = True
 
-
-class UserResponse(BaseModel):
+class UserResponse(BaseOrmModel):
     id: UUID
     username: str
     display_name: str
@@ -181,9 +181,6 @@ class UserResponse(BaseModel):
             self.telegram_notify_reminders = True
         return self
 
-    class Config:
-        from_attributes = True
-
 
 # ─── Shift Config ────────────────────────────────────────
 
@@ -207,7 +204,7 @@ class ShiftConfigUpdate(BaseModel):
     requires_location: Optional[bool] = None
     is_active: Optional[bool] = None
 
-class ShiftConfigResponse(BaseModel):
+class ShiftConfigResponse(BaseOrmModel):
     id: UUID
     shift_type: ShiftType
     label: str
@@ -218,8 +215,6 @@ class ShiftConfigResponse(BaseModel):
     emoji: str
     requires_location: bool
     is_active: bool
-    class Config:
-        from_attributes = True
 
 
 # ─── Schedule ────────────────────────────────────────────
@@ -233,7 +228,7 @@ class ShiftCreate(BaseModel):
     location: Optional[WorkLocation] = None
     notes: Optional[str] = None
 
-class ShiftResponse(BaseModel):
+class ShiftResponse(BaseOrmModel):
     id: UUID
     user_id: UUID
     date: date
@@ -244,8 +239,6 @@ class ShiftResponse(BaseModel):
     notes: Optional[str]
     is_published: bool
     user: Optional[PublicUserResponse] = None
-    class Config:
-        from_attributes = True
 
 class ShiftUpdate(BaseModel):
     shift_type: Optional[ShiftType] = None
@@ -267,7 +260,7 @@ class TimeOffCreate(BaseModel):
     off_type: TimeOffType
     comment: Optional[str] = None
 
-class TimeOffResponse(BaseModel):
+class TimeOffResponse(BaseOrmModel):
     id: UUID
     user_id: UUID
     start_date: date
@@ -278,8 +271,6 @@ class TimeOffResponse(BaseModel):
     admin_comment: Optional[str]
     created_at: datetime
     user: Optional[UserResponse] = None
-    class Config:
-        from_attributes = True
 
 class TimeOffReviewRequest(BaseModel):
     status: TimeOffStatus
@@ -304,7 +295,7 @@ class ReminderUpdate(BaseModel):
     remind_at: Optional[datetime] = None
     status: Optional[ReminderStatus] = None
 
-class ReminderResponse(BaseModel):
+class ReminderResponse(BaseOrmModel):
     id: UUID
     user_id: UUID
     title: str
@@ -318,33 +309,27 @@ class ReminderResponse(BaseModel):
     telegram_target: str = "personal"
     created_at: datetime
     fired_at: Optional[datetime]
-    class Config:
-        from_attributes = True
 
 
 # ─── Notifications ───────────────────────────────────────
 
-class NotificationResponse(BaseModel):
+class NotificationResponse(BaseOrmModel):
     id: UUID
     title: str
     message: str
     is_read: bool
     created_at: datetime
-    class Config:
-        from_attributes = True
 
 
 # ─── Activity Logs ───────────────────────────────────────
 
-class ActivityLogResponse(BaseModel):
+class ActivityLogResponse(BaseOrmModel):
     id: UUID
     user_id: Optional[UUID]
     username: Optional[str]
     action: str
     details: Optional[str]
     created_at: datetime
-    class Config:
-        from_attributes = True
 
 
 # ─── Admin / Test Notifications ─────────────────────────
@@ -380,7 +365,7 @@ class TelegramChatUpdate(BaseModel):
     notify_reminders: Optional[bool] = None
     notify_general: Optional[bool] = None
 
-class TelegramChatResponse(BaseModel):
+class TelegramChatResponse(BaseOrmModel):
     id: UUID
     chat_id: str
     name: str
@@ -393,8 +378,6 @@ class TelegramChatResponse(BaseModel):
     notify_reminders: bool
     notify_general: bool
     created_at: datetime
-    class Config:
-        from_attributes = True
 
 
 # ─── Mail Reporter ────────────────────────────────────────
@@ -416,11 +399,10 @@ class MailboxConfigUpdate(BaseModel):
     monitor_since: Optional[date] = None
 
 class EmailLogUpdate(BaseModel):
-    is_solved: Optional[bool] = None
     solver_comment: Optional[str] = Field(default=None, max_length=1000)
     status: Optional[str] = Field(default=None, pattern="^(unchecked|solved|on_pause|blocked)$")
 
-class MailboxConfigResponse(BaseModel):
+class MailboxConfigResponse(BaseOrmModel):
     id: int
     email: str
     subject_filter: str
@@ -431,23 +413,19 @@ class MailboxConfigResponse(BaseModel):
     last_error: Optional[str]
     consecutive_failures: int
     created_at: datetime
-    class Config:
-        from_attributes = True
 
 class EmailCommentCreate(BaseModel):
     text: str = Field(..., min_length=1, max_length=2000)
 
-class EmailCommentResponse(BaseModel):
+class EmailCommentResponse(BaseOrmModel):
     id: int
     email_id: int
     user_id: Optional[UUID] = None
     username: str
     text: str
     created_at: datetime
-    class Config:
-        from_attributes = True
 
-class EmailLogResponse(BaseModel):
+class EmailLogResponse(BaseOrmModel):
     id: int
     mailbox_id: int
     mailbox_email: Optional[str] = None  # populated in router
@@ -463,12 +441,9 @@ class EmailLogResponse(BaseModel):
     received_at: Optional[datetime]
     created_at: datetime
     status: str = "unchecked"
-    is_solved: bool = False
     solver_comment: Optional[str] = None
     solved_at: Optional[datetime] = None
     comment_count: int = 0
-    class Config:
-        from_attributes = True
 
 
 # ─── Mail Routing Rules ───────────────────────────────────
@@ -501,7 +476,7 @@ class MailRoutingRuleUpdate(BaseModel):
     enabled: Optional[bool] = None
     mailbox_id: Optional[int] = None  # None = applies to all mailboxes
 
-class MailRoutingRuleResponse(BaseModel):
+class MailRoutingRuleResponse(BaseOrmModel):
     id: int
     name: str
     is_builtin: bool
@@ -518,8 +493,6 @@ class MailRoutingRuleResponse(BaseModel):
     enabled: bool
     mailbox_id: Optional[int]
     created_at: datetime
-    class Config:
-        from_attributes = True
 
 
 # ─── Telegram Templates ──────────────────────────────────
@@ -536,7 +509,7 @@ class TelegramTemplateUpdate(BaseModel):
     chat_id: Optional[str] = Field(default=None, max_length=50)
     topic_id: Optional[int] = None
 
-class TelegramTemplateResponse(BaseModel):
+class TelegramTemplateResponse(BaseOrmModel):
     id: UUID
     name: str
     description: Optional[str]
@@ -544,8 +517,6 @@ class TelegramTemplateResponse(BaseModel):
     topic_id: Optional[int]
     created_at: datetime
     updated_at: datetime
-    class Config:
-        from_attributes = True
 
 
 # ─── Container Dashboard ─────────────────────────────────
@@ -567,7 +538,7 @@ class VPSAgentUpdate(BaseModel):
     cpu_alert_threshold: Optional[int] = Field(default=None, ge=1, le=100)
     alert_flags: Optional[dict] = None
 
-class VPSAgentResponse(BaseModel):
+class VPSAgentResponse(BaseOrmModel):
     id: UUID
     name: str
     description: Optional[str]
@@ -580,8 +551,6 @@ class VPSAgentResponse(BaseModel):
     disk_alert_threshold: int = 85
     cpu_alert_threshold: int = 80
     alert_flags: Optional[dict] = None
-    class Config:
-        from_attributes = True
 
 class VPSAgentRegisterResponse(VPSAgentResponse):
     api_key: Optional[str] = None  # plain token shown once; never stored again
@@ -635,17 +604,10 @@ class AgentReportRequest(BaseModel):
     pending_updates: Optional[list[PendingUpdate]] = None
     failed_services: Optional[list[str]] = None
 
-class PendingCommandItem(BaseModel):
-    id: UUID
-    docker_id: str
-    container_name: Optional[str]
-    command: ContainerCommandType
-
 class AgentReportResponse(BaseModel):
     ok: bool = True
-    pending_commands: list[PendingCommandItem] = Field(default_factory=list)
 
-class ContainerStateResponse(BaseModel):
+class ContainerStateResponse(BaseOrmModel):
     id: UUID
     agent_id: UUID
     docker_id: str
@@ -674,34 +636,10 @@ class ContainerStateResponse(BaseModel):
                 return None
         return v
 
-    class Config:
-        from_attributes = True
-
 class ContainerMetaUpdate(BaseModel):
     display_name: Optional[str] = Field(default=None, max_length=100)
     description: Optional[str] = None
     hosted_on: Optional[str] = Field(default=None, max_length=150)
-
-class ContainerCommandCreate(BaseModel):
-    command: ContainerCommandType
-
-class ContainerCommandResponse(BaseModel):
-    id: UUID
-    agent_id: UUID
-    docker_id: str
-    container_name: Optional[str]
-    command: ContainerCommandType
-    status: ContainerCommandStatus
-    issued_by_user_id: Optional[UUID]
-    issued_at: datetime
-    executed_at: Optional[datetime]
-    result_message: Optional[str]
-    class Config:
-        from_attributes = True
-
-class CommandResultRequest(BaseModel):
-    status: ContainerCommandStatus
-    result_message: Optional[str] = None
 
 class AgentWithContainersResponse(VPSAgentResponse):
     containers: list[ContainerStateResponse] = Field(default_factory=list)

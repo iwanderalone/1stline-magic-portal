@@ -3,12 +3,23 @@ import logging
 import os
 from datetime import time as dtime
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.types import ASGIApp, Receive, Send, Scope
+from starlette.datastructures import MutableHeaders
+from starlette.responses import Response
 
+# Configure logging before any application modules are imported so that
+# log messages emitted during module-level code (e.g. settings validation)
+# are captured by the configured formatter.
+from app.core.logging_config import configure_logging
+configure_logging()
+
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
-from app.core.database import engine, Base, _is_sqlite
+from app.core.database import engine, Base, _is_sqlite, get_db
 from app.core.security import hash_password
 from app.core.scheduler import scheduler
 from app.api import auth, users, groups, schedule, reminders, notifications, admin_config
@@ -16,11 +27,11 @@ from app.api import mail_reporter
 from app.api import containers
 from app.workers.reminder_worker import check_and_fire_reminders
 from app.workers.shift_notification_scheduler import schedule_pending_notifications
+from app.workers.shift_notification_worker import check_shift_notifications
 from app.services.telegram_service import poll_telegram_updates
 from app.services.mail_reporter_service import check_all_mailboxes
 from app.api.containers import check_vps_offline
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
@@ -29,7 +40,7 @@ async def seed_defaults():
     """Create admin, demo users, and default shift configs."""
     from sqlalchemy import select
     from app.core.database import AsyncSessionFactory
-    from app.models.models import User, UserRole, ShiftConfig, Group
+    from app.models.models import User, UserRole, ShiftConfig, ShiftType, Group
 
     async with AsyncSessionFactory() as db:
         # Default admin
@@ -86,7 +97,6 @@ async def seed_defaults():
 
 async def run_migrations():
     """Apply additive schema migrations (safe to run on every startup)."""
-    from sqlalchemy import text
     if not _is_sqlite:
         return  # PostgreSQL users should use Alembic
     migrations = [
@@ -133,13 +143,27 @@ async def run_migrations():
         "ALTER TABLE vps_agents ADD COLUMN alert_flags TEXT",
         # Per-mailbox routing rule scope
         "ALTER TABLE mail_routing_rules ADD COLUMN mailbox_id INTEGER REFERENCES mailbox_configs(id) ON DELETE SET NULL",
+        # B3: backfill status from is_solved, then drop redundant column
+        "UPDATE email_logs SET status = 'solved' WHERE is_solved = 1 AND status = 'unchecked'",
+        "ALTER TABLE email_logs DROP COLUMN is_solved",
+        # C4: performance indexes
+        "CREATE INDEX IF NOT EXISTS ix_email_logs_mailbox_id ON email_logs(mailbox_id)",
+        "CREATE INDEX IF NOT EXISTS ix_email_logs_created_at ON email_logs(created_at)",
+        "CREATE INDEX IF NOT EXISTS ix_email_logs_status ON email_logs(status)",
+        "CREATE INDEX IF NOT EXISTS ix_reminders_remind_at ON reminders(remind_at)",
+        "CREATE INDEX IF NOT EXISTS ix_reminders_user_id ON reminders(user_id)",
+        "CREATE INDEX IF NOT EXISTS ix_shifts_date ON shifts(date)",
+        "CREATE INDEX IF NOT EXISTS ix_shifts_user_id ON shifts(user_id)",
     ]
     async with engine.begin() as conn:
         for stmt in migrations:
             try:
                 await conn.execute(text(stmt))
-            except Exception:
-                pass  # Column already exists — safe to ignore
+            except Exception as e:
+                msg = str(e).lower()
+                # Additive migrations: "already exists" / "duplicate column" are expected
+                if "already exists" not in msg and "duplicate column" not in msg:
+                    logger.warning("Migration step may have failed: %s — stmt: %.80s", e, stmt)
 
 
 async def seed_routing_rules():
@@ -182,22 +206,52 @@ async def seed_routing_rules():
     logger.info("Built-in routing rules seeded")
 
 
+async def _migrate_imap_passwords() -> None:
+    """One-time migration: encrypt any remaining plaintext IMAP passwords."""
+    from cryptography.fernet import InvalidToken
+    from app.core.encryption import encrypt, decrypt
+    from app.core.database import AsyncSessionFactory
+    from app.models.models import MailboxConfig
+    from sqlalchemy import select
+
+    async with AsyncSessionFactory() as db:
+        result = await db.execute(select(MailboxConfig))
+        migrated = 0
+        for mb in result.scalars().all():
+            if not mb.password:
+                continue
+            try:
+                decrypt(mb.password)  # Already encrypted — no-op
+            except Exception:
+                mb.password = encrypt(mb.password)  # Plaintext — encrypt it
+                migrated += 1
+        if migrated:
+            await db.commit()
+            logger.info("Encrypted %d IMAP passwords", migrated)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Ensure the data directory exists (needed for the SQLite file path)
     if _is_sqlite:
+        # Ensure the SQLite data directory exists
         db_url = settings.DATABASE_URL
         # Extract file path from sqlite+aiosqlite:///path
         db_path = db_url.split("///", 1)[-1]
         db_dir = os.path.dirname(db_path)
         if db_dir:
             os.makedirs(db_dir, exist_ok=True)
-
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    await run_migrations()
+        # SQLite: create tables and run additive ALTER TABLE migrations
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        await run_migrations()
+    else:
+        # PostgreSQL: schema is managed by Alembic.
+        # `alembic upgrade head` must be run before starting the app
+        # (see docker-compose.yml command).
+        logger.info("PostgreSQL mode — skipping create_all (Alembic manages schema)")
     await seed_defaults()
     await seed_routing_rules()
+    await _migrate_imap_passwords()
 
     # Reminder worker
     scheduler.add_job(check_and_fire_reminders, "interval", seconds=30)
@@ -219,13 +273,20 @@ async def lifespan(app: FastAPI):
     )
 
     # VPS offline detection — runs every 60 s, fires when last_seen > 5 min ago
+    # Shift notification safety-net: fires if a precise 'date' job was missed
+    # (e.g. server was down at exact start time). Dedup via ShiftNotificationLog.
+    scheduler.add_job(
+        check_shift_notifications, "interval", seconds=60,
+        id="shift_notification_fallback", max_instances=1, coalesce=True,
+    )
+
     scheduler.add_job(
         check_vps_offline, "interval", seconds=60,
         id="vps_offline_check", max_instances=1, coalesce=True,
     )
 
     scheduler.start()
-    logger.info("Scheduler started: reminders (30s), shift notifications (pre-scheduled), mail reporter (%ds), vps offline check (60s)", settings.MAIL_POLL_INTERVAL)
+    logger.info("Scheduler started: reminders (30s), shift notifications (pre-scheduled + 60s fallback), mail reporter (%ds), vps offline check (60s)", settings.MAIL_POLL_INTERVAL)
 
     yield
     scheduler.shutdown()
@@ -234,6 +295,9 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title=settings.APP_NAME, version=settings.APP_VERSION, lifespan=lifespan)
 
+# Middleware is applied in reverse registration order (last added = outermost = runs first).
+# SecurityHeadersMiddleware is added after CORSMiddleware so it runs outermost,
+# ensuring headers are set on every response including CORS preflights.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
@@ -241,6 +305,71 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+class LimitBodySizeMiddleware:
+    """Reject requests whose Content-Length exceeds MAX_BODY_BYTES.
+
+    Checks Content-Length header only (not streaming bodies). Clients sending
+    chunked transfer-encoding without Content-Length are not caught here — that
+    is an acceptable trade-off for an internal portal with trusted clients.
+    """
+    MAX_BODY_BYTES = 1 * 1024 * 1024  # 1 MB
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http":
+            headers = dict(scope.get("headers", []))
+            content_length_raw = headers.get(b"content-length")
+            if content_length_raw is not None:
+                try:
+                    content_length = int(content_length_raw)
+                except (ValueError, TypeError):
+                    content_length = None
+                if content_length is not None and content_length > self.MAX_BODY_BYTES:
+                    response = Response(
+                        content='{"detail": "Request body too large"}',
+                        status_code=413,
+                        media_type="application/json",
+                    )
+                    await response(scope, receive, send)
+                    return
+        await self.app(scope, receive, send)
+
+
+class SecurityHeadersMiddleware:
+    """Pure-ASGI security headers middleware.
+
+    Injects security headers by wrapping the ASGI send callable rather than
+    subclassing BaseHTTPMiddleware. This avoids the known Starlette issue where
+    BaseHTTPMiddleware intercepts unhandled exceptions before FastAPI's exception
+    handlers can log them.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_with_headers(message) -> None:
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                headers["X-Content-Type-Options"] = "nosniff"
+                headers["X-Frame-Options"] = "DENY"
+                headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+                headers["X-XSS-Protection"] = "0"
+                headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+            await send(message)
+
+        await self.app(scope, receive, send_with_headers)
+
+app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(LimitBodySizeMiddleware)
 
 app.include_router(auth.router, prefix="/api")
 app.include_router(users.router, prefix="/api")
@@ -260,8 +389,20 @@ async def _unhandled_exception_handler(request: Request, exc: Exception):
 
 
 @app.get("/api/health")
-async def health():
-    return {"status": "ok", "version": settings.APP_VERSION}
+async def health(db: AsyncSession = Depends(get_db)):
+    db_status = "ok"
+    try:
+        await db.execute(text("SELECT 1"))
+    except Exception as e:
+        logger.error("Health check: DB unreachable: %s", e)
+        db_status = "error"
+    status_code = 200 if db_status == "ok" else 503
+    return JSONResponse(
+        status_code=status_code,
+        content={"status": "ok" if db_status == "ok" else "degraded",
+                 "db": db_status,
+                 "version": settings.APP_VERSION},
+    )
 
 
 @app.get("/api/config")
