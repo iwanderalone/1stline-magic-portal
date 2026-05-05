@@ -43,6 +43,7 @@ agents/**/logs/
 *.log
 logs/
 
-# Claude Code AI assistant (personal memory, local instructions)
+# Claude Code AI assistant (personal memory, local instructions, planning docs)
 .claude/
 CLAUDE.md
+docs/superpowers/
