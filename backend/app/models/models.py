@@ -139,9 +139,9 @@ class User(Base):
     updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
     groups = relationship("Group", secondary=user_groups, back_populates="members")
-    shifts = relationship("Shift", back_populates="user")
-    time_off_requests = relationship("TimeOffRequest", back_populates="user")
-    reminders = relationship("Reminder", back_populates="user")
+    shifts = relationship("Shift", back_populates="user", passive_deletes=True)
+    time_off_requests = relationship("TimeOffRequest", back_populates="user", passive_deletes=True)
+    reminders = relationship("Reminder", back_populates="user", passive_deletes=True)
 
 
 # ─── Shift Configuration ────────────────────────────────
