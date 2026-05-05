@@ -57,7 +57,7 @@ export const shared = {
   fontMono: "'JetBrains Mono', 'SF Mono', Consolas, monospace",
 };
 
-export function getGlobalCSS(t, isLite = false) {
+export function getGlobalCSS(t) {
   return `
     @import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,300..900;1,14..32,300..700&display=swap');
 
@@ -91,9 +91,7 @@ export function getGlobalCSS(t, isLite = false) {
       --font-mono: ${shared.fontMono};
     }
 
-    html, body {
-      height: 100%;
-    }
+    html, body { height: 100%; }
 
     body {
       font-family: var(--font);
@@ -109,93 +107,18 @@ export function getGlobalCSS(t, isLite = false) {
     input, button, select, textarea { font-family: inherit; }
     ::selection { background: var(--accent-light); color: var(--accent); }
 
-    ${!isLite ? `
-    /* ── Custom cursor (fine pointer devices only) ───────────── */
-    @media (pointer: fine) {
-      *, *::before, *::after { cursor: none !important; }
-    }
-    .cursor-dot, .cursor-ring {
-      position: fixed;
-      pointer-events: none;
-      z-index: 99999;
-      border-radius: 50%;
-      transform: translate(-50%, -50%);
-      will-change: transform, left, top;
-    }
-    .cursor-dot {
-      width: 5px;
-      height: 5px;
-      background: var(--accent);
-      transition: width 0.15s ease, height 0.15s ease, background 0.15s ease;
-    }
-    .cursor-dot.hovering { width: 7px; height: 7px; }
-    .cursor-dot.clicking { width: 3px; height: 3px; }
-    .cursor-ring {
-      width: 22px;
-      height: 22px;
-      border: 1.5px solid var(--accent);
-      opacity: 0.55;
-      transition: width 0.2s ease, height 0.2s ease, opacity 0.2s ease, border-color 0.15s ease;
-    }
-    .cursor-ring.hovering { width: 34px; height: 34px; opacity: 0.7; border-color: var(--accent-hover); }
-    .cursor-ring.clicking { width: 14px; height: 14px; opacity: 0.9; }
-    ` : ''}
-
-    /* ── Background accent glow ─────────────────────────────── */
-    @keyframes orb1 {
-      0%   { transform: translate(0, 0)    scale(1);    }
-      50%  { transform: translate(-3vw, 4vh) scale(1.1); }
-      100% { transform: translate(2vw, -2vh) scale(0.95); }
-    }
-
-    /* ── Animations ─────────────────────────────────────────── */
-    @keyframes fadeUp {
-      from { opacity: 0; transform: translateY(10px); }
-      to   { opacity: 1; transform: translateY(0); }
-    }
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(6px); }
-      to   { opacity: 1; transform: translateY(0); }
-    }
-    @keyframes slideIn {
-      from { opacity: 0; transform: translateX(14px); }
-      to   { opacity: 1; transform: translateX(0); }
-    }
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50%       { opacity: 0.45; }
-    }
-
-    ${!isLite ? `
-    .fade-up    { animation: fadeUp  0.25s cubic-bezier(0.16,1,0.3,1) both; }
-    .fade-in    { animation: fadeIn  0.28s cubic-bezier(0.16,1,0.3,1) both; }
-    .slide-in   { animation: slideIn 0.22s cubic-bezier(0.16,1,0.3,1) both; }
-    ` : ''}
-
-    /* ── Focus ring ─────────────────────────────────────────── */
-    input:focus, select:focus, textarea:focus {
-      outline: none;
-      border-color: var(--accent) !important;
-      box-shadow: 0 0 0 3px var(--accent-glow) !important;
-    }
-
     /* ── Buttons ────────────────────────────────────────────── */
     .btn {
       display: inline-flex; align-items: center; justify-content: center; gap: 6px;
       border: none; font-family: var(--font); font-weight: 500;
       border-radius: var(--radius-sm);
-      transition: all 0.18s cubic-bezier(0.4,0,0.2,1);
+      transition: background 0.15s ease, color 0.15s ease, opacity 0.15s ease;
       letter-spacing: -0.01em; white-space: nowrap; position: relative;
-      -webkit-user-select: none; user-select: none;
+      -webkit-user-select: none; user-select: none; cursor: pointer;
     }
     .btn:disabled { opacity: 0.4; pointer-events: none; }
-    .btn-primary {
-      background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%);
-      color: #fff;
-      box-shadow: 0 2px 10px var(--accent-glow);
-    }
-    .btn-primary:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 18px var(--accent-glow); }
-    .btn-primary:active:not(:disabled) { transform: translateY(0); }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
     .btn-secondary { background: var(--surface-alt); color: var(--text); border: 1px solid var(--border); }
     .btn-secondary:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
     .btn-danger { background: var(--danger-light); color: var(--danger); }
@@ -208,11 +131,10 @@ export function getGlobalCSS(t, isLite = false) {
     /* ── Nav items ──────────────────────────────────────────── */
     .nav-item {
       display: flex; align-items: center; gap: 10px;
-      width: 100%; padding: 9px 12px; border: none;
+      width: 100%; padding: 8px 10px; border: none;
       border-radius: var(--radius-sm); font-size: 13px;
-      font-weight: 450;
-      position: relative; font-family: var(--font);
-      overflow: hidden; transition: all 0.16s ease;
+      font-weight: 450; position: relative; font-family: var(--font);
+      overflow: hidden; transition: all 0.16s ease; cursor: pointer;
     }
     .nav-item::before {
       content: ''; position: absolute; left: 0; top: 20%; bottom: 20%;
@@ -228,7 +150,7 @@ export function getGlobalCSS(t, isLite = false) {
     .toggle-pill {
       border: none; border-radius: 20px; padding: 2px 10px;
       font-size: 11px; font-weight: 700; letter-spacing: 0.03em;
-      transition: all 0.18s ease; font-family: var(--font);
+      transition: all 0.18s ease; font-family: var(--font); cursor: pointer;
     }
     .toggle-on  { background: var(--success); color: #fff; }
     .toggle-off { background: var(--surface-alt); color: var(--text-muted); border: 1px solid var(--border); }
@@ -245,14 +167,19 @@ export function getGlobalCSS(t, isLite = false) {
     ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
     ::-webkit-scrollbar-thumb:hover { background: var(--accent); }
 
-    /* ── Responsive ─────────────────────────────────────────── */
-    @media (max-width: 768px) {
-      .desktop-only { display: none !important; }
-      .sidebar-fixed { position: fixed !important; }
+    /* ── Focus ring ─────────────────────────────────────────── */
+    input:focus, select:focus, textarea:focus {
+      outline: none;
+      border-color: var(--accent) !important;
+      box-shadow: 0 0 0 3px var(--accent-glow) !important;
     }
-    @media (min-width: 769px) {
+
+    /* ── Responsive ─────────────────────────────────────────── */
+    @media (max-width: 767px) {
+      .desktop-only { display: none !important; }
+    }
+    @media (min-width: 768px) {
       .mobile-only { display: none !important; }
-      .sidebar-fixed { position: sticky !important; top: 0 !important; left: 0 !important; height: 100vh !important; overflow: hidden !important; }
     }
 
     /* ── Misc ───────────────────────────────────────────────── */
