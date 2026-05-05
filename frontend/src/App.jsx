@@ -76,8 +76,16 @@ export default function App() {
   };
 
   useEffect(() => {
-    if ((page === 'admin' || page === 'containers') && !isAdmin(auth.user)) navigate('profile');
+    if ((page === 'admin' || page === 'containers') && !isAdmin(auth.user)) {
+      setPage('profile');
+      window.location.hash = 'profile';
+      setSidebarOpen(false);
+    }
   }, [page, auth.user]);
+
+  useEffect(() => {
+    if (bp !== 'mobile') setSidebarOpen(false);
+  }, [bp]);
 
   const onLogin      = (data) => setAuth({ loggedIn: true, user: data.user });
   const onLogout     = () => { clearTokens(); setAuth({ loggedIn: false, user: null }); };
