@@ -2,7 +2,7 @@
 import uuid
 from datetime import datetime, timezone
 from sqlalchemy import (
-    Column, String, Boolean, DateTime, Integer, ForeignKey,
+    Column, String, Boolean, DateTime, Integer, BigInteger, ForeignKey,
     Text, Enum as SAEnum, Date, Time, UniqueConstraint, Table, Float, Uuid, Index, JSON,
 )
 from sqlalchemy.orm import relationship
@@ -453,8 +453,8 @@ class ContainerState(Base):
     state_detail    = Column(Text, nullable=True)      # JSON
     ports           = Column(Text, nullable=True)      # JSON
     cpu_percent     = Column(Float, nullable=True)
-    mem_usage_bytes = Column(Integer, nullable=True)
-    mem_limit_bytes = Column(Integer, nullable=True)
+    mem_usage_bytes = Column(BigInteger, nullable=True)
+    mem_limit_bytes = Column(BigInteger, nullable=True)
     last_logs       = Column(Text, nullable=True)      # JSON array of last 50 log lines
     reported_at     = Column(DateTime(timezone=True), default=utcnow, nullable=False)
     is_absent       = Column(Boolean, default=False, nullable=False)
