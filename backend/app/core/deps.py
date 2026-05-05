@@ -1,4 +1,5 @@
 """Auth dependencies for protecting routes."""
+from typing import Type, TypeVar
 from uuid import UUID
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -7,6 +8,8 @@ from sqlalchemy import select
 from app.core.database import get_db
 from app.core.security import decode_token
 from app.models.models import User, UserRole
+
+T = TypeVar("T")
 
 security_scheme = HTTPBearer()
 
@@ -47,3 +50,11 @@ async def require_admin(user: User = Depends(get_current_user)) -> User:
             detail="Admin access required",
         )
     return user
+
+
+async def get_or_404(db: AsyncSession, model: Type[T], obj_id) -> T:
+    """Fetch a model instance by primary key or raise HTTP 404."""
+    obj = await db.get(model, obj_id)
+    if obj is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    return obj

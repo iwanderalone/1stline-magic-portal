@@ -28,12 +28,20 @@ _FAIL_MAX = 10          # max failures before lockout
 _LOCKOUT_SECONDS = 300  # 5 minutes
 _fail_counts: dict[str, list[float]] = defaultdict(list)
 
+# ─── Refresh token rate limiting ────────────────────────────
+# Keyed by IP. Limits to _MAX_REFRESH_PER_MIN per 60-second window.
+_refresh_attempts: defaultdict[str, list[float]] = defaultdict(list)
+_MAX_REFRESH_PER_MIN = 20
+
 
 def _check_rate_limit(ip: str):
     now = _time.monotonic()
     window = now - _LOCKOUT_SECONDS
     attempts = [t for t in _fail_counts[ip] if t > window]
-    _fail_counts[ip] = attempts
+    if attempts:
+        _fail_counts[ip] = attempts
+    else:
+        _fail_counts.pop(ip, None)
     if len(attempts) >= _FAIL_MAX:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -168,7 +176,20 @@ async def disable_otp(
 
 
 @router.post("/refresh", response_model=TokenResponse)
-async def refresh_tokens(req: RefreshRequest, db: AsyncSession = Depends(get_db)):
+async def refresh_tokens(req: RefreshRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    # ─── Rate limiting (20 per minute per IP) ───
+    client_ip = request.client.host if request.client else "unknown"
+    _now = _time.monotonic()
+    _refresh_attempts[client_ip] = [t for t in _refresh_attempts[client_ip] if _now - t < 60]
+    if not _refresh_attempts[client_ip]:
+        del _refresh_attempts[client_ip]
+    if len(_refresh_attempts.get(client_ip, [])) >= _MAX_REFRESH_PER_MIN:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many refresh attempts. Please wait 60 seconds.",
+        )
+    _refresh_attempts[client_ip].append(_now)
+
     payload = decode_token(req.refresh_token)
     if not payload or payload.get("type") != "refresh":
         raise HTTPException(status_code=401, detail="Invalid refresh token")

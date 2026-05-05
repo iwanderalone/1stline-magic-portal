@@ -1,11 +1,11 @@
 """Group management endpoints (admin)."""
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from app.core.database import get_db
-from app.core.deps import get_current_user, require_admin
+from app.core.deps import get_current_user, require_admin, get_or_404
 from app.models.models import Group, User
 from app.schemas.schemas import GroupCreate, GroupUpdate, GroupResponse, GroupMemberUpdate
 
@@ -48,12 +48,8 @@ async def update_group(
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(Group).options(selectinload(Group.members)).where(Group.id == group_id)
-    )
-    group = result.scalar_one_or_none()
-    if not group:
-        raise HTTPException(status_code=404)
+    group = await get_or_404(db, Group, group_id)
+    await db.refresh(group, ["members"])
     for field, value in req.model_dump(exclude_unset=True).items():
         setattr(group, field, value)
     await db.flush()
@@ -66,13 +62,7 @@ async def set_group_members(
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(Group).options(selectinload(Group.members)).where(Group.id == group_id)
-    )
-    group = result.scalar_one_or_none()
-    if not group:
-        raise HTTPException(status_code=404)
-
+    group = await get_or_404(db, Group, group_id)
     users = await db.execute(select(User).where(User.id.in_(req.user_ids)))
     group.members = list(users.scalars().all())
     await db.flush()
@@ -86,9 +76,6 @@ async def delete_group(
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(Group).where(Group.id == group_id))
-    group = result.scalar_one_or_none()
-    if not group:
-        raise HTTPException(status_code=404)
+    group = await get_or_404(db, Group, group_id)
     await db.delete(group)
     return {"deleted": True}

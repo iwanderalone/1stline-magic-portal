@@ -14,6 +14,13 @@ logger = logging.getLogger(__name__)
 
 
 async def check_and_fire_reminders():
+    try:
+        await _check_and_fire_reminders()
+    except Exception as exc:
+        logger.exception("check_and_fire_reminders crashed: %s", exc)
+
+
+async def _check_and_fire_reminders():
     """Check for due reminders and send notifications."""
     now = datetime.now(timezone.utc)
 
