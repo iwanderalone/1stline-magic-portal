@@ -19,7 +19,7 @@ configure_logging()
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
-from app.core.database import engine, Base, _is_sqlite, get_db
+from app.core.database import engine, Base, _is_sqlite, get_db  # _is_sqlite kept for test fixtures
 from app.core.security import hash_password
 from app.core.scheduler import scheduler
 from app.api import auth, users, groups, schedule, reminders, notifications, admin_config
@@ -95,76 +95,6 @@ async def seed_defaults():
         await db.commit()
 
 
-async def run_migrations():
-    """Apply additive schema migrations (safe to run on every startup)."""
-    if not _is_sqlite:
-        return  # PostgreSQL users should use Alembic
-    migrations = [
-        "ALTER TABLE users ADD COLUMN timezone VARCHAR(50) DEFAULT 'UTC'",
-        "ALTER TABLE users ADD COLUMN name_color VARCHAR(7) DEFAULT '#2563eb'",
-        "ALTER TABLE users ADD COLUMN avatar_url VARCHAR(500)",
-        "ALTER TABLE users ADD COLUMN otp_secret VARCHAR(32)",
-        "ALTER TABLE users ADD COLUMN otp_enabled INTEGER DEFAULT 0",
-        "ALTER TABLE users ADD COLUMN telegram_notify_shifts INTEGER DEFAULT 1",
-        "ALTER TABLE users ADD COLUMN telegram_notify_reminders INTEGER DEFAULT 1",
-        "ALTER TABLE users ADD COLUMN telegram_link_code VARCHAR(20)",
-        "ALTER TABLE users ADD COLUMN telegram_chat_id VARCHAR(50)",
-        "ALTER TABLE users ADD COLUMN telegram_username VARCHAR(100)",
-        "ALTER TABLE users ADD COLUMN updated_at DATETIME",
-        "ALTER TABLE reminders ADD COLUMN telegram_target VARCHAR(10) DEFAULT 'personal'",
-        "ALTER TABLE users ADD COLUMN allowed_shift_types TEXT",
-        "ALTER TABLE email_logs ADD COLUMN is_solved INTEGER DEFAULT 0",
-        "ALTER TABLE email_logs ADD COLUMN solver_comment TEXT",
-        "ALTER TABLE email_logs ADD COLUMN solved_at DATETIME",
-        "ALTER TABLE email_logs ADD COLUMN rule_id INTEGER REFERENCES mail_routing_rules(id) ON DELETE SET NULL",
-        "ALTER TABLE email_logs ADD COLUMN status VARCHAR(20) DEFAULT 'unchecked'",
-        # Telegram Templates
-        "ALTER TABLE telegram_templates ADD COLUMN description TEXT",
-        "ALTER TABLE telegram_templates ADD COLUMN topic_id INTEGER",
-        # VPS Agents
-        "ALTER TABLE vps_agents ADD COLUMN description TEXT",
-        "ALTER TABLE vps_agents ADD COLUMN is_enabled INTEGER DEFAULT 1",
-        "ALTER TABLE vps_agents ADD COLUMN hostname VARCHAR(255)",
-        "ALTER TABLE vps_agents ADD COLUMN alert_template_id TEXT",
-        # Container States
-        "ALTER TABLE container_states ADD COLUMN is_absent INTEGER DEFAULT 0",
-        "ALTER TABLE container_states ADD COLUMN display_name VARCHAR(100)",
-        "ALTER TABLE container_states ADD COLUMN description TEXT",
-        "ALTER TABLE container_states ADD COLUMN hosted_on VARCHAR(150)",
-        "ALTER TABLE container_states ADD COLUMN last_logs TEXT",
-        # Container Commands
-        "ALTER TABLE container_commands ADD COLUMN container_name VARCHAR(255)",
-        "ALTER TABLE container_commands ADD COLUMN result_message TEXT",
-        # VPS Agent system snapshot & alert config
-        "ALTER TABLE vps_agents ADD COLUMN system_snapshot TEXT",
-        "ALTER TABLE vps_agents ADD COLUMN disk_alert_threshold INTEGER DEFAULT 85",
-        # VPS Agent CPU + per-alert flags
-        "ALTER TABLE vps_agents ADD COLUMN cpu_alert_threshold INTEGER DEFAULT 80",
-        "ALTER TABLE vps_agents ADD COLUMN alert_flags TEXT",
-        # Per-mailbox routing rule scope
-        "ALTER TABLE mail_routing_rules ADD COLUMN mailbox_id INTEGER REFERENCES mailbox_configs(id) ON DELETE SET NULL",
-        # B3: backfill status from is_solved, then drop redundant column
-        "UPDATE email_logs SET status = 'solved' WHERE is_solved = 1 AND status = 'unchecked'",
-        "ALTER TABLE email_logs DROP COLUMN is_solved",
-        # C4: performance indexes
-        "CREATE INDEX IF NOT EXISTS ix_email_logs_mailbox_id ON email_logs(mailbox_id)",
-        "CREATE INDEX IF NOT EXISTS ix_email_logs_created_at ON email_logs(created_at)",
-        "CREATE INDEX IF NOT EXISTS ix_email_logs_status ON email_logs(status)",
-        "CREATE INDEX IF NOT EXISTS ix_reminders_remind_at ON reminders(remind_at)",
-        "CREATE INDEX IF NOT EXISTS ix_reminders_user_id ON reminders(user_id)",
-        "CREATE INDEX IF NOT EXISTS ix_shifts_date ON shifts(date)",
-        "CREATE INDEX IF NOT EXISTS ix_shifts_user_id ON shifts(user_id)",
-    ]
-    async with engine.begin() as conn:
-        for stmt in migrations:
-            try:
-                await conn.execute(text(stmt))
-            except Exception as e:
-                msg = str(e).lower()
-                # Additive migrations: "already exists" / "duplicate column" are expected
-                if "already exists" not in msg and "duplicate column" not in msg:
-                    logger.warning("Migration step may have failed: %s — stmt: %.80s", e, stmt)
-
 
 async def seed_routing_rules():
     """Upsert built-in routing rules. Safe to run on every startup."""
@@ -233,22 +163,14 @@ async def _migrate_imap_passwords() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if _is_sqlite:
-        # Ensure the SQLite data directory exists
+        # Local dev / tests: create tables directly from models
         db_url = settings.DATABASE_URL
-        # Extract file path from sqlite+aiosqlite:///path
         db_path = db_url.split("///", 1)[-1]
         db_dir = os.path.dirname(db_path)
         if db_dir:
             os.makedirs(db_dir, exist_ok=True)
-        # SQLite: create tables and run additive ALTER TABLE migrations
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-        await run_migrations()
-    else:
-        # PostgreSQL: schema is managed by Alembic.
-        # `alembic upgrade head` must be run before starting the app
-        # (see docker-compose.yml command).
-        logger.info("PostgreSQL mode — skipping create_all (Alembic manages schema)")
     await seed_defaults()
     await seed_routing_rules()
     await _migrate_imap_passwords()
