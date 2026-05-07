@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '../api';
-import { useTheme } from '../components/ThemeContext';
-import { Button, Card, Badge, Overlay, Toast, EmptyState, Input } from '../components/UI';
+import { Button, Card, Badge, Overlay, Toast, EmptyState, Input, Bar, StatusDot, Tag } from '../components/UI';
 
 // ─── Helpers ──────────────────────────────────────────────
 
@@ -68,29 +67,25 @@ function barColor(pct) {
 // ─── Metric Bar ───────────────────────────────────────────
 
 function MetricBar({ label, used, total, pct: _pct, color }) {
-  const { theme: t } = useTheme();
   const pct = _pct != null ? _pct : (total ? Math.min(100, (used / total) * 100) : 0);
   const bc = color || barColor(pct);
   return (
     <div style={{ flex: 1, minWidth: 80 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-        <span style={{ fontSize: 10, color: t.textMuted, fontWeight: 600, letterSpacing: '0.05em' }}>{label}</span>
-        <span style={{ fontSize: 10, color: t.textSecondary }}>
+        <span style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 600, letterSpacing: '0.05em' }}>{label}</span>
+        <span style={{ fontSize: 10, color: 'var(--text-secondary)' }}>
           {total ? `${fmtBytes(used, 0)} / ${fmtBytes(total, 0)}` : `${pct.toFixed(0)}%`}
         </span>
       </div>
-      <div style={{ height: 5, background: t.border, borderRadius: 3, overflow: 'hidden' }}>
-        <div style={{ width: `${Math.min(100, pct)}%`, height: '100%', background: bc, borderRadius: 3, transition: 'width 0.5s ease' }} />
-      </div>
+      <Bar value={pct / 100} color={bc} height={5} />
     </div>
   );
 }
 
 function MiniBar({ pct, color }) {
-  const { theme: t } = useTheme();
   return (
-    <div style={{ background: t.border, borderRadius: 3, height: 4, overflow: 'hidden', flex: 1 }}>
-      <div style={{ width: `${Math.min(100, Math.max(0, pct || 0))}%`, background: color, height: '100%', transition: 'width 0.4s ease' }} />
+    <div style={{ flex: 1 }}>
+      <Bar value={Math.min(100, Math.max(0, pct || 0)) / 100} color={color} height={4} />
     </div>
   );
 }
@@ -98,7 +93,6 @@ function MiniBar({ pct, color }) {
 // ─── System Metrics Panel ─────────────────────────────────
 
 function SystemPanel({ snapshot }) {
-  const { theme: t } = useTheme();
   const [showLogins, setShowLogins] = useState(false);
   const [showUpdates, setShowUpdates] = useState(false);
   const [showFailed, setShowFailed] = useState(false);
@@ -114,7 +108,7 @@ function SystemPanel({ snapshot }) {
   const diskPct  = diskTot ? (diskUsed / diskTot) * 100 : null;
 
   return (
-    <div style={{ borderBottom: `1px solid ${t.border}`, background: t.surfaceAlt }}>
+    <div style={{ borderBottom: '1px solid var(--border)', background: 'var(--surface-alt)' }}>
       {/* Metrics row */}
       <div style={{ padding: '10px 16px', display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end' }}>
         {cpuPct != null && (
@@ -128,13 +122,14 @@ function SystemPanel({ snapshot }) {
         )}
         <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
           {sys?.uptime_seconds != null && (
-            <div style={{ fontSize: 11, color: t.textMuted }}>
-              <span style={{ color: t.textSecondary, fontWeight: 600 }}>Up</span> {fmtUptime(sys.uptime_seconds)}
+            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+              <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>Up</span>{' '}
+              <span style={{ fontFamily: 'var(--font-mono)' }}>{fmtUptime(sys.uptime_seconds)}</span>
             </div>
           )}
           {sys?.load_avg_1m != null && (
-            <div style={{ fontSize: 11, color: t.textMuted }}>
-              <span style={{ color: t.textSecondary, fontWeight: 600 }}>Load</span>{' '}
+            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+              <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>Load</span>{' '}
               {sys.load_avg_1m.toFixed(2)} / {sys.load_avg_5m?.toFixed(2) ?? '—'}
             </div>
           )}
@@ -160,8 +155,8 @@ function SystemPanel({ snapshot }) {
           )}
           {logins.length > 0 && (
             <button onClick={() => { setShowLogins(v => !v); setShowUpdates(false); setShowFailed(false); }}
-              style={{ background: t.accentLight, border: `1px solid ${t.border}`, borderRadius: 20,
-                padding: '3px 10px', fontSize: 11, color: t.accent, cursor: 'pointer', fontWeight: 600 }}>
+              style={{ background: 'var(--accent-light)', border: '1px solid var(--border)', borderRadius: 20,
+                padding: '3px 10px', fontSize: 11, color: 'var(--accent)', cursor: 'pointer', fontWeight: 600 }}>
               👤 {logins.length} recent login{logins.length !== 1 ? 's' : ''}
             </button>
           )}
@@ -171,15 +166,15 @@ function SystemPanel({ snapshot }) {
       {/* Expandable: Updates */}
       {showUpdates && updates.length > 0 && (
         <div style={{ padding: '0 16px 12px' }}>
-          <div style={{ background: t.surface, border: `1px solid ${t.border}`, borderRadius: t.radiusSm,
+          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
             maxHeight: 180, overflowY: 'auto' }}>
             {updates.map((u, i) => (
               <div key={i} style={{ display: 'flex', gap: 12, padding: '6px 12px',
-                borderBottom: i < updates.length - 1 ? `1px solid ${t.borderLight}` : 'none',
-                fontSize: 11, fontFamily: 'monospace' }}>
-                <span style={{ flex: 1, fontWeight: 600, color: t.text }}>{u.package}</span>
-                {u.current_version && <span style={{ color: t.textMuted }}>{u.current_version}</span>}
-                {u.new_version && <><span style={{ color: t.textMuted }}>→</span>
+                borderBottom: i < updates.length - 1 ? '1px solid var(--border-light)' : 'none',
+                fontSize: 11, fontFamily: 'var(--font-mono)' }}>
+                <span style={{ flex: 1, fontWeight: 600, color: 'var(--text)' }}>{u.package}</span>
+                {u.current_version && <span style={{ color: 'var(--text-muted)' }}>{u.current_version}</span>}
+                {u.new_version && <><span style={{ color: 'var(--text-muted)' }}>→</span>
                   <span style={{ color: '#10b981' }}>{u.new_version}</span></>}
               </div>
             ))}
@@ -190,9 +185,9 @@ function SystemPanel({ snapshot }) {
       {/* Expandable: Failed services */}
       {showFailed && failed.length > 0 && (
         <div style={{ padding: '0 16px 12px' }}>
-          <div style={{ background: t.surface, border: `1px solid rgba(239,68,68,0.3)`, borderRadius: t.radiusSm, padding: '8px 12px' }}>
+          <div style={{ background: 'var(--surface)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 'var(--radius-sm)', padding: '8px 12px' }}>
             {failed.map((svc, i) => (
-              <div key={i} style={{ fontSize: 12, fontFamily: 'monospace', color: '#ef4444', padding: '2px 0' }}>
+              <div key={i} style={{ fontSize: 12, fontFamily: 'var(--font-mono)', color: '#ef4444', padding: '2px 0' }}>
                 ● {svc}
               </div>
             ))}
@@ -203,17 +198,17 @@ function SystemPanel({ snapshot }) {
       {/* Expandable: Recent logins */}
       {showLogins && logins.length > 0 && (
         <div style={{ padding: '0 16px 12px' }}>
-          <div style={{ background: t.surface, border: `1px solid ${t.border}`, borderRadius: t.radiusSm }}>
+          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)' }}>
             {logins.map((l, i) => (
               <div key={i} style={{ display: 'flex', gap: 12, padding: '6px 12px',
-                borderBottom: i < logins.length - 1 ? `1px solid ${t.borderLight}` : 'none',
+                borderBottom: i < logins.length - 1 ? '1px solid var(--border-light)' : 'none',
                 fontSize: 11, alignItems: 'center' }}>
-                <span style={{ fontWeight: 600, color: t.text }}>{l.username}</span>
-                {l.ip && <span style={{ fontFamily: 'monospace', color: t.textMuted }}>{l.ip}</span>}
+                <span style={{ fontWeight: 600, color: 'var(--text)' }}>{l.username}</span>
+                {l.ip && <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>{l.ip}</span>}
                 {l.event_type && l.event_type !== 'login' && (
                   <Badge color={l.event_type === 'failed' ? 'red' : 'blue'}>{l.event_type}</Badge>
                 )}
-                {l.timestamp && <span style={{ color: t.textMuted, marginLeft: 'auto' }}>{l.timestamp}</span>}
+                {l.timestamp && <span style={{ color: 'var(--text-muted)', marginLeft: 'auto' }}>{l.timestamp}</span>}
               </div>
             ))}
           </div>
@@ -226,7 +221,6 @@ function SystemPanel({ snapshot }) {
 // ─── Container Card ───────────────────────────────────────
 
 function ContainerCard({ container, agentId, onEdit, onViewLogs }) {
-  const { theme: t } = useTheme();
   const label = container.display_name || container.name;
   const sc = statusColor(container.status);
   const memPct = container.mem_limit_bytes
@@ -234,27 +228,28 @@ function ContainerCard({ container, agentId, onEdit, onViewLogs }) {
   const ports = fmtPorts(container.ports);
 
   return (
-    <div style={{ background: t.surface, border: `1px solid ${t.border}`, borderLeft: `3px solid ${sc}`,
-      borderRadius: t.radius, display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: t.shadow }}>
+    <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderLeft: `3px solid ${sc}`,
+      borderRadius: 'var(--radius)', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: 'var(--shadow)' }}>
 
       {/* Header */}
       <div style={{ padding: '10px 12px 6px', display: 'flex', alignItems: 'flex-start', gap: 8 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 700, fontSize: 13, wordBreak: 'break-word', lineHeight: 1.3 }}>{label}</div>
-          <div style={{ fontSize: 10, color: t.textMuted, marginTop: 2, fontFamily: 'monospace',
+          <div style={{ fontWeight: 700, fontSize: 13, wordBreak: 'break-word', lineHeight: 1.3,
+            fontFamily: 'var(--font-mono)' }}>{label}</div>
+          <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2, fontFamily: 'var(--font-mono)',
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {container.image}
           </div>
         </div>
         <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
           <button onClick={() => onViewLogs(container)} title="View logs"
-            style={{ background: 'none', border: `1px solid ${t.border}`, cursor: 'pointer',
-              fontSize: 10, color: t.textMuted, padding: '2px 6px', borderRadius: 8 }}>
+            style={{ background: 'none', border: '1px solid var(--border)', cursor: 'pointer',
+              fontSize: 10, color: 'var(--text-muted)', padding: '2px 6px', borderRadius: 8 }}>
             📋
           </button>
           <button onClick={() => onEdit(container)} title="Edit metadata"
             style={{ background: 'none', border: 'none', cursor: 'pointer',
-              fontSize: 12, color: t.textMuted, padding: '2px 4px', borderRadius: 4 }}>
+              fontSize: 12, color: 'var(--text-muted)', padding: '2px 4px', borderRadius: 4 }}>
             ✏️
           </button>
         </div>
@@ -264,18 +259,18 @@ function ContainerCard({ container, agentId, onEdit, onViewLogs }) {
       <div style={{ padding: '0 12px 8px', display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 4 }}>
-            <div style={{ width: 6, height: 6, borderRadius: '50%', background: sc, flexShrink: 0 }} />
-            <span style={{ fontSize: 11, color: t.textSecondary, fontWeight: 500 }}>
+            <StatusDot tone={sc} size={6} />
+            <Tag style={{ fontSize: 11, fontWeight: 500 }}>
               {(container.status || 'unknown').toLowerCase()}
-            </span>
+            </Tag>
           </div>
-          {ports && <span style={{ fontSize: 10, color: t.textMuted }}>🔌 {ports}</span>}
+          {ports && <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>🔌 {ports}</span>}
         </div>
         {container.hosted_on && (
-          <div style={{ fontSize: 10, color: t.textSecondary }}>📍 {container.hosted_on}</div>
+          <div style={{ fontSize: 10, color: 'var(--text-secondary)' }}>📍 {container.hosted_on}</div>
         )}
         {container.description && (
-          <div style={{ fontSize: 10, color: t.textMuted, lineHeight: 1.4,
+          <div style={{ fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.4,
             display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
             {container.description}
           </div>
@@ -284,9 +279,9 @@ function ContainerCard({ container, agentId, onEdit, onViewLogs }) {
         {/* CPU bar */}
         {container.cpu_percent != null && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
-            <span style={{ fontSize: 9, color: t.textMuted, width: 22, flexShrink: 0 }}>CPU</span>
+            <span style={{ fontSize: 9, color: 'var(--text-muted)', width: 22, flexShrink: 0 }}>CPU</span>
             <MiniBar pct={container.cpu_percent} color={barColor(container.cpu_percent)} />
-            <span style={{ fontSize: 9, color: t.textSecondary, width: 32, textAlign: 'right', flexShrink: 0 }}>
+            <span style={{ fontSize: 9, color: 'var(--text-secondary)', width: 32, textAlign: 'right', flexShrink: 0 }}>
               {container.cpu_percent.toFixed(1)}%
             </span>
           </div>
@@ -295,9 +290,9 @@ function ContainerCard({ container, agentId, onEdit, onViewLogs }) {
         {/* Memory bar */}
         {container.mem_usage_bytes != null && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 9, color: t.textMuted, width: 22, flexShrink: 0 }}>MEM</span>
+            <span style={{ fontSize: 9, color: 'var(--text-muted)', width: 22, flexShrink: 0 }}>MEM</span>
             <MiniBar pct={memPct} color={barColor(memPct)} />
-            <span style={{ fontSize: 9, color: t.textSecondary, width: 32, textAlign: 'right', flexShrink: 0 }}>
+            <span style={{ fontSize: 9, color: 'var(--text-secondary)', width: 32, textAlign: 'right', flexShrink: 0 }}>
               {fmtBytes(container.mem_usage_bytes, 0)}
             </span>
           </div>
@@ -321,7 +316,6 @@ const FLAG_LABELS = {
 };
 
 function EditAgentOverlay({ agent, onClose, onSave }) {
-  const { theme: t } = useTheme();
   const [name, setName] = useState(agent.name || '');
   const [description, setDescription] = useState(agent.description || '');
   const [templateId, setTemplateId] = useState(agent.alert_template_id || '');
@@ -353,7 +347,7 @@ function EditAgentOverlay({ agent, onClose, onSave }) {
 
   const selectStyle = {
     width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 6,
-    border: `1px solid ${t.border}`, background: t.surfaceAlt, color: t.text,
+    border: '1px solid var(--border)', background: 'var(--surface-alt)', color: 'var(--text)',
     boxSizing: 'border-box', appearance: 'auto',
   };
 
@@ -367,7 +361,7 @@ function EditAgentOverlay({ agent, onClose, onSave }) {
           {value}%
         </span>
       </div>
-      <span style={{ fontSize: 11, color: t.textMuted }}>{hint}</span>
+      <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{hint}</span>
     </div>
   );
 
@@ -380,7 +374,7 @@ function EditAgentOverlay({ agent, onClose, onSave }) {
         <Input label="Description (optional)" value={description} onChange={e => setDescription(e.target.value)} />
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <label style={{ fontSize: 12, fontWeight: 600, color: t.text }}>Alert Telegram Template</label>
+          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>Alert Telegram Template</label>
           <select value={templateId} onChange={e => setTemplateId(e.target.value)} style={selectStyle}>
             <option value="">— No alerts —</option>
             {templates.map(tpl => (
@@ -391,14 +385,14 @@ function EditAgentOverlay({ agent, onClose, onSave }) {
 
         {/* Alert flags */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, opacity: hasTemplate ? 1 : 0.45, pointerEvents: hasTemplate ? 'auto' : 'none' }}>
-          <label style={{ fontSize: 12, fontWeight: 600, color: t.text, letterSpacing: '0.03em' }}>
-            Alert types {!hasTemplate && <span style={{ fontWeight: 400, color: t.textMuted }}>(select a template above)</span>}
+          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', letterSpacing: '0.03em' }}>
+            Alert types {!hasTemplate && <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>(select a template above)</span>}
           </label>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 16px' }}>
             {Object.entries(FLAG_LABELS).map(([key, label]) => (
               <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', fontSize: 13 }}>
                 <input type="checkbox" checked={!!flags[key]} onChange={() => toggleFlag(key)}
-                  style={{ width: 15, height: 15, accentColor: t.accent, cursor: 'pointer' }} />
+                  style={{ width: 15, height: 15, accentColor: 'var(--accent)', cursor: 'pointer' }} />
                 {label}
               </label>
             ))}
@@ -408,7 +402,7 @@ function EditAgentOverlay({ agent, onClose, onSave }) {
         {/* Threshold sliders — only visible when relevant alert is on */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, opacity: hasTemplate ? 1 : 0.45, pointerEvents: hasTemplate ? 'auto' : 'none' }}>
           <div style={{ opacity: flags.disk ? 1 : 0.4 }}>
-            <label style={{ fontSize: 12, fontWeight: 600, color: t.text }}>Disk threshold (%)</label>
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>Disk threshold (%)</label>
             <ThresholdRow
               min={50} max={99} value={diskThreshold} setValue={setDiskThreshold}
               hint="Fire when disk usage exceeds this (1h cooldown)."
@@ -416,7 +410,7 @@ function EditAgentOverlay({ agent, onClose, onSave }) {
             />
           </div>
           <div style={{ opacity: flags.cpu ? 1 : 0.4 }}>
-            <label style={{ fontSize: 12, fontWeight: 600, color: t.text }}>CPU threshold (%)</label>
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>CPU threshold (%)</label>
             <ThresholdRow
               min={1} max={100} value={cpuThreshold} setValue={setCpuThreshold}
               hint="Fire after ~45 s of sustained CPU above this (30 min cooldown)."
@@ -439,23 +433,22 @@ function EditAgentOverlay({ agent, onClose, onSave }) {
 // ─── Agent Section ────────────────────────────────────────
 
 function AgentSection({ agent, onEdit, onViewLogs, onDeleteAgent, onEditAgent }) {
-  const { theme: t } = useTheme();
   const online = isOnline(agent);
   const active = (agent.containers || []).filter(c => !c.is_absent);
   const [collapsed, setCollapsed] = useState(false);
   const [editingAgent, setEditingAgent] = useState(false);
 
-  const onlineColor = online ? '#10b981' : '#ef4444';
+  const onlineColor = online ? 'var(--success)' : 'var(--danger)';
 
   return (
-    <div style={{ border: `1px solid ${t.border}`, borderRadius: t.radius, overflow: 'hidden', boxShadow: t.shadow }}>
+    <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden', boxShadow: 'var(--shadow)' }}>
 
       {/* Agent header */}
-      <div style={{ background: t.surface, borderLeft: `4px solid ${onlineColor}`, padding: '12px 16px',
+      <div style={{ background: 'var(--surface)', borderLeft: `4px solid ${onlineColor}`, padding: '12px 16px',
         display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <button onClick={() => setCollapsed(v => !v)}
           style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13,
-            color: t.textMuted, padding: '2px 4px', borderRadius: 4, flexShrink: 0 }}>
+            color: 'var(--text-muted)', padding: '2px 4px', borderRadius: 4, flexShrink: 0 }}>
           {collapsed ? '▶' : '▼'}
         </button>
 
@@ -466,11 +459,15 @@ function AgentSection({ agent, onEdit, onViewLogs, onDeleteAgent, onEditAgent })
               padding: '2px 8px', borderRadius: 20, fontWeight: 600,
               background: online ? 'rgba(16,185,129,0.13)' : 'rgba(239,68,68,0.12)',
               color: onlineColor }}>
-              <span style={{ width: 6, height: 6, borderRadius: '50%', background: onlineColor, flexShrink: 0 }} />
+              <StatusDot
+                tone={online ? 'var(--success)' : 'var(--text-muted)'}
+                pulse={online}
+                size={6}
+              />
               {online ? 'Online' : 'Offline'}
             </span>
             {active.length > 0 && (
-              <span style={{ fontSize: 11, color: t.textMuted }}>
+              <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
                 {active.length} container{active.length !== 1 ? 's' : ''}
               </span>
             )}
@@ -478,20 +475,22 @@ function AgentSection({ agent, onEdit, onViewLogs, onDeleteAgent, onEditAgent })
               <span title="Telegram alerts configured" style={{ fontSize: 12 }}>🔔</span>
             )}
           </div>
-          <div style={{ fontSize: 11, color: t.textMuted, marginTop: 3 }}>
-            {[agent.hostname, agent.ip_address].filter(Boolean).join(' · ')}
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>
+            <span style={{ fontFamily: 'var(--font-mono)' }}>
+              {[agent.hostname, agent.ip_address].filter(Boolean).join(' · ')}
+            </span>
             {agent.last_seen && <span> · last seen {fmtSince(agent.last_seen)}</span>}
-            {agent.description && <span style={{ color: t.textSecondary }}> · {agent.description}</span>}
+            {agent.description && <span style={{ color: 'var(--text-secondary)' }}> · {agent.description}</span>}
           </div>
         </div>
 
         <button onClick={() => setEditingAgent(true)}
           style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13,
-            color: t.textMuted, padding: '4px 6px', borderRadius: 4 }}
+            color: 'var(--text-muted)', padding: '4px 6px', borderRadius: 4 }}
           title="Edit agent settings">⚙️</button>
         <button onClick={() => { if (confirm(`Delete agent "${agent.name}"? This removes all container history.`)) onDeleteAgent(agent.id); }}
           style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13,
-            color: t.textMuted, padding: '4px 6px', borderRadius: 4 }}
+            color: 'var(--text-muted)', padding: '4px 6px', borderRadius: 4 }}
           title="Delete agent">🗑</button>
       </div>
 
@@ -506,9 +505,9 @@ function AgentSection({ agent, onEdit, onViewLogs, onDeleteAgent, onEditAgent })
           <SystemPanel snapshot={agent.snapshot} />
 
           {/* Container grid */}
-          <div style={{ background: t.bg, padding: active.length > 0 ? 14 : 0 }}>
+          <div style={{ background: 'var(--bg)', padding: active.length > 0 ? 14 : 0 }}>
             {active.length === 0 ? (
-              <div style={{ padding: '18px', textAlign: 'center', color: t.textMuted, fontSize: 12 }}>
+              <div style={{ padding: '18px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 12 }}>
                 {online ? 'No containers reported yet' : 'Agent offline — last known state shown above'}
               </div>
             ) : (
@@ -529,7 +528,6 @@ function AgentSection({ agent, onEdit, onViewLogs, onDeleteAgent, onEditAgent })
 // ─── Edit Container Overlay ───────────────────────────────
 
 function EditContainerOverlay({ agentId, container, onClose, onSave }) {
-  const { theme: t } = useTheme();
   const [displayName, setDisplayName] = useState(container.display_name || '');
   const [hostedOn, setHostedOn] = useState(container.hosted_on || '');
   const [description, setDescription] = useState(container.description || '');
@@ -551,11 +549,11 @@ function EditContainerOverlay({ agentId, container, onClose, onSave }) {
         <Input label="Display Name (optional)" value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder={container.name} />
         <Input label="Hosted On (optional)" value={hostedOn} onChange={e => setHostedOn(e.target.value)} placeholder="e.g. Hetzner CX21, Frankfurt" />
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <label style={{ fontSize: 12, fontWeight: 600, color: t.text }}>Description (optional)</label>
+          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>Description (optional)</label>
           <textarea value={description} onChange={e => setDescription(e.target.value)}
             placeholder="What does this container do?" rows={3}
             style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 6,
-              border: `1px solid ${t.border}`, background: t.surfaceAlt, color: t.text,
+              border: '1px solid var(--border)', background: 'var(--surface-alt)', color: 'var(--text)',
               resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box' }} />
         </div>
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
@@ -570,7 +568,6 @@ function EditContainerOverlay({ agentId, container, onClose, onSave }) {
 // ─── Logs Overlay ─────────────────────────────────────────
 
 function LogsOverlay({ container, onClose }) {
-  const { theme: t } = useTheme();
   const logs = container.last_logs;
   const [copied, setCopied] = useState(false);
 
@@ -582,7 +579,7 @@ function LogsOverlay({ container, onClose }) {
     <Overlay title={`Logs — ${container.display_name || container.name}`} onClose={onClose}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ fontSize: 11, color: t.textMuted }}>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
             Captured: {container.reported_at
               ? new Date((container.reported_at.endsWith('Z') ? container.reported_at : container.reported_at + 'Z')).toLocaleString()
               : '—'}
@@ -592,9 +589,9 @@ function LogsOverlay({ container, onClose }) {
         {!logs || logs.length === 0 ? (
           <EmptyState icon="📋" title="No logs captured" subtitle="The agent will include logs on the next report cycle" />
         ) : (
-          <div style={{ background: '#0d1117', borderRadius: t.radiusSm, padding: 12, maxHeight: 400,
-            overflowY: 'auto', fontFamily: 'monospace', fontSize: 11, lineHeight: 1.5, color: '#e6edf3',
-            border: `1px solid ${t.border}` }}>
+          <div style={{ background: '#0d1117', borderRadius: 'var(--radius-sm)', padding: 12, maxHeight: 400,
+            overflowY: 'auto', fontFamily: 'var(--font-mono)', fontSize: 11, lineHeight: 1.5, color: '#e6edf3',
+            border: '1px solid var(--border)' }}>
             {logs.map((line, i) => <div key={i} style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{line || '\u00A0'}</div>)}
           </div>
         )}
@@ -636,7 +633,6 @@ function RegisterAgentOverlay({ onClose, onRegister }) {
 // ─── New Key Overlay ──────────────────────────────────────
 
 function NewKeyOverlay({ agentId, apiKey, onClose }) {
-  const { theme: t } = useTheme();
   const [copied, setCopied] = useState(false);
   const handleCopy = async () => {
     try { await navigator.clipboard.writeText(apiKey); setCopied(true); setTimeout(() => setCopied(false), 3000); } catch {}
@@ -647,18 +643,18 @@ function NewKeyOverlay({ agentId, apiKey, onClose }) {
   return (
     <Overlay title="Agent API Key — Save This Now" onClose={onClose}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <div style={{ background: t.warningLight, border: `1px solid ${t.warning}`, borderRadius: t.radiusSm,
-          padding: '10px 14px', fontSize: 13, color: t.warning }}>
+        <div style={{ background: 'var(--warning-light)', border: '1px solid var(--warning)', borderRadius: 'var(--radius-sm)',
+          padding: '10px 14px', fontSize: 13, color: 'var(--warning)' }}>
           ⚠️ <strong>This key is shown only once.</strong> It cannot be recovered — copy it and put it in your VPS env file now.
         </div>
-        <div style={{ fontFamily: 'monospace', fontSize: 12, background: t.surfaceAlt, border: `1px solid ${t.border}`,
-          borderRadius: t.radiusSm, padding: '12px 14px', wordBreak: 'break-all', userSelect: 'all', lineHeight: 1.6 }}>
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, background: 'var(--surface-alt)', border: '1px solid var(--border)',
+          borderRadius: 'var(--radius-sm)', padding: '12px 14px', wordBreak: 'break-all', userSelect: 'all', lineHeight: 1.6 }}>
           {apiKey}
         </div>
-        <div style={{ fontSize: 12, color: t.textMuted, lineHeight: 1.6 }}>
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.6 }}>
           On your VPS, save to <code>/etc/1line-agent/env</code>:
-          <pre style={{ marginTop: 6, background: t.surfaceAlt, border: `1px solid ${t.border}`,
-            borderRadius: t.radiusSm, padding: '8px 12px', fontSize: 11, fontFamily: 'monospace',
+          <pre style={{ marginTop: 6, background: 'var(--surface-alt)', border: '1px solid var(--border)',
+            borderRadius: 'var(--radius-sm)', padding: '8px 12px', fontSize: 11, fontFamily: 'var(--font-mono)',
             overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
             {envBlock}
           </pre>
@@ -675,7 +671,6 @@ function NewKeyOverlay({ agentId, apiKey, onClose }) {
 // ─── Main Page ────────────────────────────────────────────
 
 export default function ContainersPage() {
-  const { theme: t } = useTheme();
   const [agents, setAgents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -762,14 +757,14 @@ export default function ContainersPage() {
         <div>
           <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 4 }}>Infrastructure Dashboard</h2>
           {!loading && agents.length > 0 && (
-            <div style={{ fontSize: 12, color: t.textMuted, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
               <span>{agents.length} agent{agents.length !== 1 ? 's' : ''} ·{' '}
-                <span style={{ color: '#10b981' }}>{onlineCount} online</span>
-                {onlineCount < agents.length && <span style={{ color: '#ef4444' }}> · {agents.length - onlineCount} offline</span>}
+                <span style={{ color: 'var(--success)' }}>{onlineCount} online</span>
+                {onlineCount < agents.length && <span style={{ color: 'var(--danger)' }}> · {agents.length - onlineCount} offline</span>}
               </span>
               <span>{totalContainers} container{totalContainers !== 1 ? 's' : ''}</span>
               {totalUpdates > 0 && <span style={{ color: '#d97706' }}>⬆️ {totalUpdates} updates pending</span>}
-              {totalFailed > 0 && <span style={{ color: '#ef4444' }}>🔴 {totalFailed} services failed</span>}
+              {totalFailed > 0 && <span style={{ color: 'var(--danger)' }}>🔴 {totalFailed} services failed</span>}
             </div>
           )}
         </div>
@@ -777,7 +772,7 @@ export default function ContainersPage() {
       </div>
 
       {/* Body */}
-      {loading && <div style={{ padding: 40, textAlign: 'center', color: t.textMuted }}>Loading…</div>}
+      {loading && <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>Loading…</div>}
       {!loading && error && <Card style={{ padding: 20, color: '#ef4444', textAlign: 'center' }}>{error}</Card>}
       {!loading && !error && agents.length === 0 && (
         <EmptyState icon="🖥️" title="No agents registered"
