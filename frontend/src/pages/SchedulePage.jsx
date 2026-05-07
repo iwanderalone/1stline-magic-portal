@@ -364,9 +364,18 @@ function AddShiftModal({ onClose, onSubmit, users, configs }) {
   const { t: tr } = useLang();
   const [userId, setUserId] = useState('');
   const [date, setDate] = useState('');
-  const [shiftType, setShiftType] = useState('day');
+  const activeConfigs = configs.filter(c => c.is_active);
+  const [shiftType, setShiftType] = useState(activeConfigs[0]?.shift_type || '');
   const [location, setLocation] = useState('');
   const cfg = configs.find(c => c.shift_type === shiftType);
+  useEffect(() => {
+    const nextConfigs = configs.filter(c => c.is_active);
+    if (nextConfigs.length === 0) return;
+    if (!nextConfigs.some(c => c.shift_type === shiftType)) {
+      setShiftType(nextConfigs[0].shift_type);
+    }
+  }, [configs, shiftType]);
+
   return (
     <Overlay onClose={onClose} title={tr('addShiftManually')}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
@@ -376,7 +385,7 @@ function AddShiftModal({ onClose, onSubmit, users, configs }) {
         </Select>
         <Input label={tr('date')} type="date" value={date} onChange={e => setDate(e.target.value)} />
         <Select label={tr('shiftType')} value={shiftType} onChange={e => setShiftType(e.target.value)}>
-          {configs.filter(c => c.is_active).map(c => <option key={c.shift_type} value={c.shift_type}>{c.emoji} {shiftLabel(tr, c.shift_type)} ({c.duration_hours}h)</option>)}
+          {activeConfigs.map(c => <option key={c.shift_type} value={c.shift_type}>{c.emoji} {shiftLabel(tr, c.shift_type)} ({c.duration_hours}h)</option>)}
         </Select>
         {cfg?.requires_location && (
           <Select label={tr('location')} value={location} onChange={e => setLocation(e.target.value)}>
@@ -387,7 +396,12 @@ function AddShiftModal({ onClose, onSubmit, users, configs }) {
         )}
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
           <Button variant="secondary" onClick={onClose}>{tr('cancel')}</Button>
-          <Button onClick={() => onSubmit({ user_id: userId, date, shift_type: shiftType, location: location || null })} disabled={!userId || !date}>{tr('add')}</Button>
+          <Button
+            onClick={() => onSubmit({ user_id: userId, date, shift_type: shiftType, location: location || null })}
+            disabled={!userId || !date || !shiftType || (cfg?.requires_location && !location)}
+          >
+            {tr('add')}
+          </Button>
         </div>
       </div>
     </Overlay>
