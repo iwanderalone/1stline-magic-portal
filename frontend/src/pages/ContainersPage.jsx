@@ -143,15 +143,17 @@ function SystemPanel({ snapshot }) {
           {updates.length > 0 && (
             <button onClick={() => { setShowUpdates(v => !v); setShowFailed(false); setShowLogins(false); }}
               style={{ background: 'rgba(217,119,6,0.13)', border: '1px solid rgba(217,119,6,0.3)', borderRadius: 20,
-                padding: '3px 10px', fontSize: 11, color: '#d97706', cursor: 'pointer', fontWeight: 600 }}>
-              ⬆️ {updates.length} update{updates.length !== 1 ? 's' : ''} available
+                padding: '3px 10px', fontSize: 11, color: '#d97706', cursor: 'pointer', fontWeight: 600,
+                display: 'flex', alignItems: 'center', gap: 4 }}>
+              <Icon name="arrowRight" size={12} /> {updates.length} update{updates.length !== 1 ? 's' : ''} available
             </button>
           )}
           {failed.length > 0 && (
             <button onClick={() => { setShowFailed(v => !v); setShowUpdates(false); setShowLogins(false); }}
               style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 20,
-                padding: '3px 10px', fontSize: 11, color: '#ef4444', cursor: 'pointer', fontWeight: 600 }}>
-              🔴 {failed.length} service{failed.length !== 1 ? 's' : ''} failed
+                padding: '3px 10px', fontSize: 11, color: '#ef4444', cursor: 'pointer', fontWeight: 600,
+                display: 'flex', alignItems: 'center', gap: 4 }}>
+              <StatusDot tone="var(--danger)" size={6} /> {failed.length} service{failed.length !== 1 ? 's' : ''} failed
             </button>
           )}
           {logins.length > 0 && (
@@ -245,8 +247,9 @@ function ContainerCard({ container, agentId, onEdit, onViewLogs }) {
         <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
           <button onClick={() => onViewLogs(container)} title="View logs"
             style={{ background: 'none', border: '1px solid var(--border)', cursor: 'pointer',
-              fontSize: 10, color: 'var(--text-muted)', padding: '2px 6px', borderRadius: 8 }}>
-            📋
+              fontSize: 10, color: 'var(--text-muted)', padding: '2px 6px', borderRadius: 8,
+              display: 'flex', alignItems: 'center' }}>
+            <Icon name="copy" size={13} />
           </button>
           <button onClick={() => onEdit(container)} title="Edit metadata"
             style={{ background: 'none', border: 'none', cursor: 'pointer',
@@ -308,12 +311,12 @@ function ContainerCard({ container, agentId, onEdit, onViewLogs }) {
 
 const DEFAULT_FLAGS = { disk: true, cpu: true, container_stopped: true, login: true, updates: true, offline: true };
 const FLAG_LABELS = {
-  disk:              '💾 Disk full',
-  cpu:               '🔥 CPU spike',
-  container_stopped: '🚨 Container stopped',
-  login:             '👤 SSH login',
-  updates:           '⬆️ OS updates',
-  offline:           '🔴 VPS offline',
+  disk:              'Disk full',
+  cpu:               'CPU spike',
+  container_stopped: 'Container stopped',
+  login:             'SSH login',
+  updates:           'OS updates',
+  offline:           'VPS offline',
 };
 
 function EditAgentOverlay({ agent, onClose, onSave }) {
@@ -455,7 +458,7 @@ function AgentSection({ agent, onEdit, onViewLogs, onDeleteAgent, onEditAgent })
 
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <span style={{ fontWeight: 700, fontSize: 14 }}>🖥️ {agent.name}</span>
+            <span style={{ fontWeight: 700, fontSize: 14, display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="server" size={13} /> {agent.name}</span>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11,
               padding: '2px 8px', borderRadius: 20, fontWeight: 600,
               background: online ? 'rgba(16,185,129,0.13)' : 'rgba(239,68,68,0.12)',
@@ -587,10 +590,10 @@ function LogsOverlay({ container, onClose }) {
               ? new Date((container.reported_at.endsWith('Z') ? container.reported_at : container.reported_at + 'Z')).toLocaleString()
               : '—'}
           </div>
-          {logs && logs.length > 0 && <Button size="sm" variant="ghost" onClick={handleCopy}>{copied ? '✓ Copied' : '📋 Copy'}</Button>}
+          {logs && logs.length > 0 && <Button size="sm" variant="ghost" onClick={handleCopy}>{copied ? '✓ Copied' : <><Icon name="copy" size={13} /> Copy</>}</Button>}
         </div>
         {!logs || logs.length === 0 ? (
-          <EmptyState icon="📋" title="No logs captured" subtitle="The agent will include logs on the next report cycle" />
+          <EmptyState icon={<Icon name="copy" size={32} />} title="No logs captured" subtitle="The agent will include logs on the next report cycle" />
         ) : (
           <div style={{ background: '#0d1117', borderRadius: 'var(--radius-sm)', padding: 12, maxHeight: 400,
             overflowY: 'auto', fontFamily: 'var(--font-mono)', fontSize: 11, lineHeight: 1.5, color: '#e6edf3',
@@ -663,7 +666,7 @@ function NewKeyOverlay({ agentId, apiKey, onClose }) {
           </pre>
         </div>
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <Button variant="secondary" onClick={handleCopy}>{copied ? '✓ Copied!' : '📋 Copy Key'}</Button>
+          <Button variant="secondary" onClick={handleCopy}>{copied ? '✓ Copied!' : <><Icon name="copy" size={13} /> Copy Key</>}</Button>
           <Button variant="primary" onClick={onClose}>Done</Button>
         </div>
       </div>
@@ -766,8 +769,8 @@ export default function ContainersPage() {
                 {onlineCount < agents.length && <span style={{ color: 'var(--danger)' }}> · {agents.length - onlineCount} offline</span>}
               </span>
               <span>{totalContainers} container{totalContainers !== 1 ? 's' : ''}</span>
-              {totalUpdates > 0 && <span style={{ color: '#d97706' }}>⬆️ {totalUpdates} updates pending</span>}
-              {totalFailed > 0 && <span style={{ color: 'var(--danger)' }}>🔴 {totalFailed} services failed</span>}
+              {totalUpdates > 0 && <span style={{ color: '#d97706', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="arrowRight" size={11} /> {totalUpdates} updates pending</span>}
+              {totalFailed > 0 && <span style={{ color: 'var(--danger)', display: 'inline-flex', alignItems: 'center', gap: 4 }}><StatusDot tone="var(--danger)" size={6} /> {totalFailed} services failed</span>}
             </div>
           )}
         </div>
@@ -778,7 +781,7 @@ export default function ContainersPage() {
       {loading && <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>Loading…</div>}
       {!loading && error && <Card style={{ padding: 20, color: '#ef4444', textAlign: 'center' }}>{error}</Card>}
       {!loading && !error && agents.length === 0 && (
-        <EmptyState icon="🖥️" title="No agents registered"
+        <EmptyState icon={<Icon name="server" size={32} />} title="No agents registered"
           subtitle="Register your first VPS agent to start monitoring containers and system health" />
       )}
       {!loading && !error && agents.map(agent => (

@@ -172,7 +172,7 @@ function MailboxModal({ mailbox, onClose, onSave }) {
           <input type="checkbox" checked={form.enabled} onChange={e => setForm(f => ({ ...f, enabled: e.target.checked }))} />
           <span>{tr('enabled')}</span>
         </label>
-        {err && <div style={{ color: '#ef4444', fontSize: '13px' }}>{err}</div>}
+        {err && <div style={{ color: 'var(--danger)', fontSize: '13px' }}>{err}</div>}
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
           <Button variant="ghost" type="button" onClick={onClose}>{tr('cancel')}</Button>
           <Button type="submit" disabled={saving}>{saving ? '…' : (isEdit ? 'Save' : tr('add'))}</Button>
@@ -708,7 +708,7 @@ export default function MailReporterPage({ user }) {
                     <tr key={mb.id} style={{ background: mb.consecutive_failures > 0 ? 'color-mix(in srgb, var(--danger) 5%, transparent)' : 'transparent' }}>
                       <td style={cellStyle}>
                         <div style={{ fontWeight: 500, fontFamily: 'var(--font-mono)', fontSize: '13px' }}>{mb.email}</div>
-                        {mb.last_error && <div style={{ fontSize: '11px', color: '#ef4444', marginTop: '3px', maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={mb.last_error}>⚠ {mb.last_error}</div>}
+                        {mb.last_error && <div style={{ fontSize: '11px', color: 'var(--danger)', marginTop: '3px', maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={mb.last_error}>⚠ {mb.last_error}</div>}
                       </td>
                       <td style={cellStyle}><code style={{ fontSize: '12px', background: 'var(--surface-alt)', padding: '2px 6px', borderRadius: '4px', border: '1px solid var(--border)' }}>{mb.subject_filter || 'NONE'}</code></td>
                       <td style={cellStyle}>{mb.telegram_target ? <code style={{ fontFamily: 'var(--font-mono)', fontSize: '12px' }}>{mb.telegram_target}</code> : <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>global default</span>}</td>
