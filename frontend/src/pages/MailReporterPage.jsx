@@ -726,7 +726,7 @@ export default function MailReporterPage({ user }) {
                           <Button size="sm" variant="danger" onClick={() => setConfirmDelete(mb)} style={{ fontSize: '11px', padding: '3px 8px' }}>Del</Button>
                         </div>
                         {testResult?.id === mb.id && testResult.message !== 'Testing…' && (
-                          <div style={{ marginTop: '6px', fontSize: '11px', padding: '4px 8px', borderRadius: '6px', background: testResult.success ? '#d1fae5' : '#fee2e2', color: testResult.success ? '#065f46' : '#991b1b', maxWidth: '200px' }}>
+                          <div style={{ marginTop: '6px', fontSize: '11px', padding: '4px 8px', borderRadius: '6px', background: testResult.success ? 'var(--success-light)' : 'var(--danger-light)', color: testResult.success ? 'var(--success)' : 'var(--danger)', maxWidth: '200px' }}>
                             {testResult.success ? '✓' : '✗'} {testResult.message}
                           </div>
                         )}

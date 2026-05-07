@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '../api';
 import { Button, Card, Badge, Overlay, Toast, EmptyState, Input, Bar, StatusDot, Tag } from '../components/UI';
+import { Icon } from '../components/Icons';
 
 // ─── Helpers ──────────────────────────────────────────────
 
@@ -645,7 +646,7 @@ function NewKeyOverlay({ agentId, apiKey, onClose }) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <div style={{ background: 'var(--warning-light)', border: '1px solid var(--warning)', borderRadius: 'var(--radius-sm)',
           padding: '10px 14px', fontSize: 13, color: 'var(--warning)' }}>
-          ⚠️ <strong>This key is shown only once.</strong> It cannot be recovered — copy it and put it in your VPS env file now.
+          <Icon name="alertTriangle" size={14} /> <strong>This key is shown only once.</strong> It cannot be recovered — copy it and put it in your VPS env file now.
         </div>
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, background: 'var(--surface-alt)', border: '1px solid var(--border)',
           borderRadius: 'var(--radius-sm)', padding: '12px 14px', wordBreak: 'break-all', userSelect: 'all', lineHeight: 1.6 }}>
