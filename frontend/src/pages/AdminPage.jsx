@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { api, getPublicConfig } from '../api';
-import { useTheme } from '../components/ThemeContext';
 import { useLang } from '../components/LangContext';
 import { Card, Button, Input, Badge, Select, Overlay, Toast, Tabs, EmptyState } from '../components/UI';
 
@@ -10,7 +9,7 @@ export default function AdminPage() {
   return (
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
-        <h2 style={{ fontSize: '20px', fontWeight: 700 }}>{tr('adminPanel')}</h2>
+        <h2 style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 30, letterSpacing: '-0.02em', margin: 0 }}>{tr('adminPanel')}</h2>
         <Tabs tabs={[
           { id: 'users', label: tr('users') }, { id: 'groups', label: tr('groups') },
           { id: 'shifts', label: tr('shiftConfig') }, { id: 'telegram', label: tr('telegram') },
@@ -30,7 +29,6 @@ export default function AdminPage() {
 
 // ─── Users Tab ──────────────────────────────────────────
 function UsersTab() {
-  const { theme: t } = useTheme();
   const [users, setUsers] = useState([]); const [groups, setGroups] = useState([]);
   const [show, setShow] = useState(false); const [toast, setToast] = useState(null);
   const [resetTarget, setResetTarget] = useState(null);
@@ -83,17 +81,17 @@ function UsersTab() {
       <div style={{ display: 'flex', justifyContent: 'flex-end' }}><Button size="sm" onClick={() => setShow(true)}>+ Add user</Button></div>
       <Card style={{ padding: '4px' }}>
         {users.map((u, i) => (
-          <div key={u.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 18px', gap: '12px', flexWrap: 'wrap', borderBottom: i < users.length - 1 ? `1px solid ${t.borderLight}` : 'none' }}>
+          <div key={u.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 18px', gap: '12px', flexWrap: 'wrap', borderBottom: i < users.length - 1 ? '1px solid var(--border-light)' : 'none' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: u.name_color + '20', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: u.name_color, fontSize: '14px' }}>{u.display_name[0]}</div>
               <div>
-                <div style={{ fontWeight: 600, fontSize: '14px', color: u.is_active ? t.text : t.textMuted }}>{u.display_name} {!u.is_active && '(inactive)'}</div>
-                <div style={{ fontSize: '12px', color: t.textMuted, fontFamily: t.fontMono }}>
+                <div style={{ fontWeight: 600, fontSize: '14px', color: u.is_active ? 'var(--text)' : 'var(--text-muted)' }}>{u.display_name} {!u.is_active && '(inactive)'}</div>
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
                   @{u.username} · gap:{u.min_shift_gap_days}d max:{u.max_shifts_per_week}/wk
                   {u.allowed_shift_types && ` · shifts: ${u.allowed_shift_types.join(',')}`}
                 </div>
                 {u.availability_pattern && (
-                  <div style={{ fontSize: '11px', color: t.warning, marginTop: '2px' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--warning)', marginTop: '2px' }}>
                     🔄 Cycle: {u.availability_pattern.cycle_days}d, works days {u.availability_pattern.work_days.join(',')}
                     {u.availability_pattern.blocked_weekdays?.length > 0 && ` · blocked: ${u.availability_pattern.blocked_weekdays.map(d => ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][d]).join(',')}`}
                   </div>
@@ -134,7 +132,6 @@ const ALL_SHIFT_TYPES = [
 ];
 
 function CreateUserModal({ onClose, onCreate, groups }) {
-  const { theme: t } = useTheme();
   const [f, setF] = useState({ username:'', display_name:'', password:'', role:'engineer', telegram_username:'', min_shift_gap_days:2, max_shifts_per_week:3, group_ids:[] });
   const [allowedTypes, setAllowedTypes] = useState(['day','night','office']);
   const s = (k,v) => setF(p => ({...p,[k]:v}));
@@ -159,7 +156,7 @@ function CreateUserModal({ onClose, onCreate, groups }) {
         </div>
         <div>
           <label style={{ fontSize: '13px', fontWeight: 500, marginBottom: '6px', display: 'block' }}>
-            Allowed shift types <span style={{ fontWeight: 400, color: t.textMuted }}>(all = no restriction · none = exclude from generator)</span>
+            Allowed shift types <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>(all = no restriction · none = exclude from generator)</span>
           </label>
           <div style={{ display: 'flex', gap: '6px' }}>
             {ALL_SHIFT_TYPES.map(st => (
@@ -181,7 +178,6 @@ function CreateUserModal({ onClose, onCreate, groups }) {
 }
 
 function EditUserModal({ user, onClose, onSave, groups }) {
-  const { theme: t } = useTheme();
   const [f, setF] = useState({
     display_name: user.display_name,
     role: user.role,
@@ -235,7 +231,7 @@ function EditUserModal({ user, onClose, onSave, groups }) {
         {/* Allowed shift types */}
         <div>
           <label style={{ fontSize: '13px', fontWeight: 500, marginBottom: '6px', display: 'block' }}>
-            Allowed shift types <span style={{ fontWeight: 400, color: t.textMuted }}>(all = no restriction)</span>
+            Allowed shift types <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>(all = no restriction)</span>
           </label>
           <div style={{ display: 'flex', gap: '6px' }}>
             {ALL_SHIFT_TYPES.map(st => (
@@ -245,63 +241,63 @@ function EditUserModal({ user, onClose, onSave, groups }) {
         </div>
 
         {/* Availability Pattern */}
-        <div style={{ padding: '16px', background: t.surfaceAlt, borderRadius: t.radiusSm }}>
+        <div style={{ padding: '16px', background: 'var(--surface-alt)', borderRadius: 'var(--radius-sm)' }}>
           <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', fontWeight: 600, cursor: 'pointer', marginBottom: hasPattern ? '14px' : 0 }}>
             <input type="checkbox" checked={hasPattern} onChange={e => setHasPattern(e.target.checked)} />
             Custom availability pattern
           </label>
           {!hasPattern && (
-            <p style={{ fontSize: '12px', color: t.textMuted, margin: 0 }}>
+            <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
               Not set — this engineer can be assigned any day without restriction. Enable only for engineers who have a <strong>fixed external schedule</strong> (e.g. another job with rotating shifts).
             </p>
           )}
 
           {hasPattern && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <p style={{ fontSize: '12px', color: t.textMuted, margin: 0 }}>
+              <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
                 For engineers with another job on a fixed rotation. Define the full cycle length and mark which days they're <em>available to you</em>.<br />
                 <strong>Example:</strong> Works 24h at hospital, then 3 days free → Cycle: 4 days, available on days 2, 3, 4 (day 1 = hospital shift). Set anchor = the date their next hospital shift starts.
               </p>
 
               <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                  <label style={{ fontSize: '13px', fontWeight: 500, color: t.textSecondary }}>Cycle length (days)</label>
+                  <label style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-secondary)' }}>Cycle length (days)</label>
                   <input type="number" value={pattern.cycle_days} onChange={e => setPattern(p => ({ ...p, cycle_days: parseInt(e.target.value) || 2 }))}
-                    min="2" max="30" style={{ padding: '9px 12px', border: `1px solid ${t.border}`, borderRadius: t.radiusSm, fontSize: '14px', background: t.surface, color: t.text, width: '80px' }} />
+                    min="2" max="30" style={{ padding: '9px 12px', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '14px', background: 'var(--surface)', color: 'var(--text)', width: '80px' }} />
                 </div>
                 <Input label="Cycle anchor date" type="date" value={anchor} onChange={e => setAnchor(e.target.value)} style={{ width: '160px' }} />
               </div>
 
               <div>
-                <label style={{ fontSize: '13px', fontWeight: 500, color: t.textSecondary, display: 'block', marginBottom: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>
                   Available on days (in cycle of {pattern.cycle_days})
                 </label>
                 <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
                   {Array.from({ length: pattern.cycle_days }, (_, i) => i + 1).map(d => (
                     <button key={d} onClick={() => toggleWorkDay(d)} style={{
                       width: '36px', height: '36px', borderRadius: '6px', fontSize: '13px', fontWeight: 600, cursor: 'pointer',
-                      border: pattern.work_days.includes(d) ? `2px solid ${t.success}` : `1px solid ${t.border}`,
-                      background: pattern.work_days.includes(d) ? t.successLight : t.surface,
-                      color: pattern.work_days.includes(d) ? t.success : t.textMuted,
+                      border: pattern.work_days.includes(d) ? '2px solid var(--success)' : '1px solid var(--border)',
+                      background: pattern.work_days.includes(d) ? 'var(--success-light)' : 'var(--surface)',
+                      color: pattern.work_days.includes(d) ? 'var(--success)' : 'var(--text-muted)',
                     }}>{d}</button>
                   ))}
                 </div>
-                <div style={{ fontSize: '11px', color: t.textMuted, marginTop: '4px' }}>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
                   Green = available for shifts. Click to toggle. Day 1 starts on anchor date.
                 </div>
               </div>
 
               <div>
-                <label style={{ fontSize: '13px', fontWeight: 500, color: t.textSecondary, display: 'block', marginBottom: '6px' }}>
+                <label style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>
                   Blocked weekdays (never available)
                 </label>
                 <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
                   {WEEKDAYS.map((name, i) => (
                     <button key={i} onClick={() => toggleBlockedDay(i)} style={{
                       padding: '6px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: 500, cursor: 'pointer',
-                      border: pattern.blocked_weekdays.includes(i) ? `2px solid ${t.danger}` : `1px solid ${t.border}`,
-                      background: pattern.blocked_weekdays.includes(i) ? t.dangerLight : t.surface,
-                      color: pattern.blocked_weekdays.includes(i) ? t.danger : t.textMuted,
+                      border: pattern.blocked_weekdays.includes(i) ? '2px solid var(--danger)' : '1px solid var(--border)',
+                      background: pattern.blocked_weekdays.includes(i) ? 'var(--danger-light)' : 'var(--surface)',
+                      color: pattern.blocked_weekdays.includes(i) ? 'var(--danger)' : 'var(--text-muted)',
                     }}>{name}</button>
                   ))}
                 </div>
@@ -336,7 +332,6 @@ function ResetPasswordModal({ onClose, onReset }) {
 
 // ─── Groups Tab ─────────────────────────────────────────
 function GroupsTab() {
-  const { theme: t } = useTheme();
   const [groups, setGroups] = useState([]); const [users, setUsers] = useState([]); const [show, setShow] = useState(false); const [toast, setToast] = useState(null);
   const load = () => Promise.all([api('/groups/'), api('/users/')]).then(([g, u]) => { setGroups(g || []); setUsers(u || []); });
   useEffect(() => { load(); }, []);
@@ -355,13 +350,13 @@ function GroupsTab() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                   <div style={{ width: '12px', height: '12px', borderRadius: '3px', background: g.color }} />
                   <span style={{ fontWeight: 600 }}>{g.name}</span>
-                  {g.description && <span style={{ fontSize: '13px', color: t.textMuted }}>— {g.description}</span>}
+                  {g.description && <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>— {g.description}</span>}
                 </div>
                 <Button size="sm" variant="danger" onClick={() => del(g.id)}>Delete</Button>
               </div>
               <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                 {g.member_ids?.map(uid => userMap[uid] && <Badge key={uid} color="gray">{userMap[uid].display_name}</Badge>)}
-                {(!g.member_ids || g.member_ids.length === 0) && <span style={{ fontSize: '12px', color: t.textMuted }}>No members</span>}
+                {(!g.member_ids || g.member_ids.length === 0) && <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>No members</span>}
               </div>
             </Card>
           ))}
@@ -392,7 +387,6 @@ function GroupForm({ onSubmit, onClose }) {
 
 // ─── Shift Config Tab ───────────────────────────────────
 function ShiftConfigTab() {
-  const { theme: t } = useTheme();
   const [configs, setConfigs] = useState([]);
   const [toast, setToast] = useState(null);
   const [portalTz, setPortalTz] = useState('UTC');
@@ -411,10 +405,10 @@ function ShiftConfigTab() {
 
   return (
     <>
-      <p style={{ fontSize: '13px', color: t.textMuted, marginBottom: '4px' }}>
+      <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '4px' }}>
         Configure shift types, durations, and default times. Changes apply to newly generated schedules.
       </p>
-      <div style={{ fontSize: '12px', padding: '8px 12px', background: t.surfaceAlt, borderRadius: t.radiusSm, marginBottom: '12px', color: t.textSecondary }}>
+      <div style={{ fontSize: '12px', padding: '8px 12px', background: 'var(--surface-alt)', borderRadius: 'var(--radius-sm)', marginBottom: '12px', color: 'var(--text-secondary)' }}>
         Times are in <strong>{portalTz}</strong>. Users receive notifications converted to their own profile timezone.
         To change, set <code>PORTAL_TIMEZONE</code> in your <code>.env</code>.
       </div>
@@ -427,7 +421,6 @@ function ShiftConfigTab() {
 }
 
 function ShiftConfigCard({ config: c, onUpdate }) {
-  const { theme: t } = useTheme();
   const [label, setLabel] = useState(c.label);
   const [duration, setDuration] = useState(c.duration_hours);
   const [startTime, setStartTime] = useState(c.default_start_time?.slice(0, 5) || '');
@@ -449,7 +442,7 @@ function ShiftConfigCard({ config: c, onUpdate }) {
           <span style={{ fontSize: '24px' }}>{emoji}</span>
           <div>
             <div style={{ fontWeight: 600, fontSize: '15px' }}>{label}</div>
-            <div style={{ fontSize: '12px', color: t.textMuted, fontFamily: t.fontMono }}>
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
               {c.shift_type} · {duration}h · {startTime || '—'} – {endTime || '—'}
               {reqLoc && ' · 📍 location'}
             </div>
@@ -466,14 +459,14 @@ function ShiftConfigCard({ config: c, onUpdate }) {
       </div>
 
       {/* Always-visible editor */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', padding: '16px', background: t.surfaceAlt, borderRadius: t.radiusSm }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', padding: '16px', background: 'var(--surface-alt)', borderRadius: 'var(--radius-sm)' }}>
         <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
           <Input label="Label" value={label} onChange={e => setLabel(e.target.value)} style={{ flex: '1', minWidth: '150px' }} />
           <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-            <label style={{ fontSize: '13px', fontWeight: 500, color: t.textSecondary }}>Duration (h)</label>
+            <label style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-secondary)' }}>Duration (h)</label>
             <input type="number" value={duration} onChange={e => setDuration(parseFloat(e.target.value))}
               min="1" max="24" step="0.5"
-              style={{ padding: '9px 12px', border: `1px solid ${t.border}`, borderRadius: t.radiusSm, fontSize: '14px', background: t.surface, color: t.text, width: '90px' }} />
+              style={{ padding: '9px 12px', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '14px', background: 'var(--surface)', color: 'var(--text)', width: '90px' }} />
           </div>
         </div>
         <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
@@ -481,13 +474,13 @@ function ShiftConfigCard({ config: c, onUpdate }) {
           <Input label="End time" type="time" value={endTime} onChange={e => setEndTime(e.target.value)} style={{ width: '140px' }} />
         </div>
         <div>
-          <label style={{ fontSize: '13px', fontWeight: 500, color: t.textSecondary, display: 'block', marginBottom: '6px' }}>Emoji</label>
+          <label style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>Emoji</label>
           <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
             {emojiOptions.map(e => (
               <button key={e} onClick={() => setEmoji(e)} style={{
                 width: '36px', height: '36px', borderRadius: '6px', fontSize: '18px', cursor: 'pointer',
-                border: emoji === e ? `2px solid ${t.accent}` : `1px solid ${t.border}`,
-                background: emoji === e ? t.accentLight : t.surface,
+                border: emoji === e ? '2px solid var(--accent)' : '1px solid var(--border)',
+                background: emoji === e ? 'var(--accent-light)' : 'var(--surface)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
               }}>{e}</button>
             ))}
@@ -507,7 +500,6 @@ function ShiftConfigCard({ config: c, onUpdate }) {
 
 // ─── Telegram Chats Tab ─────────────────────────────────
 function TelegramTab() {
-  const { theme: t } = useTheme();
   const [chats, setChats] = useState([]);
   const [show, setShow] = useState(false);
   const [editTarget, setEditTarget] = useState(null);
@@ -547,11 +539,11 @@ function TelegramTab() {
   return (
     <>
       {/* Bot diagnostics */}
-      <div style={{ padding: '14px 16px', background: t.surfaceAlt, borderRadius: t.radiusSm, marginBottom: '12px' }}>
+      <div style={{ padding: '14px 16px', background: 'var(--surface-alt)', borderRadius: 'var(--radius-sm)', marginBottom: '12px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: diagResult ? '12px' : '0' }}>
           <div>
             <div style={{ fontSize: '13px', fontWeight: 600 }}>Bot diagnostics</div>
-            <div style={{ fontSize: '12px', color: t.textMuted }}>Verifies token + sends a probe message to every chat and linked DM.</div>
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Verifies token + sends a probe message to every chat and linked DM.</div>
           </div>
           <Button size="sm" variant="secondary" onClick={runDiagnostics} disabled={diagLoading} style={{ flexShrink: 0, marginLeft: '12px' }}>
             {diagLoading ? 'Running…' : 'Run diagnostics'}
@@ -560,25 +552,25 @@ function TelegramTab() {
         {diagResult && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '10px' }}>
             {/* Bot token */}
-            <div style={{ fontSize: '12px', padding: '6px 10px', borderRadius: t.radiusSm, background: diagResult.bot?.ok ? '#10b98120' : '#ef444420', color: diagResult.bot?.ok ? '#059669' : '#dc2626' }}>
+            <div style={{ fontSize: '12px', padding: '6px 10px', borderRadius: 'var(--radius-sm)', background: diagResult.bot?.ok ? '#10b98120' : '#ef444420', color: diagResult.bot?.ok ? '#059669' : '#dc2626' }}>
               {diagResult.bot?.ok
                 ? `✓ Bot token valid — @${diagResult.bot.username} (${diagResult.bot.name})`
                 : `✗ Bot token error: ${diagResult.bot?.error}`}
             </div>
             {/* Group chats */}
             {diagResult.chats?.map((c, i) => (
-              <div key={i} style={{ fontSize: '12px', padding: '6px 10px', borderRadius: t.radiusSm, background: c.ok ? '#10b98120' : '#ef444420', color: c.ok ? '#059669' : '#dc2626' }}>
+              <div key={i} style={{ fontSize: '12px', padding: '6px 10px', borderRadius: 'var(--radius-sm)', background: c.ok ? '#10b98120' : '#ef444420', color: c.ok ? '#059669' : '#dc2626' }}>
                 {c.ok ? `✓ ${c.name} (${c.chat_id}) — message delivered` : `✗ ${c.name} (${c.chat_id}) — delivery failed`}
               </div>
             ))}
             {/* Personal DMs */}
             {diagResult.personal_dms?.map((u, i) => (
-              <div key={i} style={{ fontSize: '12px', padding: '6px 10px', borderRadius: t.radiusSm, background: u.ok ? '#10b98120' : '#ef444420', color: u.ok ? '#059669' : '#dc2626' }}>
+              <div key={i} style={{ fontSize: '12px', padding: '6px 10px', borderRadius: 'var(--radius-sm)', background: u.ok ? '#10b98120' : '#ef444420', color: u.ok ? '#059669' : '#dc2626' }}>
                 {u.ok ? `✓ DM to ${u.display_name} — delivered` : `✗ DM to ${u.display_name} — failed`}
               </div>
             ))}
             {diagResult.chats?.length === 0 && diagResult.personal_dms?.length === 0 && (
-              <div style={{ fontSize: '12px', color: t.textMuted }}>No configured chats and no linked users to probe.</div>
+              <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>No configured chats and no linked users to probe.</div>
             )}
           </div>
         )}
@@ -599,7 +591,7 @@ function TelegramTab() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontWeight: 600, marginBottom: '4px' }}>{c.name}</div>
-                    <div style={{ fontSize: '12px', color: t.textMuted, fontFamily: t.fontMono, marginBottom: '10px' }}>
+                    <div style={{ fontSize: '12px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginBottom: '10px' }}>
                       ID: {c.chat_id} · {c.chat_type}{c.topic_id ? ` · topic: ${c.topic_id}` : ''}
                     </div>
                     <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
@@ -629,7 +621,6 @@ function TelegramTab() {
 }
 
 function ChatModal({ chat, onClose, onSave }) {
-  const { theme: t } = useTheme();
   const [f, setF] = useState({
     chat_id:  chat?.chat_id  ?? '',
     name:     chat?.name     ?? '',
@@ -644,14 +635,14 @@ function ChatModal({ chat, onClose, onSave }) {
     api('/admin/telegram-templates').then(setTemplates).catch(() => {});
   }, []);
 
-  const selStyle = { padding: '8px 10px', borderRadius: t.radiusSm, border: `1px solid ${t.border}`, fontSize: '13px', background: t.surfaceAlt, color: t.text, width: '100%', boxSizing: 'border-box', fontFamily: 'inherit' };
+  const selStyle = { padding: '8px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', fontSize: '13px', background: 'var(--surface-alt)', color: 'var(--text)', width: '100%', boxSizing: 'border-box', fontFamily: 'inherit' };
 
   return (
     <Overlay onClose={onClose} title={isEdit ? 'Edit Telegram Chat' : 'Add Telegram Chat'}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
         {templates.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <label style={{ fontSize: '11px', fontWeight: 600, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '0.06em' }}>From template</label>
+            <label className="t-eyebrow">From template</label>
             <select style={selStyle} value="" onChange={e => {
               const tpl = templates.find(tp => String(tp.id) === e.target.value);
               if (tpl) { s('chat_id', tpl.chat_id); s('topic_id', tpl.topic_id ? String(tpl.topic_id) : ''); }
@@ -683,7 +674,6 @@ function ChatModal({ chat, onClose, onSave }) {
 
 // ─── Shift Notification Test ─────────────────────────────
 function ShiftNotificationTest() {
-  const { theme: t } = useTheme();
   const { t: tr } = useLang();
   const [preview, setPreview] = useState(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
@@ -752,7 +742,7 @@ function ShiftNotificationTest() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div>
           <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '2px' }}>Test shift notifications</div>
-          <div style={{ fontSize: '12px', color: t.textMuted }}>Fires the real notification now — sends to all configured chats + personal DMs.</div>
+          <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Fires the real notification now — sends to all configured chats + personal DMs.</div>
         </div>
         <Button size="sm" variant="ghost" onClick={loadPreview} disabled={loadingPreview}>
           {loadingPreview ? '…' : '↻ Refresh'}
@@ -761,15 +751,15 @@ function ShiftNotificationTest() {
 
       <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
         {['day', 'night'].map(type => (
-          <div key={type} style={{ flex: '1', minWidth: '220px', padding: '14px', background: t.surfaceAlt, borderRadius: t.radiusSm, border: `1px solid ${t.border}` }}>
-            <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px', color: t.textSecondary }}>
+          <div key={type} style={{ flex: '1', minWidth: '220px', padding: '14px', background: 'var(--surface-alt)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+            <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px', color: 'var(--text-secondary)' }}>
               {type === 'day' ? '☀️ DAY SHIFT' : '🌙 NIGHT SHIFT'} PREVIEW
             </div>
             <pre style={{
-              fontFamily: 'inherit', fontSize: '12px', color: t.text,
+              fontFamily: 'inherit', fontSize: '12px', color: 'var(--text)',
               whiteSpace: 'pre-wrap', margin: '0 0 12px 0',
-              padding: '10px', background: t.surface, borderRadius: t.radiusSm,
-              border: `1px solid ${t.borderLight}`, lineHeight: 1.5,
+              padding: '10px', background: 'var(--surface)', borderRadius: 'var(--radius-sm)',
+              border: '1px solid var(--border-light)', lineHeight: 1.5,
             }}>
               {previewMsg(type)}
             </pre>
@@ -779,7 +769,7 @@ function ShiftNotificationTest() {
                 {testingShift === type ? 'Sending…' : `Send ${type} notification`}
               </Button>
               {testResult?.type === type && (
-                <span style={{ fontSize: '12px', color: t.success }}>
+                <span style={{ fontSize: '12px', color: 'var(--success)' }}>
                   ✓ {testResult.chats_sent} chat(s), {testResult.dms_sent} DM(s)
                 </span>
               )}
@@ -788,13 +778,13 @@ function ShiftNotificationTest() {
         ))}
       </div>
 
-      <div style={{ padding: '10px 14px', background: t.surfaceAlt, borderRadius: t.radiusSm, border: `1px solid ${t.border}` }}>
-        <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px', color: t.textSecondary }}>🏢 OFFICE ROSTER</div>
+      <div style={{ padding: '10px 14px', background: 'var(--surface-alt)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+        <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px', color: 'var(--text-secondary)' }}>🏢 OFFICE ROSTER</div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           <Button size="sm" variant="secondary" disabled={testingShift === 'office'} onClick={() => testShift('office')}>
             {testingShift === 'office' ? 'Sending…' : 'Send office roster'}
           </Button>
-          {testResult?.type === 'office' && <span style={{ fontSize: '12px', color: t.success }}>✓ Sent</span>}
+          {testResult?.type === 'office' && <span style={{ fontSize: '12px', color: 'var(--success)' }}>✓ Sent</span>}
         </div>
       </div>
     </div>
@@ -812,7 +802,6 @@ const ACTION_LABELS = {
 };
 
 function LogsTab() {
-  const { theme: t } = useTheme();
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('');
@@ -839,23 +828,23 @@ function LogsTab() {
         <Button size="sm" variant="ghost" onClick={() => setFilter('')}>Clear</Button>
       </div>
       <Card style={{ padding: '4px' }}>
-        {loading && <div style={{ padding: '24px', textAlign: 'center', color: t.textMuted }}>Loading…</div>}
+        {loading && <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>Loading…</div>}
         {!loading && displayed.length === 0 && <EmptyState icon="📋" title="No log entries" subtitle="Actions will appear here as users interact with the portal" />}
         {displayed.map((log, i) => {
           const meta = ACTION_LABELS[log.action] || { label: log.action, color: 'gray' };
           return (
             <div key={log.id} style={{
               display: 'flex', alignItems: 'flex-start', gap: '12px', padding: '10px 18px',
-              borderBottom: i < displayed.length - 1 ? `1px solid ${t.borderLight}` : 'none',
+              borderBottom: i < displayed.length - 1 ? '1px solid var(--border-light)' : 'none',
             }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
                   <Badge color={meta.color}>{meta.label}</Badge>
                   <span style={{ fontSize: '13px', fontWeight: 600 }}>{log.username || '—'}</span>
                 </div>
-                {log.details && <div style={{ fontSize: '12px', color: t.textSecondary, marginTop: '2px' }}>{log.details}</div>}
+                {log.details && <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>{log.details}</div>}
               </div>
-              <div style={{ fontSize: '11px', color: t.textMuted, fontFamily: t.fontMono, whiteSpace: 'nowrap', flexShrink: 0 }}>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap', flexShrink: 0 }}>
                 {new Date(log.created_at).toLocaleString()}
               </div>
             </div>
@@ -868,7 +857,6 @@ function LogsTab() {
 
 // ─── Telegram Templates Tab ──────────────────────────────
 function TelegramTemplatesTab() {
-  const { theme: t } = useTheme();
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
@@ -919,7 +907,7 @@ function TelegramTemplatesTab() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <div style={{ fontSize: '14px', fontWeight: 600 }}>Telegram Notification Templates</div>
-          <div style={{ fontSize: '12px', color: t.textMuted, marginTop: '2px' }}>
+          <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
             Named presets for Telegram chat destinations. Assign them to container agents for error alerts.
           </div>
         </div>
@@ -929,7 +917,7 @@ function TelegramTemplatesTab() {
       </div>
 
       <Card style={{ padding: '4px' }}>
-        {loading && <div style={{ padding: '20px', textAlign: 'center', color: t.textMuted }}>Loading…</div>}
+        {loading && <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>Loading…</div>}
         {!loading && templates.length === 0 && (
           <EmptyState icon="📨" title="No templates yet"
             subtitle="Create a template to quickly assign Telegram destinations to modules" />
@@ -937,15 +925,15 @@ function TelegramTemplatesTab() {
         {templates.map((tpl, i) => (
           <div key={tpl.id} style={{
             display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 18px',
-            borderBottom: i < templates.length - 1 ? `1px solid ${t.borderLight}` : 'none',
+            borderBottom: i < templates.length - 1 ? '1px solid var(--border-light)' : 'none',
           }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontWeight: 600, fontSize: '14px' }}>{tpl.name}</div>
-              <div style={{ fontSize: '12px', color: t.textMuted, fontFamily: t.fontMono, marginTop: '2px' }}>
+              <div style={{ fontSize: '12px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: '2px' }}>
                 Chat ID: {tpl.chat_id}{tpl.topic_id ? ` · Topic: ${tpl.topic_id}` : ''}
               </div>
               {tpl.description && (
-                <div style={{ fontSize: '12px', color: t.textSecondary, marginTop: '2px' }}>{tpl.description}</div>
+                <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>{tpl.description}</div>
               )}
             </div>
             <div style={{ display: 'flex', gap: '6px' }}>
