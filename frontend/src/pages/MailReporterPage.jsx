@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '../api';
-import { useTheme } from '../components/ThemeContext';
 import { useLang } from '../components/LangContext';
 import { Button, Card, Badge, Input, Overlay, Toast } from '../components/UI';
 
@@ -90,16 +89,16 @@ function buildTelegramTarget(chatId, threadId) {
 }
 
 // Reusable Telegram target fields with optional template picker
-function TelegramTargetFields({ chatId, threadId, onChatId, onThreadId, templates, theme: t }) {
+function TelegramTargetFields({ chatId, threadId, onChatId, onThreadId, templates }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
       {templates && templates.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          <label style={{ fontSize: '11px', fontWeight: 600, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+          <label className="t-eyebrow">
             From template
           </label>
           <select
-            style={{ padding: '8px 10px', borderRadius: t.radiusSm, border: `1px solid ${t.border}`, fontSize: '13px', background: t.surfaceAlt, color: t.text, width: '100%', boxSizing: 'border-box', fontFamily: 'inherit' }}
+            style={{ padding: '8px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', fontSize: '13px', background: 'var(--surface-alt)', color: 'var(--text)', width: '100%', boxSizing: 'border-box', fontFamily: 'inherit' }}
             value=""
             onChange={e => {
               const tpl = templates.find(tp => String(tp.id) === e.target.value);
@@ -122,7 +121,6 @@ function TelegramTargetFields({ chatId, threadId, onChatId, onThreadId, template
 }
 
 function MailboxModal({ mailbox, onClose, onSave }) {
-  const { theme: t } = useTheme();
   const { t: tr } = useLang();
   const isEdit = !!mailbox?.id;
   const parsed = parseTelegramTarget(mailbox?.telegram_target);
@@ -164,10 +162,10 @@ function MailboxModal({ mailbox, onClose, onSave }) {
         <Input label={isEdit ? 'New password (blank = keep current)' : tr('appPassword')} type="password" value={form.password} onChange={set('password')} required={!isEdit} />
         <Input label={tr('subjectFilter')} value={form.subject_filter} onChange={set('subject_filter')} />
         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          <label style={{ fontSize: '11px', fontWeight: 600, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+          <label className="t-eyebrow">
             Telegram target (default for this mailbox)
           </label>
-          <TelegramTargetFields chatId={tgChatId} threadId={tgThreadId} onChatId={setTgChatId} onThreadId={setTgThreadId} templates={templates} theme={t} />
+          <TelegramTargetFields chatId={tgChatId} threadId={tgThreadId} onChatId={setTgChatId} onThreadId={setTgThreadId} templates={templates} />
         </div>
         <Input label={tr('monitorSince')} type="date" value={form.monitor_since} onChange={set('monitor_since')} />
         <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', cursor: 'pointer' }}>
@@ -187,7 +185,6 @@ function MailboxModal({ mailbox, onClose, onSave }) {
 // ─── Comment History Modal ────────────────────────────────────────────
 
 function CommentHistoryModal({ email, onClose }) {
-  const { theme: t } = useTheme();
   const [comments, setComments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [text, setText] = useState('');
@@ -213,33 +210,33 @@ function CommentHistoryModal({ email, onClose }) {
   }
 
   const taStyle = {
-    width: '100%', padding: '9px 12px', borderRadius: t.radiusSm,
-    border: `1px solid ${t.border}`, fontSize: '13px', resize: 'vertical',
-    fontFamily: 'inherit', boxSizing: 'border-box', background: t.surfaceAlt,
-    color: t.text, outline: 'none', lineHeight: 1.5,
+    width: '100%', padding: '9px 12px', borderRadius: 'var(--radius-sm)',
+    border: '1px solid var(--border)', fontSize: '13px', resize: 'vertical',
+    fontFamily: 'inherit', boxSizing: 'border-box', background: 'var(--surface-alt)',
+    color: 'var(--text)', outline: 'none', lineHeight: 1.5,
   };
 
   return (
     <Overlay onClose={onClose} title="Comment history">
       <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-        <div style={{ fontSize: '12px', color: t.textMuted, wordBreak: 'break-word', borderLeft: `3px solid ${t.border}`, paddingLeft: '10px' }}>
+        <div style={{ fontSize: '12px', color: 'var(--text-muted)', wordBreak: 'break-word', borderLeft: '3px solid var(--border)', paddingLeft: '10px' }}>
           {email.subject || '(no subject)'}
         </div>
 
         {loading ? (
-          <div style={{ textAlign: 'center', padding: '20px', color: t.textMuted, fontSize: '13px' }}>Loading…</div>
+          <div style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)', fontSize: '13px' }}>Loading…</div>
         ) : comments.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '20px', color: t.textMuted, fontSize: '13px' }}>No comments yet.</div>
+          <div style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)', fontSize: '13px' }}>No comments yet.</div>
         ) : (
           <div style={{ maxHeight: '300px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
             {comments.map(c => (
               <div key={c.id} style={{
-                background: t.surfaceAlt, borderRadius: t.radiusSm,
-                padding: '10px 12px', border: `1px solid ${t.border}`,
+                background: 'var(--surface-alt)', borderRadius: 'var(--radius-sm)',
+                padding: '10px 12px', border: '1px solid var(--border)',
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px', gap: '8px' }}>
-                  <span style={{ fontWeight: 700, fontSize: '12px', color: t.accent }}>{c.username}</span>
-                  <span style={{ fontSize: '11px', color: t.textMuted, whiteSpace: 'nowrap' }}>{fmtTime(c.created_at)}</span>
+                  <span style={{ fontWeight: 700, fontSize: '12px', color: 'var(--accent)' }}>{c.username}</span>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{fmtTime(c.created_at)}</span>
                 </div>
                 <div style={{ fontSize: '13px', lineHeight: 1.55, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{c.text}</div>
               </div>
@@ -247,7 +244,7 @@ function CommentHistoryModal({ email, onClose }) {
           </div>
         )}
 
-        <div style={{ borderTop: `1px solid ${t.border}`, paddingTop: '12px' }}>
+        <div style={{ borderTop: '1px solid var(--border)', paddingTop: '12px' }}>
           <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
             <textarea value={text} onChange={e => setText(e.target.value)} rows={3}
               placeholder="Add a comment…" style={taStyle} required />
@@ -265,7 +262,6 @@ function CommentHistoryModal({ email, onClose }) {
 // ─── Rule Modal ───────────────────────────────────────────────────────
 
 function RuleModal({ rule, onClose, onSave, mailboxes = [] }) {
-  const { theme: t } = useTheme();
   const isEdit = !!rule?.id;
   const isBuiltin = rule?.is_builtin ?? false;
   const isGeneral = rule?.builtin_key === 'general';
@@ -321,13 +317,13 @@ function RuleModal({ rule, onClose, onSave, mailboxes = [] }) {
   }
 
   const lbl = {
-    fontSize: '11px', fontWeight: 600, color: t.textMuted,
+    fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)',
     textTransform: 'uppercase', letterSpacing: '0.06em',
   };
   const inp = {
-    padding: '8px 10px', borderRadius: t.radiusSm,
-    border: `1px solid ${t.border}`, fontSize: '13px',
-    background: t.surfaceAlt, color: t.text,
+    padding: '8px 10px', borderRadius: 'var(--radius-sm)',
+    border: '1px solid var(--border)', fontSize: '13px',
+    background: 'var(--surface-alt)', color: 'var(--text)',
     width: '100%', boxSizing: 'border-box', fontFamily: 'inherit',
     outline: 'none', transition: 'border-color 0.15s, box-shadow 0.15s',
   };
@@ -341,10 +337,10 @@ function RuleModal({ rule, onClose, onSave, mailboxes = [] }) {
         {/* Info banner */}
         {isBuiltin && (
           <div style={{
-            background: t.surfaceAlt, border: `1px solid ${t.border}`,
-            borderLeft: `3px solid ${isGeneral ? t.textMuted : t.accent}`,
-            borderRadius: t.radiusSm, padding: '9px 12px',
-            fontSize: '12px', color: t.textMuted, lineHeight: 1.5,
+            background: 'var(--surface-alt)', border: '1px solid var(--border)',
+            borderLeft: `3px solid ${isGeneral ? 'var(--text-muted)' : 'var(--accent)'}`,
+            borderRadius: 'var(--radius-sm)', padding: '9px 12px',
+            fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5,
           }}>
             {isGeneral
               ? '🔒 General is the catch-all — it matches everything with no conditions. Only display settings can be edited.'
@@ -369,7 +365,7 @@ function RuleModal({ rule, onClose, onSave, mailboxes = [] }) {
             <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
               <input type="color" value={form.color} onChange={set('color')} style={{
                 width: '36px', height: '34px', padding: '2px 3px',
-                border: `1px solid ${t.border}`, borderRadius: t.radiusSm,
+                border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
                 cursor: 'pointer', background: 'none',
               }} />
               <input style={{ ...inp, flex: 1 }} value={form.color} onChange={set('color')} placeholder="#6b7280" pattern="^#[0-9a-fA-F]{6}$" />
@@ -380,10 +376,10 @@ function RuleModal({ rule, onClose, onSave, mailboxes = [] }) {
         {/* Badge preview */}
         <div style={{
           display: 'flex', alignItems: 'center', gap: '10px',
-          padding: '9px 12px', background: t.surfaceAlt,
-          borderRadius: t.radiusSm, border: `1px solid ${t.border}`,
+          padding: '9px 12px', background: 'var(--surface-alt)',
+          borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)',
         }}>
-          <span style={{ fontSize: '11px', color: t.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Preview</span>
+          <span className="t-eyebrow">Preview</span>
           <RuleBadge rule={form} />
         </div>
 
@@ -402,12 +398,12 @@ function RuleModal({ rule, onClose, onSave, mailboxes = [] }) {
         {/* Telegram target override */}
         <div style={field}>
           <label style={lbl}>Telegram target override</label>
-          <TelegramTargetFields chatId={tgChatId} threadId={tgThreadId} onChatId={setTgChatId} onThreadId={setTgThreadId} templates={templates} theme={t} />
+          <TelegramTargetFields chatId={tgChatId} threadId={tgThreadId} onChatId={setTgChatId} onThreadId={setTgThreadId} templates={templates} />
         </div>
 
         <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer' }}>
           <input type="checkbox" checked={form.include_body} onChange={e => setForm(f => ({ ...f, include_body: e.target.checked }))} />
-          <span style={{ color: t.textSecondary }}>Include email body in Telegram message</span>
+          <span style={{ color: 'var(--text-secondary)' }}>Include email body in Telegram message</span>
         </label>
 
         {/* Mailbox scope — only for non-general rules */}
@@ -424,7 +420,7 @@ function RuleModal({ rule, onClose, onSave, mailboxes = [] }) {
         {/* Match conditions — for custom rules AND non-general built-ins */}
         {!matchLocked && (
           <>
-            <div style={{ borderTop: `1px solid ${t.border}`, margin: '2px 0' }} />
+            <div style={{ borderTop: '1px solid var(--border)', margin: '2px 0' }} />
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', alignItems: 'flex-end' }}>
               <div style={field}>
                 <label style={lbl}>Match type</label>
@@ -451,7 +447,7 @@ function RuleModal({ rule, onClose, onSave, mailboxes = [] }) {
                 placeholder="payment declined,keyword,phrase with spaces"
               />
               {isBuiltin && (
-                <div style={{ fontSize: '11px', color: t.textMuted, marginTop: '3px' }}>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '3px' }}>
                   Added on top of built-in detection — leave empty to rely on hardcoded logic only
                 </div>
               )}
@@ -465,12 +461,12 @@ function RuleModal({ rule, onClose, onSave, mailboxes = [] }) {
             onChange={e => setForm(f => ({ ...f, enabled: e.target.checked }))}
             disabled={isGeneral}
           />
-          <span style={{ color: isGeneral ? t.textMuted : t.textSecondary }}>
+          <span style={{ color: isGeneral ? 'var(--text-muted)' : 'var(--text-secondary)' }}>
             {isGeneral ? 'Enabled (General catch-all is always active)' : 'Enabled'}
           </span>
         </label>
 
-        {err && <div style={{ color: t.danger, fontSize: '12px', padding: '6px 10px', background: t.dangerLight, borderRadius: t.radiusSm }}>{err}</div>}
+        {err && <div style={{ color: 'var(--danger)', fontSize: '12px', padding: '6px 10px', background: 'var(--danger-light)', borderRadius: 'var(--radius-sm)' }}>{err}</div>}
 
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', paddingTop: '4px' }}>
           <Button variant="ghost" type="button" onClick={onClose}>Cancel</Button>
@@ -484,7 +480,6 @@ function RuleModal({ rule, onClose, onSave, mailboxes = [] }) {
 // ─── Main Page ────────────────────────────────────────────────────────
 
 export default function MailReporterPage({ user }) {
-  const { theme: t } = useTheme();
   const { t: tr } = useLang();
   const isAdmin = user?.role === 'admin';
 
@@ -664,9 +659,9 @@ export default function MailReporterPage({ user }) {
   const pagedEmails = emails.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
   const hasAdobeCode = emails.some(em => em.extracted_code);
 
-  const labelStyle = { fontSize: '11px', fontWeight: 600, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '0.06em' };
-  const cellStyle = { padding: '8px 10px', fontSize: '13px', borderBottom: `1px solid ${t.border}`, verticalAlign: 'middle' };
-  const headStyle = { ...cellStyle, fontSize: 11, fontWeight: 500, color: t.textMuted, padding: '8px 10px', background: t.surfaceAlt, borderBottom: `1px solid ${t.border}` };
+  const labelStyle = { fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' };
+  const cellStyle = { padding: '8px 10px', fontSize: '13px', borderBottom: '1px solid var(--border)', verticalAlign: 'middle' };
+  const headStyle = { ...cellStyle, fontSize: 11, fontWeight: 500, color: 'var(--text-muted)', padding: '8px 10px', background: 'var(--surface-alt)', borderBottom: '1px solid var(--border)' };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -675,7 +670,7 @@ export default function MailReporterPage({ user }) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
         <div>
           <h1 style={{ margin: 0, fontSize: '22px', fontWeight: 700 }}>{tr('mailReporter')}</h1>
-          <p style={{ margin: '4px 0 0', fontSize: '13px', color: t.textMuted }}>IMAP monitoring → Telegram alerts</p>
+          <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-muted)' }}>IMAP monitoring → Telegram alerts</p>
         </div>
         {isAdmin && (
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -688,17 +683,17 @@ export default function MailReporterPage({ user }) {
       {/* ── Mailboxes — admin only ─────────────────────────────── */}
       {isAdmin && (
         <Card>
-          <div style={{ padding: '16px 20px', borderBottom: `1px solid ${t.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span style={{ fontWeight: 600, fontSize: '15px' }}>{tr('mailboxes')}</span>
             <span style={{ ...labelStyle }}>{mailboxes.length} configured</span>
           </div>
           {loading ? (
-            <div style={{ padding: '32px', textAlign: 'center', color: t.textMuted, fontSize: '14px' }}>{tr('loading')}</div>
+            <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '14px' }}>{tr('loading')}</div>
           ) : mailboxes.length === 0 ? (
             <div style={{ padding: '40px', textAlign: 'center' }}>
               <div style={{ fontSize: '28px', marginBottom: '8px' }}>📭</div>
               <div style={{ fontWeight: 600, marginBottom: '4px' }}>{tr('noMailboxes')}</div>
-              <div style={{ fontSize: '13px', color: t.textMuted }}>{tr('noMailboxesDesc')}</div>
+              <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>{tr('noMailboxesDesc')}</div>
             </div>
           ) : (
             <div style={{ overflowX: 'auto' }}>
@@ -710,14 +705,14 @@ export default function MailReporterPage({ user }) {
                 </thead>
                 <tbody>
                   {mailboxes.map(mb => (
-                    <tr key={mb.id} style={{ background: mb.consecutive_failures > 0 ? `${t.danger}08` : 'transparent' }}>
+                    <tr key={mb.id} style={{ background: mb.consecutive_failures > 0 ? 'color-mix(in srgb, var(--danger) 5%, transparent)' : 'transparent' }}>
                       <td style={cellStyle}>
-                        <div style={{ fontWeight: 500, fontFamily: 'monospace', fontSize: '13px' }}>{mb.email}</div>
+                        <div style={{ fontWeight: 500, fontFamily: 'var(--font-mono)', fontSize: '13px' }}>{mb.email}</div>
                         {mb.last_error && <div style={{ fontSize: '11px', color: '#ef4444', marginTop: '3px', maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={mb.last_error}>⚠ {mb.last_error}</div>}
                       </td>
-                      <td style={cellStyle}><code style={{ fontSize: '12px', background: t.surfaceAlt, padding: '2px 6px', borderRadius: '4px', border: `1px solid ${t.border}` }}>{mb.subject_filter || 'NONE'}</code></td>
-                      <td style={cellStyle}>{mb.telegram_target ? <code style={{ fontSize: '12px' }}>{mb.telegram_target}</code> : <span style={{ color: t.textMuted, fontSize: '12px' }}>global default</span>}</td>
-                      <td style={{ ...cellStyle, color: t.textMuted, fontSize: '12px' }}>{fmtSince(mb.last_poll_at)}</td>
+                      <td style={cellStyle}><code style={{ fontSize: '12px', background: 'var(--surface-alt)', padding: '2px 6px', borderRadius: '4px', border: '1px solid var(--border)' }}>{mb.subject_filter || 'NONE'}</code></td>
+                      <td style={cellStyle}>{mb.telegram_target ? <code style={{ fontFamily: 'var(--font-mono)', fontSize: '12px' }}>{mb.telegram_target}</code> : <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>global default</span>}</td>
+                      <td style={{ ...cellStyle, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>{fmtSince(mb.last_poll_at)}</td>
                       <td style={cellStyle}>{mb.consecutive_failures > 0 ? <Badge color="red">{mb.consecutive_failures} fail{mb.consecutive_failures !== 1 ? 's' : ''}</Badge> : <Badge color="green">0</Badge>}</td>
                       <td style={cellStyle}>
                         <button onClick={() => toggleEnabled(mb)} className={`toggle-pill ${mb.enabled ? 'toggle-on' : 'toggle-off'}`}>
@@ -748,7 +743,7 @@ export default function MailReporterPage({ user }) {
       {/* ── Routing Rules — admin only ─────────────────────────── */}
       {isAdmin && (
         <Card>
-          <div style={{ padding: '16px 20px', borderBottom: `1px solid ${t.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div>
               <span style={{ fontWeight: 600, fontSize: '15px' }}>Routing Rules</span>
               <span style={{ ...labelStyle, marginLeft: '10px' }}>{rules.filter(r => !r.is_builtin).length} custom · {rules.filter(r => r.is_builtin).length} built-in</span>
@@ -757,7 +752,7 @@ export default function MailReporterPage({ user }) {
           </div>
 
           {rules.length === 0 ? (
-            <div style={{ padding: '32px', textAlign: 'center', color: t.textMuted, fontSize: '14px' }}>No rules found — built-ins load on first startup.</div>
+            <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '14px' }}>No rules found — built-ins load on first startup.</div>
           ) : (
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
@@ -787,16 +782,16 @@ export default function MailReporterPage({ user }) {
                           {rule.is_builtin && <span title={rule.builtin_key === 'general' ? 'General catch-all — cannot be deleted' : 'Built-in rule — re-created on server restart'} style={{ fontSize: '12px', flexShrink: 0 }}>{rule.builtin_key === 'general' ? '🔒' : '⚙️'}</span>}
                           <span style={{ fontWeight: 500, fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rule.name}</span>
                         </div>
-                        {rule.hashtag && <div style={{ fontSize: '11px', color: t.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rule.hashtag}</div>}
+                        {rule.hashtag && <div style={{ fontSize: '11px', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rule.hashtag}</div>}
                       </td>
                       <td style={{ ...cellStyle, fontSize: '12px', maxWidth: '130px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {rule.is_builtin
-                          ? <span style={{ color: t.textMuted, fontStyle: 'italic' }}>all (built-in)</span>
+                          ? <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>all (built-in)</span>
                           : rule.mailbox_id
-                            ? <span style={{ color: t.accent, fontFamily: 'monospace' }}>{mailboxes.find(m => m.id === rule.mailbox_id)?.email || `#${rule.mailbox_id}`}</span>
-                            : <span style={{ color: t.textMuted }}>all mailboxes</span>}
+                            ? <span style={{ color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>{mailboxes.find(m => m.id === rule.mailbox_id)?.email || `#${rule.mailbox_id}`}</span>
+                            : <span style={{ color: 'var(--text-muted)' }}>all mailboxes</span>}
                       </td>
-                      <td style={{ ...cellStyle, fontSize: '12px', color: t.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <td style={{ ...cellStyle, fontSize: '12px', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {rule.is_builtin && !rule.match_values
                           ? <span style={{ fontStyle: 'italic' }}>built-in</span>
                           : (MATCH_TYPE_LABELS[rule.match_type] || rule.match_type || <span style={{ fontStyle: 'italic' }}>built-in</span>)}
@@ -804,13 +799,13 @@ export default function MailReporterPage({ user }) {
                       <td style={{ ...cellStyle, fontSize: '12px', overflow: 'hidden' }}>
                         {rule.match_values
                           ? <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', display: 'block', whiteSpace: 'nowrap' }} title={rule.match_values}>{rule.match_values}</span>
-                          : <span style={{ color: t.border }}>—</span>}
+                          : <span style={{ color: 'var(--border)' }}>—</span>}
                       </td>
                       <td style={{ ...cellStyle, fontSize: '12px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={rule.mention_users}>
-                        {rule.mention_users || <span style={{ color: t.border }}>—</span>}
+                        {rule.mention_users || <span style={{ color: 'var(--border)' }}>—</span>}
                       </td>
                       <td style={{ ...cellStyle, fontSize: '12px', textAlign: 'center' }}>{rule.include_body ? '✓' : '—'}</td>
-                      <td style={{ ...cellStyle, fontSize: '12px', textAlign: 'center', color: t.textMuted }}>{rule.priority}</td>
+                      <td style={{ ...cellStyle, fontSize: '12px', textAlign: 'center', color: 'var(--text-muted)' }}>{rule.priority}</td>
                       <td style={cellStyle}>
                         <button
                           onClick={() => !(rule.is_builtin && rule.builtin_key === 'general') && toggleRuleEnabled(rule)}
@@ -850,7 +845,7 @@ export default function MailReporterPage({ user }) {
 
       {/* ── Email Log ─────────────────────────────────────────────── */}
       <Card>
-        <div style={{ padding: '16px 20px', borderBottom: `1px solid ${t.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <span style={{ fontWeight: 600, fontSize: '15px' }}>{tr('recentEmails')}</span>
             <span style={{ ...labelStyle }}>{emails.length} entries</span>
@@ -865,7 +860,7 @@ export default function MailReporterPage({ user }) {
         {emails.length === 0 ? (
           <div style={{ padding: '40px', textAlign: 'center' }}>
             <div style={{ fontSize: '28px', marginBottom: '8px' }}>📬</div>
-            <div style={{ color: t.textMuted, fontSize: '14px' }}>{tr('noEmailLogs')}</div>
+            <div style={{ color: 'var(--text-muted)', fontSize: '14px' }}>{tr('noEmailLogs')}</div>
           </div>
         ) : (
           <>
@@ -897,13 +892,13 @@ export default function MailReporterPage({ user }) {
                     // Use rule_id → live rule for badge, fall back to static category map
                     const rule = em.rule_id ? ruleMap[em.rule_id] : null;
                     return (
-                      <tr key={em.id} style={{ opacity: em.skip_reason === 'filter' ? 0.5 : 1, background: em.status === 'solved' ? `${t.success || '#10b981'}08` : 'transparent' }}>
-                        <td style={{ ...cellStyle, fontSize: '11px', color: t.textMuted, whiteSpace: 'nowrap', overflow: 'hidden' }}>{fmtTime(em.received_at || em.created_at)}</td>
-                        <td style={{ ...cellStyle, fontSize: '12px', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{em.mailbox_email || '—'}</td>
-                        <td style={{ ...cellStyle, fontSize: '12px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={em.sender}>{em.sender || '—'}</td>
+                      <tr key={em.id} style={{ opacity: em.skip_reason === 'filter' ? 0.5 : 1, background: em.status === 'solved' ? 'color-mix(in srgb, var(--success) 5%, transparent)' : 'transparent' }}>
+                        <td style={{ ...cellStyle, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden' }}>{fmtTime(em.received_at || em.created_at)}</td>
+                        <td style={{ ...cellStyle, fontSize: '12px', fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{em.mailbox_email || '—'}</td>
+                        <td style={{ ...cellStyle, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={em.sender}>{em.sender || '—'}</td>
                         <td style={cellStyle}>
                           <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={em.subject}>{em.subject || '—'}</div>
-                          {em.comment_count > 0 && <div style={{ fontSize: '11px', color: t.accent, marginTop: '2px' }}>💬 {em.comment_count}</div>}
+                          {em.comment_count > 0 && <div style={{ fontSize: '11px', color: 'var(--accent)', marginTop: '2px' }}>💬 {em.comment_count}</div>}
                         </td>
                         <td style={cellStyle}>
                           {rule
@@ -911,7 +906,7 @@ export default function MailReporterPage({ user }) {
                             : <Badge color={CATEGORY_COLORS[em.category] || 'gray'}>{CATEGORY_LABELS[em.category] || em.category}</Badge>
                           }
                         </td>
-                        {hasAdobeCode && <td style={cellStyle}>{em.extracted_code ? <code style={{ background: t.surfaceAlt, padding: '2px 6px', borderRadius: '4px', fontSize: '13px', fontWeight: 700, border: `1px solid ${t.border}` }}>{em.extracted_code}</code> : <span style={{ color: t.border }}>—</span>}</td>}
+                        {hasAdobeCode && <td style={cellStyle}>{em.extracted_code ? <code style={{ background: 'var(--surface-alt)', padding: '2px 6px', borderRadius: '4px', fontSize: '13px', fontWeight: 700, border: '1px solid var(--border)' }}>{em.extracted_code}</code> : <span style={{ color: 'var(--border)' }}>—</span>}</td>}
                         <td style={cellStyle}>
                           {(() => {
                             const st = em.status || 'unchecked';
@@ -927,7 +922,7 @@ export default function MailReporterPage({ user }) {
                                   try { await setEmailStatus(em, next); } finally { setPendingStatus(null); }
                                 }}
                               >
-                                <Badge color={cfg.color}>{cfg.label}</Badge>
+                                <Badge color={cfg.color} dot>{cfg.label}</Badge>
                               </span>
                             );
                           })()}
@@ -940,7 +935,7 @@ export default function MailReporterPage({ user }) {
                               className="btn btn-ghost btn-sm"
                               style={{ padding: '3px 8px', position: 'relative' }}
                             >
-                              💬{em.comment_count > 0 && <span style={{ fontSize: '10px', marginLeft: '2px', color: t.accent }}>{em.comment_count}</span>}
+                              💬{em.comment_count > 0 && <span style={{ fontSize: '10px', marginLeft: '2px', color: 'var(--accent)' }}>{em.comment_count}</span>}
                             </button>
                           </div>
                         </td>
@@ -953,8 +948,8 @@ export default function MailReporterPage({ user }) {
 
             {/* Pagination */}
             {totalPages > 1 && (
-              <div style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: `1px solid ${t.border}` }}>
-                <span style={{ fontSize: '13px', color: t.textMuted }}>
+              <div style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid var(--border)' }}>
+                <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
                   Page {page + 1} of {totalPages} · {emails.length} total
                 </span>
                 <div style={{ display: 'flex', gap: '4px' }}>
