@@ -473,7 +473,9 @@ function AgentSection({ agent, onEdit, onViewLogs, onDeleteAgent, onEditAgent })
               </span>
             )}
             {agent.alert_template_id && (
-              <span title="Telegram alerts configured" style={{ fontSize: 12 }}>🔔</span>
+              <span title="Telegram alerts configured" style={{ fontSize: 12 }}>
+                <Icon name="bell" size={14} />
+              </span>
             )}
           </div>
           <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>
