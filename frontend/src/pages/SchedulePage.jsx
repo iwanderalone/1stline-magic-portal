@@ -6,6 +6,7 @@ import { Icon } from '../components/Icons';
 
 const fmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const DAY_NAMES = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+const DAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 
 function getWeekDates(offset) {
   const n = new Date(); n.setDate(n.getDate() + offset * 7);
@@ -24,6 +25,18 @@ function getMonthDates(offset) {
     dates.push(d);
   }
   return { dates, year, month };
+}
+
+function text(template, vars = {}) {
+  return Object.entries(vars).reduce((out, [key, value]) => out.replaceAll(`{{${key}}}`, String(value)), template);
+}
+
+function shiftLabel(tr, type) {
+  return tr(`shift_${type}`);
+}
+
+function statusColor(status) {
+  return status === 'approved' ? 'green' : status === 'rejected' ? 'red' : 'yellow';
 }
 
 export default function SchedulePage({ user }) {
@@ -71,17 +84,17 @@ export default function SchedulePage({ user }) {
   const handleGenerate = async (startDate, endDate, types) => {
     try {
       await api('/schedule/generate', { method: 'POST', body: JSON.stringify({ start_date: startDate, end_date: endDate, shift_types: types }) });
-      setToast({ message: 'Schedule generated!', type: 'success' }); setShowGenerate(false); loadData();
+      setToast({ message: tr('scheduleGenerated'), type: 'success' }); setShowGenerate(false); loadData();
     } catch (e) { setToast({ message: e.message, type: 'error' }); }
   };
 
   const handleClearDrafts = async () => {
     const draftCount = shifts.filter(s => !s.is_published).length;
-    if (draftCount === 0) { setToast({ message: 'No drafts in this range', type: 'info' }); return; }
-    if (!confirm(`Delete ${draftCount} draft shift(s) from this view?`)) return;
+    if (draftCount === 0) { setToast({ message: tr('scheduleNoDrafts'), type: 'info' }); return; }
+    if (!confirm(text(tr('scheduleDeleteDraftsConfirm'), { count: draftCount }))) return;
     try {
       const r = await api(`/schedule/shifts/drafts?start_date=${fmt(rangeStart)}&end_date=${fmt(rangeEnd)}`, { method: 'DELETE' });
-      setToast({ message: `Cleared ${r.deleted} draft(s)`, type: 'success' }); loadData();
+      setToast({ message: text(tr('scheduleClearedDrafts'), { count: r.deleted }), type: 'success' }); loadData();
     } catch (e) { setToast({ message: e.message, type: 'error' }); }
   };
 
@@ -95,7 +108,7 @@ export default function SchedulePage({ user }) {
   const handleAddShift = async (data) => {
     try {
       await api('/schedule/shifts', { method: 'POST', body: JSON.stringify(data) });
-      setToast({ message: 'Shift added', type: 'success' }); setShowAddShift(false); loadData();
+      setToast({ message: tr('scheduleShiftAdded'), type: 'success' }); setShowAddShift(false); loadData();
     } catch (e) { setToast({ message: e.message, type: 'error' }); }
   };
 
@@ -117,7 +130,7 @@ export default function SchedulePage({ user }) {
   const handleTimeOff = async (sd, ed, ot, cm) => {
     try {
       await api('/schedule/time-off', { method: 'POST', body: JSON.stringify({ start_date: sd, end_date: ed, off_type: ot, comment: cm }) });
-      setToast({ message: 'Time-off requested', type: 'success' }); setShowTimeOff(false); loadData();
+      setToast({ message: tr('scheduleTimeOffRequested'), type: 'success' }); setShowTimeOff(false); loadData();
     } catch (e) { setToast({ message: e.message, type: 'error' }); }
   };
 
@@ -130,6 +143,26 @@ export default function SchedulePage({ user }) {
   const headerLabel = view === 'weekly'
     ? `${weekDates[0].toLocaleDateString(locale, { month: 'short', day: 'numeric' })} – ${weekDates[6].toLocaleDateString(locale, { month: 'short', day: 'numeric', year: 'numeric' })}`
     : new Date(monthData.year, monthData.month).toLocaleDateString(locale, { month: 'long', year: 'numeric' });
+  const published = shifts.length > 0 && shifts.every(s => s.is_published);
+  const activeShiftTypes = configs.filter(c => c.is_active);
+
+  const leaveConflicts = shifts.filter(s => timeOff.some(r =>
+    r.status === 'approved' &&
+    String(r.user_id) === String(s.user_id) &&
+    r.start_date <= s.date && r.end_date >= s.date
+  ));
+  const firstConflict = leaveConflicts[0];
+  const firstConflictDate = firstConflict
+    ? new Date(`${firstConflict.date}T00:00:00`).toLocaleDateString(locale, { weekday: 'long' })
+    : '';
+  const conflictCopy = firstConflict ? text(
+    tr(leaveConflicts.length === 1 ? 'scheduleConflictBanner' : 'scheduleConflictBannerMany'),
+    {
+      count: leaveConflicts.length,
+      date: firstConflictDate,
+      shift: shiftLabel(tr, firstConflict.shift_type).toLowerCase(),
+    },
+  ) : '';
 
   const renderShiftCell = (d, compact = false) => {
     const dayStr = fmt(d);
@@ -175,13 +208,13 @@ export default function SchedulePage({ user }) {
           border: onLeave ? '2px solid var(--danger)' : (!s.is_published ? '1px dashed var(--border)' : `1px solid ${bgColor}`),
           opacity: s.is_published ? 1 : 0.7, lineHeight: 1.3, position: 'relative',
           cursor: isAdmin ? 'pointer' : 'default',
-        }} title={onLeave ? 'Engineer is on approved leave — consider reassigning' : (isAdmin ? 'Click to edit' : '')}
+        }} title={onLeave ? tr('scheduleShortStaffed') : ''}
           onClick={() => isAdmin && setSelectedShift(s)}>
           <div style={{ fontWeight: 600, color: onLeave ? 'var(--danger)' : nameColor, display: 'flex', alignItems: 'center', gap: '3px' }}>
             {onLeave ? <Icon name="alertTriangle" size={13} /> : null} {compact ? userName.split(' ')[0] : userName}
           </div>
           {!compact && <div style={{ color: onLeave ? 'var(--danger)' : 'var(--text-muted)', fontSize: '10px' }}>
-            {s.shift_type}{s.location ? ` · ${s.location}` : ''}{!s.is_published ? ' · draft' : ''}{onLeave ? ' · on leave!' : ''}
+            {shiftLabel(tr, s.shift_type)}{s.location ? ` · ${s.location}` : ''}{!s.is_published ? ` · ${tr('scheduleDraft')}` : ''}{onLeave ? ` · ${tr('scheduleShortStaffed')}` : ''}
           </div>}
         </div>
       );
@@ -192,8 +225,10 @@ export default function SchedulePage({ user }) {
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
         <div>
-          <h1 style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 30, letterSpacing: '-0.02em', lineHeight: 1.1, color: 'var(--text)', margin: 0 }}>{tr('schedule_title')}</h1>
-          <p style={{ color: 'var(--text-muted)', fontSize: '13px', marginTop: '2px' }}>{headerLabel}</p>
+          <h1 style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 42, letterSpacing: '-0.04em', lineHeight: 1, color: 'var(--text)', margin: 0 }}>{tr('schedule_title')}</h1>
+          <p style={{ color: 'var(--text-muted)', fontSize: '15px', marginTop: '8px' }}>
+            {view === 'weekly' ? `${tr('scheduleWeekOf')} ${headerLabel}` : headerLabel} · {published ? tr('schedulePublished') : tr('scheduleDraft')}
+          </p>
         </div>
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
           <Tabs tabs={[{ id: 'weekly', label: tr('week') }, { id: 'monthly', label: tr('month') }]} active={view} onChange={v => { setView(v); setOffset(0); }} />
@@ -204,39 +239,42 @@ export default function SchedulePage({ user }) {
           {isAdmin && <Button variant="secondary" size="sm" onClick={() => setShowAddShift(true)}>{tr('addShift')}</Button>}
           {isAdmin && <Button size="sm" onClick={() => setShowGenerate(true)}>{tr('generate')}</Button>}
           {isAdmin && <Button variant="secondary" size="sm" onClick={handlePublish}>{tr('publish')}</Button>}
-          {isAdmin && <Button variant="danger" size="sm" onClick={handleClearDrafts}>Clear drafts</Button>}
+          {isAdmin && <Button variant="danger" size="sm" onClick={handleClearDrafts}>{tr('scheduleClearDrafts')}</Button>}
         </div>
       </div>
 
-      <WorldClock />
+      {conflictCopy && (
+        <Card style={{ borderColor: 'color-mix(in srgb, var(--warning) 45%, var(--border))', background: 'color-mix(in srgb, var(--warning) 9%, var(--surface))' }}>
+          <div style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <Icon name="alertTriangle" size={18} color="var(--warning)" />
+            <div style={{ flex: 1, fontSize: 15, color: 'var(--text)' }}>{conflictCopy}</div>
+            <Button size="sm" variant="ghost">{tr('scheduleSuggest')}</Button>
+            <Button size="sm">{tr('scheduleResolve')}</Button>
+          </div>
+        </Card>
+      )}
 
       <Card style={{ overflow: 'auto' }}>
         {loading ? <div style={{ padding: '48px', textAlign: 'center', color: 'var(--text-muted)', animation: 'pulse 1.5s infinite' }}>{tr('loading')}</div> : (
           view === 'weekly' ? (
-            <div style={{ minWidth: '700px' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', borderBottom: '1px solid var(--border)' }}>
-                {weekDates.map((d, i) => {
-                  const isToday = fmt(d) === fmt(new Date());
-                  return (
-                    <div key={i} style={{ padding: '12px 10px', textAlign: 'center', borderRight: i < 6 ? '1px solid var(--border-light)' : 'none', background: isToday ? 'var(--accent-light)' : 'transparent' }}>
-                      <div className="t-eyebrow" style={{ marginBottom: '2px' }}>{DAY_NAMES[i]}</div>
-                      <div style={{ fontSize: '18px', fontWeight: 700, color: isToday ? 'var(--accent)' : 'var(--text)' }}>{d.getDate()}</div>
-                    </div>
-                  );
-                })}
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', minHeight: '200px' }}>
-                {weekDates.map((d, i) => (
-                  <div key={i} style={{ padding: '8px 6px', borderRight: i < 6 ? '1px solid var(--border-light)' : 'none', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    {renderShiftCell(d)}
-                  </div>
-                ))}
-              </div>
-            </div>
+            <WeeklyScheduleBoard
+              weekDates={weekDates}
+              shiftTypes={activeShiftTypes}
+              shifts={shifts}
+              timeOff={timeOff}
+              isAdmin={isAdmin}
+              locale={locale}
+              tr={tr}
+              onShiftClick={setSelectedShift}
+            />
           ) : (
             <div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', borderBottom: '1px solid var(--border)' }}>
-                {DAY_NAMES.map(d => <div key={d} style={{ padding: '8px', textAlign: 'center' }}><span className="t-eyebrow">{d}</span></div>)}
+                {DAY_KEYS.map((_, i) => (
+                  <div key={i} style={{ padding: '8px', textAlign: 'center' }}>
+                    <span className="t-eyebrow">{new Date(2026, 4, 4 + i).toLocaleDateString(locale, { weekday: 'short' })}</span>
+                  </div>
+                ))}
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)' }}>
                 {monthData.dates.map((d, i) => {
@@ -259,6 +297,13 @@ export default function SchedulePage({ user }) {
         )}
       </Card>
 
+      {!loading && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 420px), 1fr))', gap: 16 }}>
+          <CoveragePanel shifts={shifts} users={users} configs={configs} tr={tr} />
+          <TimeOffPanel timeOff={timeOff} locale={locale} tr={tr} onRequest={() => setShowTimeOff(true)} onSelect={setSelectedTimeOff} />
+        </div>
+      )}
+
       {showGenerate && <GenerateModal onClose={() => setShowGenerate(false)} onGenerate={handleGenerate} dates={weekDates} configs={configs} />}
       {showTimeOff && <TimeOffModal onClose={() => setShowTimeOff(false)} onSubmit={handleTimeOff} />}
       {showAddShift && <AddShiftModal onClose={() => setShowAddShift(false)} onSubmit={handleAddShift} users={users} configs={configs} />}
@@ -268,7 +313,7 @@ export default function SchedulePage({ user }) {
           configs={configs}
           onClose={() => setSelectedShift(null)}
           onSave={data => handleEditShift(selectedShift.id, data)}
-          onDelete={() => confirm('Delete this shift?') && handleDeleteShift(selectedShift.id)}
+          onDelete={() => confirm(tr('scheduleDeleteShiftConfirm')) && handleDeleteShift(selectedShift.id)}
         />
       )}
       {selectedTimeOff && (
@@ -277,7 +322,7 @@ export default function SchedulePage({ user }) {
           isAdmin={isAdmin}
           onClose={() => setSelectedTimeOff(null)}
           onReview={async (status) => { await handleReview(selectedTimeOff.id, status); setSelectedTimeOff(null); }}
-          onDelete={() => confirm('Delete this time-off request?') && handleDeleteTimeOff(selectedTimeOff.id)}
+          onDelete={() => confirm(tr('scheduleDeleteTimeOffConfirm')) && handleDeleteTimeOff(selectedTimeOff.id)}
         />
       )}
       {toast && <Toast {...toast} onClose={() => setToast(null)} />}
@@ -301,7 +346,7 @@ function GenerateModal({ onClose, onGenerate, dates, configs }) {
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             {configs.filter(c => c.is_active).map(c => (
               <Button key={c.shift_type} variant={types.includes(c.shift_type) ? 'primary' : 'secondary'} size="sm" onClick={() => toggle(c.shift_type)}>
-                {c.emoji} {c.label}
+                {c.emoji} {shiftLabel(tr, c.shift_type)}
               </Button>
             ))}
           </div>
@@ -331,7 +376,7 @@ function AddShiftModal({ onClose, onSubmit, users, configs }) {
         </Select>
         <Input label={tr('date')} type="date" value={date} onChange={e => setDate(e.target.value)} />
         <Select label={tr('shiftType')} value={shiftType} onChange={e => setShiftType(e.target.value)}>
-          {configs.filter(c => c.is_active).map(c => <option key={c.shift_type} value={c.shift_type}>{c.emoji} {c.label} ({c.duration_hours}h)</option>)}
+          {configs.filter(c => c.is_active).map(c => <option key={c.shift_type} value={c.shift_type}>{c.emoji} {shiftLabel(tr, c.shift_type)} ({c.duration_hours}h)</option>)}
         </Select>
         {cfg?.requires_location && (
           <Select label={tr('location')} value={location} onChange={e => setLocation(e.target.value)}>
@@ -379,7 +424,7 @@ function ShiftDetailModal({ shift, configs, onClose, onSave, onDelete }) {
   const cfg = configs.find(c => c.shift_type === shiftType);
 
   return (
-    <Overlay onClose={onClose} title="Edit Shift">
+    <Overlay onClose={onClose} title={tr('scheduleEditShift')}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: 'var(--surface-alt)', borderRadius: 'var(--radius-sm)' }}>
           <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: (shift.user?.name_color || 'var(--accent)') + '20', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: shift.user?.name_color || 'var(--accent)' }}>
@@ -389,35 +434,35 @@ function ShiftDetailModal({ shift, configs, onClose, onSave, onDelete }) {
             <div style={{ fontWeight: 600 }}>{shift.user?.display_name || '—'}</div>
             <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{shift.date} · {shift.start_time?.slice(0,5) || '—'}–{shift.end_time?.slice(0,5) || '—'}</div>
           </div>
-          <Badge color={isPublished ? 'green' : 'yellow'} style={{ marginLeft: 'auto' }}>{isPublished ? 'published' : 'draft'}</Badge>
+          <Badge color={isPublished ? 'green' : 'yellow'} style={{ marginLeft: 'auto' }}>{isPublished ? tr('schedulePublished') : tr('scheduleDraft')}</Badge>
         </div>
 
-        <Select label="Shift type" value={shiftType} onChange={e => setShiftType(e.target.value)}>
+        <Select label={tr('shiftType')} value={shiftType} onChange={e => setShiftType(e.target.value)}>
           {configs.filter(c => c.is_active).map(c => (
-            <option key={c.shift_type} value={c.shift_type}>{c.emoji} {c.label} ({c.duration_hours}h)</option>
+            <option key={c.shift_type} value={c.shift_type}>{c.emoji} {shiftLabel(tr, c.shift_type)} ({c.duration_hours}h)</option>
           ))}
         </Select>
 
         {cfg?.requires_location && (
-          <Select label="Location" value={location} onChange={e => setLocation(e.target.value)}>
-            <option value="">Not set</option>
-            <option value="onsite">Onsite</option>
-            <option value="remote">Remote</option>
+          <Select label={tr('location')} value={location} onChange={e => setLocation(e.target.value)}>
+            <option value="">{tr('select')}</option>
+            <option value="onsite">{tr('inOffice')}</option>
+            <option value="remote">{tr('remote')}</option>
           </Select>
         )}
 
-        <Input label="Notes" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Optional notes…" />
+        <Input label={tr('scheduleNotes')} value={notes} onChange={e => setNotes(e.target.value)} placeholder={tr('scheduleNotesPlaceholder')} />
 
         <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer' }}>
           <input type="checkbox" checked={isPublished} onChange={e => setIsPublished(e.target.checked)} />
-          Published (visible to engineers)
+          {tr('schedulePublishedVisible')}
         </label>
 
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', marginTop: '4px' }}>
-          <Button variant="danger" onClick={onDelete}>Delete</Button>
+          <Button variant="danger" onClick={onDelete}>{tr('delete')}</Button>
           <div style={{ display: 'flex', gap: '8px' }}>
             <Button variant="secondary" onClick={onClose}>{tr('cancel')}</Button>
-            <Button onClick={() => onSave({ shift_type: shiftType, location: location || null, notes: notes || null, is_published: isPublished })}>Save</Button>
+            <Button onClick={() => onSave({ shift_type: shiftType, location: location || null, notes: notes || null, is_published: isPublished })}>{tr('save')}</Button>
           </div>
         </div>
       </div>
@@ -432,7 +477,7 @@ function TimeOffDetailModal({ entry, isAdmin, onClose, onReview, onDelete }) {
   const color = offTypeColors[entry.off_type] || '#6b7280';
 
   return (
-    <Overlay onClose={onClose} title="Time-off Request">
+    <Overlay onClose={onClose} title={tr('requestTimeOff')}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
         <div style={{ padding: '12px 16px', background: `${color}10`, borderRadius: 'var(--radius-sm)', borderLeft: `3px solid ${color}` }}>
           <div style={{ fontWeight: 600, fontSize: '15px', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '5px' }}>
@@ -440,29 +485,281 @@ function TimeOffDetailModal({ entry, isAdmin, onClose, onReview, onDelete }) {
           </div>
           <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{entry.start_date} → {entry.end_date}</div>
           <div style={{ display: 'flex', gap: '6px', marginTop: '8px', flexWrap: 'wrap' }}>
-            <Badge color={entry.off_type === 'vacation' ? 'blue' : entry.off_type === 'sick_leave' ? 'red' : 'gray'}>{entry.off_type.replace('_',' ')}</Badge>
+            <Badge color={entry.off_type === 'vacation' ? 'blue' : entry.off_type === 'sick_leave' ? 'red' : 'gray'}>
+              {entry.off_type === 'vacation' ? tr('vacation') : entry.off_type === 'sick_leave' ? tr('sickLeave') : tr('dayOff')}
+            </Badge>
             <Badge color={entry.status === 'approved' ? 'green' : entry.status === 'rejected' ? 'red' : 'yellow'}>{entry.status}</Badge>
           </div>
           {entry.comment && <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '8px' }}>{entry.comment}</div>}
         </div>
 
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
-          <Button variant="danger" onClick={onDelete}>Delete</Button>
+          <Button variant="danger" onClick={onDelete}>{tr('delete')}</Button>
           <div style={{ display: 'flex', gap: '8px' }}>
             {isAdmin && entry.status === 'pending' && (
               <>
-                <Button variant="danger" onClick={() => onReview('rejected')}>Reject</Button>
-                <Button onClick={() => onReview('approved')}>Approve</Button>
+                <Button variant="danger" onClick={() => onReview('rejected')}>{tr('reject')}</Button>
+                <Button onClick={() => onReview('approved')}>{tr('approve')}</Button>
               </>
             )}
             {isAdmin && entry.status !== 'pending' && (
-              <Button variant="secondary" onClick={() => onReview('pending')}>Reset to pending</Button>
+              <Button variant="secondary" onClick={() => onReview('pending')}>{tr('scheduleResetPending')}</Button>
             )}
             <Button variant="secondary" onClick={onClose}>{tr('cancel')}</Button>
           </div>
         </div>
       </div>
     </Overlay>
+  );
+}
+
+function WeeklyScheduleBoard({ weekDates, shiftTypes, shifts, timeOff, isAdmin, locale, tr, onShiftClick }) {
+  const todayKey = fmt(new Date());
+  return (
+    <div style={{ minWidth: 960 }}>
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: '128px repeat(7, minmax(112px, 1fr))',
+        borderBottom: '1px solid var(--border)',
+      }}>
+        <div style={{ background: 'var(--surface-alt)' }} />
+        {weekDates.map((d, i) => {
+          const key = fmt(d);
+          const isToday = key === todayKey;
+          return (
+            <div key={key} style={{
+              padding: '15px 12px',
+              textAlign: 'center',
+              borderLeft: '1px solid var(--border-light)',
+              background: isToday ? 'var(--accent-light)' : 'transparent',
+            }}>
+              <div className="t-eyebrow" style={{ color: isToday ? 'var(--accent)' : 'var(--text-muted)' }}>
+                {d.toLocaleDateString(locale, { weekday: 'short' })}
+              </div>
+              <div style={{
+                marginTop: 3,
+                fontFamily: 'var(--font-display)',
+                fontSize: 28,
+                fontWeight: 600,
+                lineHeight: 1,
+                color: isToday ? 'var(--accent)' : 'var(--text)',
+              }}>
+                {String(d.getDate()).padStart(2, '0')}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {shiftTypes.map((cfg, rowIndex) => (
+        <div key={cfg.shift_type} style={{
+          display: 'grid',
+          gridTemplateColumns: '128px repeat(7, minmax(112px, 1fr))',
+          minHeight: 132,
+          borderBottom: rowIndex < shiftTypes.length - 1 ? '1px solid var(--border-light)' : 'none',
+        }}>
+          <div style={{
+            padding: '20px 16px',
+            background: 'var(--surface-alt)',
+            borderRight: '1px solid var(--border-light)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 6,
+          }}>
+            <Icon name={cfg.shift_type === 'night' ? 'moon' : cfg.shift_type === 'office' ? 'workspace' : 'sun'} size={18} color={cfg.color || 'var(--accent)'} />
+            <div style={{ fontSize: 16, fontWeight: 700 }}>{shiftLabel(tr, cfg.shift_type)}</div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+              {fmtTime(cfg.default_start_time)}{cfg.default_start_time || cfg.default_end_time ? ' – ' : ''}{fmtTime(cfg.default_end_time)}
+            </div>
+          </div>
+
+          {weekDates.map((day) => {
+            const dayKey = fmt(day);
+            const dayShifts = shifts.filter(s => s.date === dayKey && s.shift_type === cfg.shift_type);
+            return (
+              <div key={`${cfg.shift_type}-${dayKey}`} style={{
+                padding: 10,
+                borderLeft: '1px solid var(--border-light)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 8,
+                minHeight: 132,
+              }}>
+                {dayShifts.length > 0 ? dayShifts.map(shift => (
+                  <ShiftPill
+                    key={shift.id}
+                    shift={shift}
+                    config={cfg}
+                    timeOff={timeOff}
+                    isAdmin={isAdmin}
+                    tr={tr}
+                    onClick={() => isAdmin && onShiftClick(shift)}
+                  />
+                )) : (
+                  <div style={{ margin: 'auto', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>—</div>
+                )}
+                {dayShifts.some(s => timeOff.some(r => r.status === 'approved' && String(r.user_id) === String(s.user_id) && r.start_date <= s.date && r.end_date >= s.date)) && (
+                  <div style={{ marginTop: 'auto', color: 'var(--warning)', fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700 }}>
+                    <Icon name="alertTriangle" size={12} style={{ display: 'inline-block', verticalAlign: '-2px', marginRight: 4 }} />
+                    {tr('scheduleShortStaffed')}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ShiftPill({ shift, config, timeOff, isAdmin, tr, onClick }) {
+  const userName = shift.user?.display_name || '—';
+  const color = shift.user?.name_color || config?.color || 'var(--accent)';
+  const onLeave = timeOff.some(r =>
+    r.status === 'approved' &&
+    String(r.user_id) === String(shift.user_id) &&
+    r.start_date <= shift.date && r.end_date >= shift.date
+  );
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={!isAdmin}
+      title={onLeave ? tr('scheduleShortStaffed') : userName}
+      style={{
+        border: '1px solid var(--border-light)',
+        borderLeft: `4px solid ${onLeave ? 'var(--danger)' : color}`,
+        borderRadius: 'var(--radius-sm)',
+        background: onLeave ? 'var(--danger-light)' : `color-mix(in srgb, ${color} 14%, var(--surface-alt))`,
+        color: 'var(--text)',
+        padding: '9px 10px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 9,
+        cursor: isAdmin ? 'pointer' : 'default',
+        textAlign: 'left',
+        opacity: shift.is_published ? 1 : 0.65,
+      }}
+    >
+      <span style={{
+        width: 26,
+        height: 26,
+        borderRadius: 'var(--radius-sm)',
+        background: color,
+        color: '#fff',
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontSize: 11,
+        fontWeight: 700,
+        flexShrink: 0,
+      }}>
+        {userName.split(/\s+/).map(s => s[0]).slice(0, 2).join('').toUpperCase()}
+      </span>
+      <span style={{ minWidth: 0 }}>
+        <span style={{ display: 'block', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{userName}</span>
+        {shift.location && <span style={{ display: 'block', color: 'var(--text-muted)', fontSize: 11 }}>{shift.location}</span>}
+      </span>
+    </button>
+  );
+}
+
+function CoveragePanel({ shifts, users, configs, tr }) {
+  const hoursByUser = new Map();
+  const configMap = Object.fromEntries(configs.map(c => [c.shift_type, c]));
+  shifts.forEach(shift => {
+    const hours = configMap[shift.shift_type]?.duration_hours || (shift.shift_type === 'office' ? 8 : 12);
+    const key = String(shift.user_id);
+    const existing = hoursByUser.get(key) || {
+      id: key,
+      name: shift.user?.display_name || users.find(u => String(u.id) === key)?.display_name || '—',
+      color: shift.user?.name_color || users.find(u => String(u.id) === key)?.name_color || 'var(--accent)',
+      hours: 0,
+    };
+    existing.hours += hours;
+    hoursByUser.set(key, existing);
+  });
+  const rows = [...hoursByUser.values()].sort((a, b) => b.hours - a.hours);
+
+  return (
+    <Card
+      accent="var(--accent)"
+      header={<><Icon name="clock" size={18} color="var(--accent)" /><h2 style={{ margin: 0, fontSize: 22 }}>{tr('scheduleCoverageThisWeek')}</h2></>}
+    >
+      {rows.length === 0 ? (
+        <EmptyState title={tr('scheduleNoCoverage')} />
+      ) : (
+        <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {rows.map(row => {
+            const pct = Math.min(100, (row.hours / 40) * 100);
+            return (
+              <div key={row.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(140px, 220px) 1fr auto', gap: 14, alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                  <span style={{ width: 28, height: 28, borderRadius: 'var(--radius-sm)', background: row.color, color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
+                    {row.name.split(/\s+/).map(s => s[0]).slice(0, 2).join('').toUpperCase()}
+                  </span>
+                  <strong style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.name}</strong>
+                </div>
+                <div style={{ height: 7, borderRadius: 999, background: 'var(--surface-sunken)', overflow: 'hidden' }}>
+                  <div style={{ width: `${pct}%`, height: '100%', background: row.color, borderRadius: 999 }} />
+                </div>
+                <div style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: 13 }}>{row.hours}/40h</div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function TimeOffPanel({ timeOff, locale, tr, onRequest, onSelect }) {
+  const items = [...timeOff].sort((a, b) => String(a.start_date).localeCompare(String(b.start_date))).slice(0, 6);
+  return (
+    <Card
+      accent="var(--accent)"
+      header={<><Icon name="calendar" size={18} color="var(--accent)" /><h2 style={{ margin: 0, fontSize: 22 }}>{tr('scheduleTimeOffPanel')}</h2><span style={{ flex: 1 }} /><Button size="sm" variant="ghost" icon="plus" onClick={onRequest}>{tr('scheduleRequest')}</Button></>}
+    >
+      {items.length === 0 ? (
+        <EmptyState title={tr('scheduleNoTimeOff')} />
+      ) : (
+        <div>
+          {items.map(item => {
+            const label = item.off_type === 'vacation' ? tr('vacation') : item.off_type === 'sick_leave' ? tr('sickLeave') : tr('dayOff');
+            const range = item.start_date === item.end_date
+              ? new Date(`${item.start_date}T00:00:00`).toLocaleDateString(locale, { month: 'short', day: 'numeric' })
+              : `${new Date(`${item.start_date}T00:00:00`).toLocaleDateString(locale, { month: 'short', day: 'numeric' })} – ${new Date(`${item.end_date}T00:00:00`).toLocaleDateString(locale, { month: 'short', day: 'numeric' })}`;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => onSelect(item)}
+                style={{
+                  width: '100%',
+                  border: 'none',
+                  borderBottom: '1px solid var(--border-light)',
+                  background: 'transparent',
+                  color: 'var(--text)',
+                  padding: '14px 18px',
+                  display: 'grid',
+                  gridTemplateColumns: 'minmax(0, 1fr) auto',
+                  gap: 12,
+                  textAlign: 'left',
+                  cursor: 'pointer',
+                }}
+              >
+                <span style={{ minWidth: 0 }}>
+                  <strong style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.user?.display_name || '—'} — {label}</strong>
+                  <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{range}</span>
+                </span>
+                <Badge color={statusColor(item.status)} dot>{item.status}</Badge>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </Card>
   );
 }
 
