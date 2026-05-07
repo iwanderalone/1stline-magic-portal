@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { api, getPublicConfig } from '../api';
-import { useTheme } from '../components/ThemeContext';
 import { Card, Button, Input, Badge, Toast, Select } from '../components/UI';
 import { useLang } from '../components/LangContext';
 
@@ -11,7 +10,6 @@ const TIMEZONES = [
 ];
 
 export default function ProfilePage({ user, onUserUpdate }) {
-  const { theme: t } = useTheme();
   const { t: tr } = useLang();
   const [profile, setProfile] = useState(null);
   const [loadError, setLoadError] = useState(false);
@@ -104,8 +102,8 @@ export default function ProfilePage({ user, onUserUpdate }) {
     finally { setOtpLoading(false); }
   };
 
-  if (loadError) return <div style={{ padding: '48px', textAlign: 'center', color: t.danger }}>{tr('failedToLoad')}</div>;
-  if (!profile) return <div style={{ padding: '48px', textAlign: 'center', color: t.textMuted }}>{tr('loading')}</div>;
+  if (loadError) return <div style={{ padding: '48px', textAlign: 'center', color: 'var(--danger)' }}>{tr('failedToLoad')}</div>;
+  if (!profile) return <div style={{ padding: '48px', textAlign: 'center', color: 'var(--text-muted)' }}>{tr('loading')}</div>;
 
   // Show user's current local time as preview
   const localTimePreview = () => {
@@ -116,7 +114,13 @@ export default function ProfilePage({ user, onUserUpdate }) {
 
   return (
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px', maxWidth: '600px' }}>
-      <h2 style={{ fontSize: '20px', fontWeight: 700 }}>{tr('myProfile')}</h2>
+      <h1 style={{
+        fontFamily: 'var(--font-display)',
+        fontWeight: 600,
+        fontSize: 30,
+        letterSpacing: '-0.02em',
+        margin: 0,
+      }}>{tr('myProfile')}</h1>
 
       {/* Identity */}
       <Card style={{ padding: '24px' }}>
@@ -131,7 +135,7 @@ export default function ProfilePage({ user, onUserUpdate }) {
           }}>{!profile.avatar_url && (profile.display_name?.[0] ?? '?')}</div>
           <div>
             <div style={{ fontWeight: 600, fontSize: '16px' }}>{profile.display_name}</div>
-            <div style={{ fontSize: '13px', color: t.textMuted }}>@{profile.username} · {profile.role}</div>
+            <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>@{profile.username} · {profile.role}</div>
           </div>
         </div>
 
@@ -141,15 +145,15 @@ export default function ProfilePage({ user, onUserUpdate }) {
 
           <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-              <label style={{ fontSize: '13px', fontWeight: 500, color: t.textSecondary }}>Name color</label>
+              <label style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-secondary)' }}>Name color</label>
               <input type="color" value={profile.name_color}
                 onChange={e => setProfile(p => ({ ...p, name_color: e.target.value }))}
-                style={{ width: '48px', height: '36px', border: `1px solid ${t.border}`, borderRadius: t.radiusSm, cursor: 'pointer' }} />
+                style={{ width: '48px', height: '36px', border: `1px solid var(--border)`, borderRadius: 'var(--radius-sm)', cursor: 'pointer' }} />
             </div>
             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
               {['#2563eb','#dc2626','#059669','#d97706','#7c3aed','#ec4899','#06b6d4','#84cc16'].map(c => (
                 <button key={c} onClick={() => setProfile(p => ({ ...p, name_color: c }))}
-                  style={{ width: '28px', height: '28px', borderRadius: '6px', background: c, border: profile.name_color === c ? '2px solid ' + t.text : '2px solid transparent', cursor: 'pointer' }} />
+                  style={{ width: '28px', height: '28px', borderRadius: '6px', background: c, border: profile.name_color === c ? '2px solid var(--text)' : '2px solid transparent', cursor: 'pointer' }} />
               ))}
             </div>
           </div>
@@ -167,14 +171,14 @@ export default function ProfilePage({ user, onUserUpdate }) {
       {/* Timezone */}
       <Card style={{ padding: '24px' }}>
         <h3 style={{ fontSize: '15px', fontWeight: 600, marginBottom: '4px' }}>{tr('timezone')}</h3>
-        <p style={{ fontSize: '13px', color: t.textMuted, marginBottom: '16px' }}>{tr('timezoneDesc')}</p>
+        <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '16px' }}>{tr('timezoneDesc')}</p>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           <Select label={tr('yourTimezone')} value={profile.timezone || 'Europe/Moscow'}
             onChange={e => setProfile(p => ({ ...p, timezone: e.target.value }))}>
             {TIMEZONES.map(tz => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
           </Select>
 
-          <div style={{ fontSize: '13px', color: t.textSecondary, padding: '10px 14px', background: t.surfaceAlt, borderRadius: t.radiusSm }}>
+          <div style={{ fontSize: '13px', color: 'var(--text-secondary)', padding: '10px 14px', background: 'var(--surface-alt)', borderRadius: 'var(--radius-sm)' }}>
             {tr('currentLocalTime')}: <strong>{localTimePreview()}</strong>
           </div>
 
@@ -191,7 +195,7 @@ export default function ProfilePage({ user, onUserUpdate }) {
             <Badge color={profile.telegram_chat_id ? 'green' : 'yellow'}>
               {profile.telegram_chat_id ? tr('linked') : tr('notLinked')}
             </Badge>
-            {profile.telegram_username && <span style={{ fontSize: '13px', color: t.textSecondary }}>@{profile.telegram_username}</span>}
+            {profile.telegram_username && <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>@{profile.telegram_username}</span>}
             {profile.telegram_chat_id && (
               <Button size="sm" variant="danger" onClick={async () => {
                 try {
@@ -232,9 +236,9 @@ export default function ProfilePage({ user, onUserUpdate }) {
             })}>{tr('saveTelegramSettings')}</Button>
 
           {!profile.telegram_chat_id && (
-            <div style={{ padding: '14px', background: t.surfaceAlt, borderRadius: t.radiusSm, display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <div style={{ padding: '14px', background: 'var(--surface-alt)', borderRadius: 'var(--radius-sm)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
               <div style={{ fontSize: '13px', fontWeight: 600 }}>Link your Telegram account</div>
-              <div style={{ fontSize: '13px', color: t.textSecondary }}>
+              <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
                 1. Click <strong>Get link code</strong> — the command is copied to your clipboard.<br />
                 2. Open the bot and paste the command.
               </div>
@@ -244,7 +248,7 @@ export default function ProfilePage({ user, onUserUpdate }) {
                 </Button>
                 {botUsername && (
                   <a href={`https://t.me/${botUsername}`} target="_blank" rel="noreferrer"
-                    style={{ fontSize: '13px', color: t.accent, textDecoration: 'none' }}>
+                    style={{ fontSize: '13px', color: 'var(--accent)', textDecoration: 'none' }}>
                     Open @{botUsername} →
                   </a>
                 )}
@@ -257,7 +261,7 @@ export default function ProfilePage({ user, onUserUpdate }) {
       {/* OTP / 2FA */}
       <Card style={{ padding: '24px' }}>
         <h3 style={{ fontSize: '15px', fontWeight: 600, marginBottom: '4px' }}>{tr('twoFactor')}</h3>
-        <p style={{ fontSize: '13px', color: t.textMuted, marginBottom: '16px' }}>{tr('twoFactorDesc')}</p>
+        <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '16px' }}>{tr('twoFactorDesc')}</p>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
           <Badge color={profile.otp_enabled ? 'green' : 'gray'}>
@@ -271,14 +275,14 @@ export default function ProfilePage({ user, onUserUpdate }) {
 
         {otpSetup && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-            <p style={{ fontSize: '13px', color: t.textSecondary }}>{tr('otpScanQr')}</p>
+            <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{tr('otpScanQr')}</p>
             <img src={`data:image/svg+xml;base64,${otpSetup.qr_svg_base64}`} alt="QR Code"
-              style={{ width: '180px', height: '180px', borderRadius: t.radiusSm, border: `1px solid ${t.border}` }} />
-            <div style={{ fontSize: '12px', color: t.textMuted, padding: '8px 12px', background: t.surfaceAlt, borderRadius: t.radiusSm, fontFamily: t.fontMono }}>
+              style={{ width: '180px', height: '180px', borderRadius: 'var(--radius-sm)', border: `1px solid var(--border)` }} />
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)', padding: '8px 12px', background: 'var(--surface-alt)', borderRadius: 'var(--radius-sm)', fontFamily: 'var(--font-mono)' }}>
               {tr('otpManualKey')}: {otpSetup.secret}
             </div>
             <Input label={tr('otpEnterCode')} value={otpCode} onChange={e => setOtpCode(e.target.value)}
-              maxLength={6} placeholder="000000" style={{ textAlign: 'center', fontSize: '20px', fontFamily: t.fontMono, letterSpacing: '6px' }} />
+              maxLength={6} placeholder="000000" style={{ textAlign: 'center', fontSize: '20px', fontFamily: 'var(--font-mono)', letterSpacing: '6px' }} />
             <div style={{ display: 'flex', gap: '8px' }}>
               <Button onClick={confirmOtp} disabled={otpLoading || otpCode.length !== 6}>{tr('otpConfirm')}</Button>
               <Button variant="secondary" onClick={() => { setOtpSetup(null); setOtpCode(''); }}>{tr('cancel')}</Button>
@@ -292,9 +296,9 @@ export default function ProfilePage({ user, onUserUpdate }) {
 
         {profile.otp_enabled && showDisableForm && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <p style={{ fontSize: '13px', color: t.textSecondary }}>{tr('otpDisableDesc')}</p>
+            <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{tr('otpDisableDesc')}</p>
             <Input label={tr('otpEnterCode')} value={otpDisableCode} onChange={e => setOtpDisableCode(e.target.value)}
-              maxLength={6} placeholder="000000" style={{ textAlign: 'center', fontSize: '20px', fontFamily: t.fontMono, letterSpacing: '6px' }} />
+              maxLength={6} placeholder="000000" style={{ textAlign: 'center', fontSize: '20px', fontFamily: 'var(--font-mono)', letterSpacing: '6px' }} />
             <div style={{ display: 'flex', gap: '8px' }}>
               <Button variant="danger" onClick={disableOtp} disabled={otpLoading || otpDisableCode.length !== 6}>{tr('otpDisable')}</Button>
               <Button variant="secondary" onClick={() => { setShowDisableForm(false); setOtpDisableCode(''); }}>{tr('cancel')}</Button>

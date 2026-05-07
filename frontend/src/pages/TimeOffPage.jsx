@@ -1,11 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '../api';
-import { useTheme } from '../components/ThemeContext';
 import { useLang } from '../components/LangContext';
 import { Card, Button, Badge, Input, Select, Overlay, Toast, EmptyState } from '../components/UI';
 
 export default function TimeOffPage({ user }) {
-  const { theme: t } = useTheme();
   const { t: tr } = useLang();
   const isAdmin = user?.role === 'admin';
 
@@ -55,7 +53,7 @@ export default function TimeOffPage({ user }) {
   };
 
   const offTypeEmoji = { vacation: '🏖️', sick_leave: '🤒', day_off: '🌿' };
-  const statusColors = { approved: 'green', rejected: 'red', pending: 'yellow' };
+  const statusColor = { pending: 'yellow', approved: 'green', rejected: 'red' };
 
   return (
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -63,8 +61,14 @@ export default function TimeOffPage({ user }) {
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
         <div>
-          <h2 style={{ fontSize: '20px', fontWeight: 700 }}>{tr('timeOffRequests')}</h2>
-          <p style={{ fontSize: '13px', color: t.textMuted, marginTop: '2px' }}>{tr('timeOffDesc')}</p>
+          <h1 style={{
+            fontFamily: 'var(--font-display)',
+            fontWeight: 600,
+            fontSize: 30,
+            letterSpacing: '-0.02em',
+            margin: 0,
+          }}>{tr('timeOffRequests')}</h1>
+          <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '2px' }}>{tr('timeOffDesc')}</p>
         </div>
         <Button
           onClick={() => setShowForm(true)}
@@ -76,7 +80,7 @@ export default function TimeOffPage({ user }) {
 
       <Card style={{ padding: '4px' }}>
         {loading ? (
-          <div style={{ padding: '48px', textAlign: 'center', color: t.textMuted }}>{tr('loading')}</div>
+          <div style={{ padding: '48px', textAlign: 'center', color: 'var(--text-muted)' }}>{tr('loading')}</div>
         ) : requests.length === 0 ? (
           <EmptyState icon="🌴" title={tr('noRequests')} subtitle={tr('noRequestsDesc')} />
         ) : (
@@ -85,21 +89,23 @@ export default function TimeOffPage({ user }) {
               <div key={r.id} style={{
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                 padding: '14px 18px', gap: '12px', flexWrap: 'wrap',
-                borderBottom: i < requests.length - 1 ? `1px solid ${t.borderLight}` : 'none',
+                borderBottom: i < requests.length - 1 ? `1px solid var(--border-light)` : 'none',
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
                   <span style={{ fontSize: '24px' }}>{offTypeEmoji[r.off_type] || '🏖️'}</span>
                   <div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                       {isAdmin && <span style={{ fontWeight: 600, fontSize: '14px' }}>{r.user?.display_name || '—'}</span>}
-                      <span style={{ fontSize: '13px', color: t.textSecondary }}>{r.start_date} → {r.end_date}</span>
+                      <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{r.start_date} → {r.end_date}</span>
                       <Badge color={r.off_type === 'vacation' ? 'blue' : r.off_type === 'sick_leave' ? 'red' : 'gray'}>
                         {r.off_type.replace('_', ' ')}
                       </Badge>
-                      <Badge color={statusColors[r.status] || 'gray'}>{r.status}</Badge>
+                      <Badge color={statusColor[r.status] || 'gray'} dot>
+                        {r.status}
+                      </Badge>
                     </div>
-                    {r.comment && <div style={{ fontSize: '12px', color: t.textMuted, marginTop: '3px' }}>💬 {r.comment}</div>}
-                    {r.admin_comment && <div style={{ fontSize: '12px', color: t.textMuted, marginTop: '3px' }}>Admin: {r.admin_comment}</div>}
+                    {r.comment && <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '3px' }}>💬 {r.comment}</div>}
+                    {r.admin_comment && <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '3px' }}>Admin: {r.admin_comment}</div>}
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
