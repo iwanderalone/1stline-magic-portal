@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
+import { useLang } from '../components/LangContext';
 import { Avatar, Badge, Button, Card, EmptyState, Tag } from '../components/UI';
 import { Icon } from '../components/Icons';
 
@@ -18,8 +19,14 @@ function localNow(timezone) {
   }
 }
 
-function greetingFor(date) {
+function greetingFor(date, lang) {
   const hour = date.getHours();
+  if (lang === 'ru') {
+    if (hour < 5) return 'Доброй ночи';
+    if (hour < 12) return 'Доброе утро';
+    if (hour < 18) return 'Добрый день';
+    return 'Добрый вечер';
+  }
   if (hour < 5) return 'Good night';
   if (hour < 12) return 'Good morning';
   if (hour < 18) return 'Good afternoon';
@@ -40,6 +47,10 @@ function fmtSince(dt) {
   if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
   if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
   return `${Math.floor(diff / 86400)}d ago`;
+}
+
+function plural(count, one, many) {
+  return count === 1 ? one : many;
 }
 
 function shiftStartMs(shift) {
@@ -103,6 +114,7 @@ function PlaceholderPanel({ title, description, icon }) {
 }
 
 export default function HomePage({ user, unread = 0, onNavigate }) {
+  const { lang, t: tr } = useLang();
   const [now, setNow] = useState(() => new Date());
   const [loading, setLoading] = useState(true);
   const [emails, setEmails] = useState([]);
@@ -144,7 +156,8 @@ export default function HomePage({ user, unread = 0, onNavigate }) {
   }, []);
 
   const userNow = useMemo(() => localNow(user?.timezone), [now, user?.timezone]);
-  const todayLabel = userNow.toLocaleDateString('en-GB', {
+  const locale = lang === 'ru' ? 'ru-RU' : 'en-GB';
+  const todayLabel = userNow.toLocaleDateString(locale, {
     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
   });
 
@@ -167,13 +180,16 @@ export default function HomePage({ user, unread = 0, onNavigate }) {
       .sort((a, b) => shiftStartMs(a) - shiftStartMs(b))[0] || null;
   }, [shifts]);
 
-  const nextEngineer = nextShift?.user?.display_name || (nextShift ? 'Assigned engineer' : 'No upcoming shift');
-  const greetingPrefix = greetingFor(userNow);
-  const displayName = user?.display_name || user?.username || 'engineer';
+  const nextEngineer = nextShift?.user?.display_name || (nextShift ? tr('homeAssignedEngineer') : tr('homeNoUpcomingShift'));
+  const greetingPrefix = greetingFor(userNow, lang);
+  const displayName = user?.display_name || user?.username || tr('homeEngineerFallback');
 
   const shiftDetail = currentShift
-    ? `${currentShift.shift_type} shift${currentShift.start_time ? ` · ${fmtTime(currentShift.start_time)}-${fmtTime(currentShift.end_time)}` : ''}`
-    : 'No active shift found for you today';
+    ? `${tr(`shift_${currentShift.shift_type}`)}${currentShift.start_time ? ` · ${fmtTime(currentShift.start_time)}-${fmtTime(currentShift.end_time)}` : ''}`
+    : tr('homeNoActiveShift');
+  const mailAttention = unresolvedEmails.length > 0
+    ? `${unresolvedEmails.length} ${plural(unresolvedEmails.length, tr('homeMailItem'), tr('homeMailItems'))} ${tr('homeNeedAttention')}`
+    : tr('homeNoMailItems');
 
   return (
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
@@ -195,22 +211,20 @@ export default function HomePage({ user, unread = 0, onNavigate }) {
             <span style={{ color: 'var(--accent)' }}>{displayName}</span>.
           </h1>
           <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: 17, lineHeight: 1.45 }}>
-            {shiftDetail}. {unresolvedEmails.length > 0
-              ? `${unresolvedEmails.length} mail item${unresolvedEmails.length === 1 ? '' : 's'} need attention.`
-              : 'No unresolved mail items in the latest queue.'}
+            {shiftDetail}. {mailAttention}
           </p>
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          <Button icon="calendar" onClick={() => onNavigate?.('schedule')}>My shifts</Button>
-          <Button variant="primary" icon="mail" onClick={() => onNavigate?.('mail')}>Open mail</Button>
+          <Button icon="calendar" onClick={() => onNavigate?.('schedule')}>{tr('homeMyShifts')}</Button>
+          <Button variant="primary" icon="mail" onClick={() => onNavigate?.('mail')}>{tr('homeOpenMail')}</Button>
         </div>
       </section>
 
       <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 14 }}>
-        <MetricCard label="Mail queue" value={unresolvedEmails.length} detail={`${uncheckedEmails} unchecked · ${blockedEmails} blocked`} icon="mail" color="var(--accent)" />
-        <MetricCard label="Active reminders" value={reminders.length} detail={reminders[0] ? `Next: ${reminders[0].title}` : 'Nothing scheduled'} icon="bell" color="var(--warning)" />
-        <MetricCard label="Unread notices" value={unread} detail={unread > 0 ? 'Check notification panel' : 'All clear'} icon="message" color="var(--success)" />
-        <MetricCard label="Next engineer" value={nextShift ? nextEngineer.split(' ')[0] : '—'} detail={nextShift ? `${nextShift.date} · ${fmtTime(nextShift.start_time) || nextShift.shift_type}` : 'No shift in next 5 days'} icon="user" color="var(--accent)" />
+        <MetricCard label={tr('homeMailQueue')} value={unresolvedEmails.length} detail={`${uncheckedEmails} ${tr('homeUnchecked')} · ${blockedEmails} ${tr('homeBlocked')}`} icon="mail" color="var(--accent)" />
+        <MetricCard label={tr('homeActiveReminders')} value={reminders.length} detail={reminders[0] ? `${tr('homeNext')}: ${reminders[0].title}` : tr('homeNothingScheduled')} icon="bell" color="var(--warning)" />
+        <MetricCard label={tr('homeUnreadNotices')} value={unread} detail={unread > 0 ? tr('homeCheckNotifications') : tr('homeAllClear')} icon="message" color="var(--success)" />
+        <MetricCard label={tr('homeNextEngineer')} value={nextShift ? nextEngineer.split(' ')[0] : '—'} detail={nextShift ? `${nextShift.date} · ${fmtTime(nextShift.start_time) || tr(`shift_${nextShift.shift_type}`)}` : tr('homeNoShiftNextDays')} icon="user" color="var(--accent)" />
       </section>
 
       <section style={{
@@ -220,12 +234,12 @@ export default function HomePage({ user, unread = 0, onNavigate }) {
       }}>
         <Card
           accent="var(--accent)"
-          header={<><Icon name="mail" size={18} color="var(--accent)" /><h2 style={{ margin: 0, fontSize: 22 }}>Operational mail</h2><span style={{ flex: 1 }} /><Button size="sm" variant="ghost" iconRight="arrowRight" onClick={() => onNavigate?.('mail')}>Open</Button></>}
+          header={<><Icon name="mail" size={18} color="var(--accent)" /><h2 style={{ margin: 0, fontSize: 22 }}>{tr('homeOperationalMail')}</h2><span style={{ flex: 1 }} /><Button size="sm" variant="ghost" iconRight="arrowRight" onClick={() => onNavigate?.('mail')}>{tr('open')}</Button></>}
         >
           {loading ? (
-            <div style={{ padding: 34, color: 'var(--text-muted)' }}>Loading operational queue…</div>
+            <div style={{ padding: 34, color: 'var(--text-muted)' }}>{tr('homeLoadingQueue')}</div>
           ) : unresolvedEmails.length === 0 ? (
-            <EmptyState title="Mail queue is clear" subtitle="Latest synced emails do not need triage." />
+            <EmptyState title={tr('homeMailClear')} subtitle={tr('homeMailClearDesc')} />
           ) : (
             <div>
               {unresolvedEmails.slice(0, 5).map(email => (
@@ -256,11 +270,11 @@ export default function HomePage({ user, unread = 0, onNavigate }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <Card
             accent="var(--success)"
-            header={<><Icon name="calendar" size={18} color="var(--success)" /><h2 style={{ margin: 0, fontSize: 22 }}>Shift context</h2></>}
+            header={<><Icon name="calendar" size={18} color="var(--success)" /><h2 style={{ margin: 0, fontSize: 22 }}>{tr('homeShiftContext')}</h2></>}
           >
             <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 16 }}>
               <div>
-                <div className="t-eyebrow">You</div>
+                <div className="t-eyebrow">{tr('homeYou')}</div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
                   <Avatar name={user?.display_name || user?.username} color={user?.name_color} />
                   <div>
@@ -271,25 +285,25 @@ export default function HomePage({ user, unread = 0, onNavigate }) {
               </div>
               <div style={{ height: 1, background: 'var(--border-light)' }} />
               <div>
-                <div className="t-eyebrow">Next engineer</div>
+                <div className="t-eyebrow">{tr('homeNextEngineer')}</div>
                 {nextShift ? (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
                     <Avatar name={nextShift.user?.display_name || nextEngineer} color={nextShift.user?.name_color || 'var(--accent)'} />
                     <div>
                       <div style={{ fontWeight: 700 }}>{nextEngineer}</div>
-                      <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>{nextShift.date} · {nextShift.shift_type} {fmtTime(nextShift.start_time)}</div>
+                      <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>{nextShift.date} · {tr(`shift_${nextShift.shift_type}`)} {fmtTime(nextShift.start_time)}</div>
                     </div>
                   </div>
                 ) : (
-                  <p style={{ margin: '8px 0 0', color: 'var(--text-muted)', fontSize: 13 }}>No upcoming shift found in the next few days.</p>
+                  <p style={{ margin: '8px 0 0', color: 'var(--text-muted)', fontSize: 13 }}>{tr('homeNoShiftNextDays')}</p>
                 )}
               </div>
             </div>
           </Card>
 
-          <PlaceholderPanel title="Incidents:" icon="flame" description="Grafana alert webhook integration will surface active incidents here." />
-          <PlaceholderPanel title="Tickets:" icon="ticket" description="Zammad sync will show active ticket load, SLA risk, and Telegram-linked cases." />
-          <PlaceholderPanel title="Runbooks:" icon="bookmark" description="Runbook recommendations will appear here once the knowledge module is connected." />
+          <PlaceholderPanel title={tr('homeIncidents')} icon="flame" description={tr('homeIncidentsDesc')} />
+          <PlaceholderPanel title={tr('homeTickets')} icon="ticket" description={tr('homeTicketsDesc')} />
+          <PlaceholderPanel title={tr('homeRunbooks')} icon="bookmark" description={tr('homeRunbooksDesc')} />
         </div>
       </section>
 
