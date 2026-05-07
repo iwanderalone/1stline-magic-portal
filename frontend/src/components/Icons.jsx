@@ -67,6 +67,154 @@ const PATHS = {
   message: (
     <path d="M2 3h14a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H5l-3 2V4a1 1 0 0 1 1-1z" />
   ),
+  workspace: (
+    <>
+      <rect x="2" y="2" width="6" height="6" rx="1" />
+      <rect x="10" y="2" width="6" height="6" rx="1" />
+      <rect x="2" y="10" width="6" height="6" rx="1" />
+      <rect x="10" y="10" width="6" height="6" rx="1" />
+    </>
+  ),
+  grid: (
+    <>
+      <rect x="2" y="2" width="6" height="6" rx="1" />
+      <rect x="10" y="2" width="6" height="6" rx="1" />
+      <rect x="2" y="10" width="6" height="6" rx="1" />
+      <rect x="10" y="10" width="6" height="6" rx="1" />
+    </>
+  ),
+  ticket: (
+    <>
+      <path d="M2 6a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-2a2 2 0 0 0 0-4V6z" />
+    </>
+  ),
+  zap: (
+    <path d="M13 2L4.5 9.5H9l-2 6.5L16 8h-4.5L13 2z" strokeLinejoin="round" />
+  ),
+  flame: (
+    <path d="M9 2c0 3-3 4-3 7a3 3 0 0 0 6 0c0-1-.5-2-1-2.5.5 1.5-1 2-1 2C10 6 12 4 9 2z" strokeLinejoin="round" />
+  ),
+  hash: (
+    <path d="M4 8h10M4 12h10M7 4l-1 10M11 4l-1 10" strokeLinecap="round" />
+  ),
+  send: (
+    <path d="M2 9l14-7-7 14-2-5-5-2z" strokeLinejoin="round" strokeLinecap="round" />
+  ),
+  refresh: (
+    <>
+      <path d="M3 12a6 6 0 0 1 10.4-4" strokeLinecap="round" />
+      <path d="M13 8l1-4-4 1" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M15 6a6 6 0 0 1-10.4 4" strokeLinecap="round" />
+      <path d="M5 10l-1 4 4-1" strokeLinecap="round" strokeLinejoin="round" />
+    </>
+  ),
+  checkCircle: (
+    <>
+      <circle cx="9" cy="9" r="7" />
+      <path d="M6 9l2 2 4-4" strokeLinecap="round" strokeLinejoin="round" />
+    </>
+  ),
+  alertTriangle: (
+    <>
+      <path d="M9 2L1.5 15.5h15L9 2z" strokeLinejoin="round" />
+      <path d="M9 7v4M9 13.5h.01" strokeLinecap="round" />
+    </>
+  ),
+  clock: (
+    <>
+      <circle cx="9" cy="9" r="7" />
+      <path d="M9 5v4l2.5 2.5" strokeLinecap="round" strokeLinejoin="round" />
+    </>
+  ),
+  arrowRight: (
+    <path d="M3 9h12M11 5l4 4-4 4" strokeLinecap="round" strokeLinejoin="round" />
+  ),
+  arrowUpDown: (
+    <path d="M5 7l3-3 3 3M5 11l3 3 3-3M8 4v10" strokeLinecap="round" strokeLinejoin="round" />
+  ),
+  moreHorizontal: (
+    <>
+      <circle cx="4"  cy="9" r="1.2" fill="currentColor" stroke="none" />
+      <circle cx="9"  cy="9" r="1.2" fill="currentColor" stroke="none" />
+      <circle cx="14" cy="9" r="1.2" fill="currentColor" stroke="none" />
+    </>
+  ),
+  bookmark: (
+    <path d="M4 2h10a1 1 0 0 1 1 1v13l-6-3.5L4 16V3a1 1 0 0 1 0-1z" strokeLinejoin="round" />
+  ),
+  externalLink: (
+    <>
+      <path d="M10 3H3v12h12V8" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M8 10L15 3M11 3h4v4" strokeLinecap="round" strokeLinejoin="round" />
+    </>
+  ),
+  paperclip: (
+    <path d="M14 8l-6 6a3 3 0 0 1-4-4l7-7a2 2 0 0 1 3 3l-7 7a1 1 0 0 1-1-1l6-6" strokeLinecap="round" strokeLinejoin="round" />
+  ),
+  thumbsUp: (
+    <>
+      <path d="M7 10V17H4a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1h3z" />
+      <path d="M7 10l3-7a2 2 0 0 1 2 2V8h3a1 1 0 0 1 1 1.09l-.84 5.6A1 1 0 0 1 14.18 15H7" strokeLinejoin="round" />
+    </>
+  ),
+  thumbsDown: (
+    <>
+      <path d="M11 8V1H14a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-3z" />
+      <path d="M11 8L8 15a2 2 0 0 1-2-2V10H3a1 1 0 0 1-1-1.09l.84-5.6A1 1 0 0 1 3.82 3H11" strokeLinejoin="round" />
+    </>
+  ),
+  play: (
+    <path d="M5 3l11 6-11 6V3z" strokeLinejoin="round" />
+  ),
+  copy: (
+    <>
+      <rect x="6" y="6" width="9" height="9" rx="1" />
+      <path d="M12 6V4a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h2" strokeLinecap="round" />
+    </>
+  ),
+  star: (
+    <path d="M9 2l1.9 5.8H17l-5 3.6 1.9 5.8L9 13.6l-4.9 3.6 1.9-5.8-5-3.6h6.1L9 2z" strokeLinejoin="round" />
+  ),
+  leaf: (
+    <path d="M2 14s2-8 10-10c0 4-2 8-8 10M2 14c2-1 4-2 6-3" strokeLinecap="round" strokeLinejoin="round" />
+  ),
+  shield: (
+    <path d="M9 2L3 5v5c0 4 2.7 7.3 6 8 3.3-.7 6-4 6-8V5L9 2z" strokeLinejoin="round" />
+  ),
+  siren: (
+    <>
+      <path d="M9 3a5 5 0 0 1 5 5v2H4V8a5 5 0 0 1 5-5z" />
+      <rect x="3" y="10" width="12" height="3" rx="1" />
+      <path d="M9 1V0M2.5 4.5L1.8 3.8M15.5 4.5l.7-.7" strokeLinecap="round" />
+    </>
+  ),
+  key: (
+    <>
+      <circle cx="6.5" cy="11.5" r="3.5" />
+      <path d="M10 8l7 7M15 8l2 2" strokeLinecap="round" strokeLinejoin="round" />
+    </>
+  ),
+  plus: (
+    <path d="M9 3v12M3 9h12" strokeLinecap="round" />
+  ),
+  x: (
+    <path d="M3 3l12 12M15 3L3 15" strokeLinecap="round" />
+  ),
+  check: (
+    <path d="M2.5 9l4 4 9-9" strokeLinecap="round" strokeLinejoin="round" />
+  ),
+  info: (
+    <>
+      <circle cx="9" cy="9" r="7" />
+      <path d="M9 8v4M9 6h.01" strokeLinecap="round" />
+    </>
+  ),
+  search: (
+    <>
+      <circle cx="8" cy="8" r="5.5" />
+      <path d="M13 13l3 3" strokeLinecap="round" />
+    </>
+  ),
 };
 
 export function Icon({ name, size = 18, color = 'currentColor', style }) {
