@@ -1,11 +1,9 @@
 import { useState } from 'react';
 import { setTokens } from '../api';
 import { Card, Button, Input } from '../components/UI';
-import { useTheme } from '../components/ThemeContext';
 import { useLang } from '../components/LangContext';
 
 export default function LoginPage({ onLogin }) {
-  const { theme: t } = useTheme();
   const { t: tr } = useLang();
   const [step, setStep] = useState('credentials');
   const [username, setUsername] = useState('');
@@ -44,14 +42,14 @@ export default function LoginPage({ onLogin }) {
   };
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: t.bg, padding: '20px' }}>
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', padding: '20px' }}>
       <Card className="fade-in" style={{ width: '100%', maxWidth: '400px', padding: '40px 32px' }}>
         <div style={{ textAlign: 'center', marginBottom: '32px' }}>
-          <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: t.accent, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', fontSize: '22px', color: '#fff' }}>⚡</div>
-          <h1 style={{ fontSize: '22px', fontWeight: 700 }}>Support Portal</h1>
-          <p style={{ color: t.textMuted, fontSize: '14px', marginTop: '6px' }}>{step === 'otp' ? tr('enterCode') : tr('signIn')}</p>
+          <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', fontSize: '22px', color: '#fff' }}>⚡</div>
+          <h1 style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 28, letterSpacing: '-0.02em', color: 'var(--text)', marginBottom: 6 }}>Support Portal</h1>
+          <p style={{ color: 'var(--text-muted)', fontSize: '14px', marginTop: '6px' }}>{step === 'otp' ? tr('enterCode') : tr('signIn')}</p>
         </div>
-        {error && <div style={{ background: t.dangerLight, color: t.danger, padding: '10px 14px', borderRadius: t.radiusSm, fontSize: '13px', marginBottom: '16px' }}>{error}</div>}
+        {error && <div style={{ background: 'var(--danger-light)', color: 'var(--danger)', padding: '10px 14px', borderRadius: 'var(--radius-sm)', fontSize: '13px', marginBottom: '16px' }}>{error}</div>}
         {step === 'credentials' ? (
           <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <Input label={tr('username')} value={username} onChange={e => setUsername(e.target.value)} autoFocus />
@@ -61,10 +59,10 @@ export default function LoginPage({ onLogin }) {
         ) : (
           <form onSubmit={handleOTP} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <Input label={tr('sixDigitCode')} value={otpCode} onChange={e => setOtpCode(e.target.value)} autoFocus maxLength={6} placeholder="000000"
-              style={{ textAlign: 'center', fontSize: '20px', fontFamily: t.fontMono, letterSpacing: '6px' }} />
+              style={{ textAlign: 'center', fontSize: '24px', fontFamily: 'var(--font-mono)', letterSpacing: '0.2em' }} />
             <Button style={{ width: '100%', padding: '11px' }} disabled={loading}>{loading ? tr('verifying') : tr('verify')}</Button>
             <button type="button" onClick={() => { setStep('credentials'); setError(''); }}
-              style={{ background: 'none', border: 'none', color: t.textMuted, cursor: 'pointer', fontSize: '13px' }}>{tr('back')}</button>
+              style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '13px' }}>{tr('back')}</button>
           </form>
         )}
       </Card>
