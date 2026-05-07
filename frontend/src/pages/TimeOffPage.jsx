@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { api } from '../api';
 import { useLang } from '../components/LangContext';
 import { Card, Button, Badge, Input, Select, Overlay, Toast, EmptyState } from '../components/UI';
+import { Icon } from '../components/Icons';
 
 export default function TimeOffPage({ user }) {
   const { t: tr } = useLang();
@@ -52,7 +53,7 @@ export default function TimeOffPage({ user }) {
     } catch (e) { setToast({ message: e.message, type: 'error' }); }
   };
 
-  const offTypeEmoji = { vacation: '🏖️', sick_leave: '🤒', day_off: '🌿' };
+  const offTypeIcon = { vacation: 'leaf', sick_leave: 'alertTriangle', day_off: 'leaf' };
   const statusColor = { pending: 'yellow', approved: 'green', rejected: 'red' };
 
   return (
@@ -74,7 +75,7 @@ export default function TimeOffPage({ user }) {
           onClick={() => setShowForm(true)}
           style={{ background: '#10b981', color: '#fff' }}
         >
-          🌴 {tr('requestTimeOff')}
+          {tr('requestTimeOff')}
         </Button>
       </div>
 
@@ -82,7 +83,7 @@ export default function TimeOffPage({ user }) {
         {loading ? (
           <div style={{ padding: '48px', textAlign: 'center', color: 'var(--text-muted)' }}>{tr('loading')}</div>
         ) : requests.length === 0 ? (
-          <EmptyState icon="🌴" title={tr('noRequests')} subtitle={tr('noRequestsDesc')} />
+          <EmptyState icon={<Icon name="leaf" size={32} />} title={tr('noRequests')} subtitle={tr('noRequestsDesc')} />
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             {requests.map((r, i) => (
@@ -92,7 +93,7 @@ export default function TimeOffPage({ user }) {
                 borderBottom: i < requests.length - 1 ? `1px solid var(--border-light)` : 'none',
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: '24px' }}>{offTypeEmoji[r.off_type] || '🏖️'}</span>
+                  <Icon name={offTypeIcon[r.off_type] || 'leaf'} size={13} />
                   <div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                       {isAdmin && <span style={{ fontWeight: 600, fontSize: '14px' }}>{r.user?.display_name || '—'}</span>}

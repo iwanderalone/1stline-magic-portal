@@ -126,9 +126,9 @@ function UsersTab() {
 }
 
 const ALL_SHIFT_TYPES = [
-  { value: 'day', label: '☀️ Day' },
-  { value: 'night', label: '🌙 Night' },
-  { value: 'office', label: '🏢 Office' },
+  { value: 'day', label: 'Day' },
+  { value: 'night', label: 'Night' },
+  { value: 'office', label: 'Office' },
 ];
 
 function CreateUserModal({ onClose, onCreate, groups }) {
@@ -534,7 +534,7 @@ function TelegramTab() {
   };
 
   const flags = ['notify_day_shift_start','notify_night_shift_start','notify_office_roster','notify_reminders','notify_general'];
-  const flagLabels = { notify_day_shift_start: '☀️ Day', notify_night_shift_start: '🌙 Night', notify_office_roster: '🏢 Office', notify_reminders: '🔔 Reminders', notify_general: '📢 General' };
+  const flagLabels = { notify_day_shift_start: 'Day', notify_night_shift_start: 'Night', notify_office_roster: 'Office', notify_reminders: 'Reminders', notify_general: 'General' };
 
   return (
     <>
