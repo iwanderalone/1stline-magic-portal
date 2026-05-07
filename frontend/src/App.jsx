@@ -4,7 +4,7 @@ import { getGlobalCSS } from './theme';
 import { useTheme } from './components/ThemeContext';
 import { useLang } from './components/LangContext';
 import { Icon } from './components/Icons';
-import { Button, Kbd } from './components/UI';
+import { Kbd } from './components/UI';
 import LoginPage from './pages/LoginPage';
 import SchedulePage from './pages/SchedulePage';
 import AdminPage from './pages/AdminPage';
@@ -40,6 +40,120 @@ const NAV_ICONS = {
   containers: 'server',
   admin:      'settings',
 };
+
+function TopBar({ isMobile, onMenu, mode, toggle, lang, toggleLang, unread, onNotif }) {
+  const [now, setNow] = useState(new Date());
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const fmt = (tz) => now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: tz });
+
+  return (
+    <header style={{
+      height: 48, flexShrink: 0,
+      padding: '0 20px',
+      borderBottom: '1px solid var(--border)',
+      background: 'var(--bg)',
+      display: 'flex',
+      alignItems: 'center',
+      gap: 10,
+      position: 'sticky',
+      top: 0,
+      zIndex: 100,
+    }}>
+      {/* Mobile hamburger */}
+      {isMobile && (
+        <button
+          onClick={onMenu}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text)', padding: 4, display: 'flex', alignItems: 'center' }}
+        >
+          <Icon name="menu" size={20} />
+        </button>
+      )}
+
+      {/* ⌘K command palette stub */}
+      <button style={{
+        display: 'flex', alignItems: 'center', gap: 8,
+        padding: '5px 10px',
+        background: 'var(--surface)',
+        border: '1px solid var(--border)',
+        borderRadius: 'var(--radius-sm)',
+        minWidth: isMobile ? 'auto' : 200, height: 30, cursor: 'pointer',
+        color: 'var(--text-muted)', fontSize: 12, fontFamily: 'inherit',
+      }}>
+        <Icon name="search" size={13} />
+        {!isMobile && <span style={{ flex: 1, textAlign: 'left' }}>Jump to page…</span>}
+        {!isMobile && <Kbd>⌘K</Kbd>}
+      </button>
+
+      <span style={{ flex: 1 }} />
+
+      {/* Multi-timezone clocks: BER / NYC / TYO */}
+      {!isMobile && (
+        <div style={{ display: 'flex', alignItems: 'center', fontFamily: 'var(--font-mono)', fontSize: 11.5 }}>
+          {[
+            ['BER', fmt('Europe/Berlin'),    true],
+            ['NYC', fmt('America/New_York'), false],
+            ['TYO', fmt('Asia/Tokyo'),       false],
+          ].map(([city, time, here], i) => (
+            <div key={city} style={{
+              padding: '3px 10px',
+              borderRight: i < 2 ? '1px solid var(--border-light)' : 'none',
+              color: here ? 'var(--text)' : 'var(--text-muted)',
+            }}>
+              <div style={{ fontSize: 9, letterSpacing: 0.1, color: 'var(--text-muted)', fontWeight: 700 }}>{city}</div>
+              <div>{time}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* EN / RU language pill */}
+      <div className="lang-pill-wrap">
+        {['en', 'ru'].map(l => (
+          <button
+            key={l}
+            onClick={() => l !== lang && toggleLang()}
+            className={`lang-pill${lang === l ? ' active' : ''}`}
+          >
+            {l.toUpperCase()}
+          </button>
+        ))}
+      </div>
+
+      {/* Theme toggle */}
+      <button
+        onClick={toggle}
+        title={mode === 'dark' ? 'Light mode' : 'Dark mode'}
+        className="btn btn-icon btn-sm"
+        style={{ width: 32, height: 32, padding: 0 }}
+      >
+        <Icon name={mode === 'dark' ? 'sun' : 'moon'} size={15} />
+      </button>
+
+      {/* Notification bell */}
+      <button
+        onClick={onNotif}
+        className="btn btn-icon btn-sm"
+        style={{ width: 32, height: 32, padding: 0, position: 'relative' }}
+        title="Notifications"
+      >
+        <Icon name="bell" size={15} />
+        {unread > 0 && (
+          <span style={{
+            position: 'absolute', top: -3, right: -3,
+            minWidth: 16, height: 16, borderRadius: 999,
+            background: 'var(--danger)', color: '#fff',
+            fontSize: 10, fontWeight: 700, fontFamily: 'var(--font-mono)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: '0 4px', border: '2px solid var(--bg)',
+          }}>{unread}</span>
+        )}
+      </button>
+    </header>
+  );
+}
 
 export default function App() {
   const { theme: t, mode, toggle } = useTheme();
@@ -253,120 +367,6 @@ export default function App() {
     </aside>
   );
 
-  function TopBar() {
-    const [now, setNow] = useState(new Date());
-    useEffect(() => {
-      const t = setInterval(() => setNow(new Date()), 1000);
-      return () => clearInterval(t);
-    }, []);
-    const fmt = (tz) => now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: tz });
-
-    return (
-      <header style={{
-        height: 48, flexShrink: 0,
-        padding: '0 20px',
-        borderBottom: '1px solid var(--border)',
-        background: 'var(--bg)',
-        display: 'flex',
-        alignItems: 'center',
-        gap: 10,
-        position: 'sticky',
-        top: 0,
-        zIndex: 100,
-      }}>
-        {/* Mobile hamburger */}
-        {isMobile && (
-          <button
-            onClick={() => setSidebarOpen(true)}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text)', padding: 4, display: 'flex', alignItems: 'center' }}
-          >
-            <Icon name="menu" size={20} />
-          </button>
-        )}
-
-        {/* ⌘K command palette stub */}
-        <button style={{
-          display: 'flex', alignItems: 'center', gap: 8,
-          padding: '5px 10px',
-          background: 'var(--surface)',
-          border: '1px solid var(--border)',
-          borderRadius: 'var(--radius-sm)',
-          minWidth: isMobile ? 'auto' : 200, height: 30, cursor: 'pointer',
-          color: 'var(--text-muted)', fontSize: 12, fontFamily: 'inherit',
-        }}>
-          <Icon name="search" size={13} />
-          {!isMobile && <span style={{ flex: 1, textAlign: 'left' }}>Jump to page…</span>}
-          {!isMobile && <Kbd>⌘K</Kbd>}
-        </button>
-
-        <span style={{ flex: 1 }} />
-
-        {/* Multi-timezone clocks: BER / NYC / TYO */}
-        {!isMobile && (
-          <div style={{ display: 'flex', alignItems: 'center', fontFamily: 'var(--font-mono)', fontSize: 11.5 }}>
-            {[
-              ['BER', fmt('Europe/Berlin'),    true],
-              ['NYC', fmt('America/New_York'), false],
-              ['TYO', fmt('Asia/Tokyo'),       false],
-            ].map(([city, time, here], i) => (
-              <div key={city} style={{
-                padding: '3px 10px',
-                borderRight: i < 2 ? '1px solid var(--border-light)' : 'none',
-                color: here ? 'var(--text)' : 'var(--text-muted)',
-              }}>
-                <div style={{ fontSize: 9, letterSpacing: 0.1, color: 'var(--text-muted)', fontWeight: 700 }}>{city}</div>
-                <div>{time}</div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* EN / RU language pill */}
-        <div className="lang-pill-wrap">
-          {['en', 'ru'].map(l => (
-            <button
-              key={l}
-              onClick={() => l !== lang && toggleLang()}
-              className={`lang-pill${lang === l ? ' active' : ''}`}
-            >
-              {l.toUpperCase()}
-            </button>
-          ))}
-        </div>
-
-        {/* Theme toggle */}
-        <button
-          onClick={toggle}
-          title={mode === 'dark' ? 'Light mode' : 'Dark mode'}
-          className="btn btn-icon btn-sm"
-          style={{ width: 32, height: 32, padding: 0 }}
-        >
-          <Icon name={mode === 'dark' ? 'sun' : 'moon'} size={15} />
-        </button>
-
-        {/* Notification bell */}
-        <button
-          onClick={() => setShowNotifs(v => !v)}
-          className="btn btn-icon btn-sm"
-          style={{ width: 32, height: 32, padding: 0, position: 'relative' }}
-          title="Notifications"
-        >
-          <Icon name="bell" size={15} />
-          {unread > 0 && (
-            <span style={{
-              position: 'absolute', top: -3, right: -3,
-              minWidth: 16, height: 16, borderRadius: 999,
-              background: 'var(--danger)', color: '#fff',
-              fontSize: 10, fontWeight: 700, fontFamily: 'var(--font-mono)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              padding: '0 4px', border: '2px solid var(--bg)',
-            }}>{unread}</span>
-          )}
-        </button>
-      </header>
-    );
-  }
-
   return (
     <>
       <style>{getGlobalCSS(t)}</style>
@@ -382,7 +382,16 @@ export default function App() {
         {sidebar}
 
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-          <TopBar />
+          <TopBar
+            isMobile={isMobile}
+            onMenu={() => setSidebarOpen(true)}
+            mode={mode}
+            toggle={toggle}
+            lang={lang}
+            toggleLang={toggleLang}
+            unread={unread}
+            onNotif={() => setShowNotifs(v => !v)}
+          />
 
           {/* Page content */}
           <main style={{ flex: 1, minWidth: 0 }}>

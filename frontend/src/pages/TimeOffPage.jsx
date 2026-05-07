@@ -73,7 +73,7 @@ export default function TimeOffPage({ user }) {
         </div>
         <Button
           onClick={() => setShowForm(true)}
-          style={{ background: '#10b981', color: '#fff' }}
+          style={{ background: 'var(--success)', color: '#fff' }}
         >
           {tr('requestTimeOff')}
         </Button>
@@ -112,7 +112,7 @@ export default function TimeOffPage({ user }) {
                 <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                   {isAdmin && r.status === 'pending' && (
                     <>
-                      <Button size="sm" onClick={() => handleReview(r.id, 'approved')} style={{ background: '#10b981', color: '#fff' }}>✓ Approve</Button>
+                      <Button size="sm" onClick={() => handleReview(r.id, 'approved')} style={{ background: 'var(--success)', color: '#fff' }}>✓ Approve</Button>
                       <Button size="sm" variant="danger" onClick={() => handleReview(r.id, 'rejected')}>✗ Reject</Button>
                     </>
                   )}
@@ -154,7 +154,7 @@ function TimeOffFormModal({ onClose, onSubmit }) {
         <Input label={tr('comment')} value={cm} onChange={e => setCm(e.target.value)} placeholder="Optional note" />
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
           <Button variant="secondary" onClick={onClose}>{tr('cancel')}</Button>
-          <Button onClick={() => onSubmit(sd, ed, ot, cm || null)} style={{ background: '#10b981', color: '#fff' }}>{tr('submit')}</Button>
+          <Button onClick={() => onSubmit(sd, ed, ot, cm || null)} style={{ background: 'var(--success)', color: '#fff' }}>{tr('submit')}</Button>
         </div>
       </div>
     </Overlay>
