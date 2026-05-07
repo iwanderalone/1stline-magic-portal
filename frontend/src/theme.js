@@ -3,7 +3,7 @@ export const lightTheme = {
   bg:               '#f8f9fa',
   surface:          '#ffffff',
   surfaceAlt:       '#f1f3f4',
-  surfaceElevated:  '#ffffff',
+  surfaceElevated:  '#fafafa',
   surfaceSunken:    '#e8eaed',
 
   // Borders
@@ -55,7 +55,7 @@ export const darkTheme = {
 
   border:           '#383f56',
   borderStrong:     '#4a5170',
-  borderLight:      '#2d3346',
+  borderLight:      '#323a52',
 
   text:             '#e8eaed',
   textSecondary:    '#9aa0a6',
@@ -95,9 +95,7 @@ export const shared = {
 
 export function getGlobalCSS(t) {
   return `
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-    @import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&display=swap');
-    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&display=swap');
 
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -171,6 +169,7 @@ export function getGlobalCSS(t) {
       line-height: 1.55;
       -webkit-font-smoothing: antialiased;
       -moz-osx-font-smoothing: grayscale;
+      transition: background 0.2s ease, color 0.2s ease;
     }
     input, button, select, textarea { font-family: inherit; }
     ::selection { background: var(--accent-light); color: var(--accent); }
@@ -310,7 +309,7 @@ export function getGlobalCSS(t) {
       outline: none;
       box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
     }
-    input:focus, select:focus, textarea:focus {
+    input:focus:not(:focus-visible), select:focus:not(:focus-visible), textarea:focus:not(:focus-visible) {
       outline: none;
       border-color: var(--accent) !important;
       box-shadow: 0 0 0 3px var(--accent-glow) !important;
