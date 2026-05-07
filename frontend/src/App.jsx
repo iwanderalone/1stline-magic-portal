@@ -175,15 +175,20 @@ export default function App() {
 
   const isAdmin = (u) => u?.role === 'admin';
   const PAGES = ['home', 'schedule', 'timeoff', 'profile', 'admin', 'mail', 'reminders', 'containers'];
+  const pageFromLocation = () => {
+    const rawHash = window.location.hash.replace(/^#\/?/, '');
+    const rawPath = window.location.pathname.replace(/^\/+|\/+$/g, '').split('/')[0];
+    const candidate = rawHash || rawPath;
+    return PAGES.includes(candidate) ? candidate : 'home';
+  };
 
   const [page, setPage] = useState(() => {
-    const hash = window.location.hash.slice(1);
-    if (!PAGES.includes(hash)) return 'home';
-    if (hash === 'admin') {
+    const initialPage = pageFromLocation();
+    if (initialPage === 'admin') {
       const tk = getTokens();
       if (tk?.user?.role !== 'admin') return 'home';
     }
-    return hash;
+    return initialPage;
   });
 
   const [showNotifs, setShowNotifs] = useState(false);
@@ -193,17 +198,36 @@ export default function App() {
   const navigate = (p) => {
     if ((p === 'admin' || p === 'containers') && !isAdmin(auth.user)) return;
     setPage(p);
-    window.location.hash = p;
+    window.history.pushState(null, '', `/#${p}`);
     setSidebarOpen(false);
   };
 
   useEffect(() => {
     if ((page === 'admin' || page === 'containers') && !isAdmin(auth.user)) {
       setPage('home');
-      window.location.hash = 'home';
+      window.history.replaceState(null, '', '/#home');
       setSidebarOpen(false);
     }
   }, [page, auth.user]);
+
+  useEffect(() => {
+    const syncRoute = () => {
+      const nextPage = pageFromLocation();
+      if ((nextPage === 'admin' || nextPage === 'containers') && !isAdmin(auth.user)) {
+        setPage('home');
+        window.history.replaceState(null, '', '/#home');
+        return;
+      }
+      setPage(nextPage);
+    };
+
+    window.addEventListener('hashchange', syncRoute);
+    window.addEventListener('popstate', syncRoute);
+    return () => {
+      window.removeEventListener('hashchange', syncRoute);
+      window.removeEventListener('popstate', syncRoute);
+    };
+  }, [auth.user]);
 
   useEffect(() => {
     if (bp !== 'mobile') setSidebarOpen(false);
