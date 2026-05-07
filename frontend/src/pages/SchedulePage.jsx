@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../api';
-import { useTheme } from '../components/ThemeContext';
 import { useLang } from '../components/LangContext';
 import { Card, Button, Input, Badge, EmptyState, Overlay, Toast, Tabs, Select } from '../components/UI';
+import { Icon } from '../components/Icons';
 
 const fmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const DAY_NAMES = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
@@ -27,7 +27,6 @@ function getMonthDates(offset) {
 }
 
 export default function SchedulePage({ user }) {
-  const { theme: t } = useTheme();
   const { t: tr, lang } = useLang();
   const [shifts, setShifts] = useState([]);
   const [configs, setConfigs] = useState([]);
@@ -140,7 +139,7 @@ export default function SchedulePage({ user }) {
     );
 
     const offTypeColors = { vacation: '#2563eb', sick_leave: '#dc2626', day_off: '#6b7280' };
-    const offTypeEmoji = { vacation: '🏖️', sick_leave: '🤒', day_off: '🌿' };
+    const offTypeIcon = { vacation: 'leaf', sick_leave: 'alertTriangle', day_off: 'leaf' };
 
     const offItems = dayOff.map(r => (
       <div key={`off-${r.id}`} onClick={() => setSelectedTimeOff(r)}
@@ -149,21 +148,20 @@ export default function SchedulePage({ user }) {
           background: `${offTypeColors[r.off_type] || '#6b7280'}15`,
           border: `1px solid ${offTypeColors[r.off_type] || '#6b7280'}40`,
           color: offTypeColors[r.off_type] || '#6b7280', lineHeight: 1.3,
-          cursor: 'pointer',
+          cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px',
         }}>
-        {offTypeEmoji[r.off_type] || '🏖️'} {compact ? (r.user?.display_name || '—').split(' ')[0] : (r.user?.display_name || '—')}
+        <Icon name={offTypeIcon[r.off_type] || 'leaf'} size={13} /> {compact ? (r.user?.display_name || '—').split(' ')[0] : (r.user?.display_name || '—')}
       </div>
     ));
 
     if (dayShifts.length === 0 && offItems.length === 0)
-      return <div style={{ fontSize: '11px', color: t.textMuted, textAlign: 'center' }}>—</div>;
+      return <div style={{ fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center' }}>—</div>;
 
     return [...offItems, ...dayShifts.map(s => {
       const cfg = configMap[s.shift_type];
-      const bgColor = cfg ? `${cfg.color}18` : t.surfaceAlt;
-      const emoji = cfg?.emoji || '📋';
+      const bgColor = cfg ? `${cfg.color}18` : 'var(--surface-alt)';
       const userName = s.user?.display_name || '—';
-      const nameColor = s.user?.name_color || t.text;
+      const nameColor = s.user?.name_color || 'var(--text)';
       // Red alert: engineer has approved time-off on this day
       const onLeave = timeOff.some(r =>
         r.status === 'approved' &&
@@ -173,16 +171,16 @@ export default function SchedulePage({ user }) {
       return (
         <div key={s.id} style={{
           padding: compact ? '2px 4px' : '5px 7px', borderRadius: '5px', fontSize: compact ? '10px' : '12px',
-          background: onLeave ? `${t.danger}18` : bgColor,
-          border: onLeave ? `2px solid ${t.danger}` : (!s.is_published ? `1px dashed ${t.border}` : `1px solid ${bgColor}`),
+          background: onLeave ? 'var(--danger-light, color-mix(in srgb, var(--danger) 12%, transparent))' : bgColor,
+          border: onLeave ? '2px solid var(--danger)' : (!s.is_published ? '1px dashed var(--border)' : `1px solid ${bgColor}`),
           opacity: s.is_published ? 1 : 0.7, lineHeight: 1.3, position: 'relative',
           cursor: isAdmin ? 'pointer' : 'default',
-        }} title={onLeave ? '⚠️ Engineer is on approved leave — consider reassigning' : (isAdmin ? 'Click to edit' : '')}
+        }} title={onLeave ? 'Engineer is on approved leave — consider reassigning' : (isAdmin ? 'Click to edit' : '')}
           onClick={() => isAdmin && setSelectedShift(s)}>
-          <div style={{ fontWeight: 600, color: onLeave ? t.danger : nameColor }}>
-            {onLeave ? '⚠️' : emoji} {compact ? userName.split(' ')[0] : userName}
+          <div style={{ fontWeight: 600, color: onLeave ? 'var(--danger)' : nameColor, display: 'flex', alignItems: 'center', gap: '3px' }}>
+            {onLeave ? <Icon name="alertTriangle" size={13} /> : null} {compact ? userName.split(' ')[0] : userName}
           </div>
-          {!compact && <div style={{ color: onLeave ? t.danger : t.textMuted, fontSize: '10px' }}>
+          {!compact && <div style={{ color: onLeave ? 'var(--danger)' : 'var(--text-muted)', fontSize: '10px' }}>
             {s.shift_type}{s.location ? ` · ${s.location}` : ''}{!s.is_published ? ' · draft' : ''}{onLeave ? ' · on leave!' : ''}
           </div>}
         </div>
@@ -194,8 +192,8 @@ export default function SchedulePage({ user }) {
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
         <div>
-          <h2 style={{ fontSize: '20px', fontWeight: 700 }}>{tr('schedule_title')}</h2>
-          <p style={{ color: t.textMuted, fontSize: '13px', marginTop: '2px' }}>{headerLabel}</p>
+          <h1 style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 30, letterSpacing: '-0.02em', lineHeight: 1.1, color: 'var(--text)', margin: 0 }}>{tr('schedule_title')}</h1>
+          <p style={{ color: 'var(--text-muted)', fontSize: '13px', marginTop: '2px' }}>{headerLabel}</p>
         </div>
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
           <Tabs tabs={[{ id: 'weekly', label: tr('week') }, { id: 'monthly', label: tr('month') }]} active={view} onChange={v => { setView(v); setOffset(0); }} />
@@ -213,23 +211,23 @@ export default function SchedulePage({ user }) {
       <WorldClock />
 
       <Card style={{ overflow: 'auto' }}>
-        {loading ? <div style={{ padding: '48px', textAlign: 'center', color: t.textMuted, animation: 'pulse 1.5s infinite' }}>{tr('loading')}</div> : (
+        {loading ? <div style={{ padding: '48px', textAlign: 'center', color: 'var(--text-muted)', animation: 'pulse 1.5s infinite' }}>{tr('loading')}</div> : (
           view === 'weekly' ? (
             <div style={{ minWidth: '700px' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', borderBottom: `1px solid ${t.border}` }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', borderBottom: '1px solid var(--border)' }}>
                 {weekDates.map((d, i) => {
                   const isToday = fmt(d) === fmt(new Date());
                   return (
-                    <div key={i} style={{ padding: '12px 10px', textAlign: 'center', borderRight: i < 6 ? `1px solid ${t.borderLight}` : 'none', background: isToday ? t.accentLight : 'transparent' }}>
-                      <div style={{ fontSize: '11px', fontWeight: 600, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{DAY_NAMES[i]}</div>
-                      <div style={{ fontSize: '18px', fontWeight: 700, color: isToday ? t.accent : t.text }}>{d.getDate()}</div>
+                    <div key={i} style={{ padding: '12px 10px', textAlign: 'center', borderRight: i < 6 ? '1px solid var(--border-light)' : 'none', background: isToday ? 'var(--accent-light)' : 'transparent' }}>
+                      <div className="t-eyebrow" style={{ marginBottom: '2px' }}>{DAY_NAMES[i]}</div>
+                      <div style={{ fontSize: '18px', fontWeight: 700, color: isToday ? 'var(--accent)' : 'var(--text)' }}>{d.getDate()}</div>
                     </div>
                   );
                 })}
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', minHeight: '200px' }}>
                 {weekDates.map((d, i) => (
-                  <div key={i} style={{ padding: '8px 6px', borderRight: i < 6 ? `1px solid ${t.borderLight}` : 'none', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <div key={i} style={{ padding: '8px 6px', borderRight: i < 6 ? '1px solid var(--border-light)' : 'none', display: 'flex', flexDirection: 'column', gap: '4px' }}>
                     {renderShiftCell(d)}
                   </div>
                 ))}
@@ -237,8 +235,8 @@ export default function SchedulePage({ user }) {
             </div>
           ) : (
             <div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', borderBottom: `1px solid ${t.border}` }}>
-                {DAY_NAMES.map(d => <div key={d} style={{ padding: '8px', textAlign: 'center', fontSize: '11px', fontWeight: 600, color: t.textMuted, textTransform: 'uppercase' }}>{d}</div>)}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', borderBottom: '1px solid var(--border)' }}>
+                {DAY_NAMES.map(d => <div key={d} style={{ padding: '8px', textAlign: 'center' }}><span className="t-eyebrow">{d}</span></div>)}
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)' }}>
                 {monthData.dates.map((d, i) => {
@@ -246,11 +244,11 @@ export default function SchedulePage({ user }) {
                   const isToday = fmt(d) === fmt(new Date());
                   return (
                     <div key={i} style={{
-                      padding: '4px', minHeight: '80px', borderRight: (i % 7) < 6 ? `1px solid ${t.borderLight}` : 'none',
-                      borderBottom: i < 35 ? `1px solid ${t.borderLight}` : 'none',
-                      opacity: isCurrentMonth ? 1 : 0.35, background: isToday ? t.accentLight : 'transparent',
+                      padding: '4px', minHeight: '80px', borderRight: (i % 7) < 6 ? '1px solid var(--border-light)' : 'none',
+                      borderBottom: i < 35 ? '1px solid var(--border-light)' : 'none',
+                      opacity: isCurrentMonth ? 1 : 0.35, background: isToday ? 'var(--accent-light)' : 'transparent',
                     }}>
-                      <div style={{ fontSize: '11px', fontWeight: 600, color: isToday ? t.accent : t.textMuted, marginBottom: '2px', padding: '2px 4px' }}>{d.getDate()}</div>
+                      <div style={{ fontSize: '11px', fontWeight: 600, color: isToday ? 'var(--accent)' : 'var(--text-muted)', marginBottom: '2px', padding: '2px 4px' }}>{d.getDate()}</div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>{renderShiftCell(d, true)}</div>
                     </div>
                   );
@@ -373,7 +371,6 @@ function TimeOffModal({ onClose, onSubmit }) {
 }
 
 function ShiftDetailModal({ shift, configs, onClose, onSave, onDelete }) {
-  const { theme: t } = useTheme();
   const { t: tr } = useLang();
   const [shiftType, setShiftType] = useState(shift.shift_type);
   const [location, setLocation] = useState(shift.location || '');
@@ -384,13 +381,13 @@ function ShiftDetailModal({ shift, configs, onClose, onSave, onDelete }) {
   return (
     <Overlay onClose={onClose} title="Edit Shift">
       <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: t.surfaceAlt, borderRadius: t.radiusSm }}>
-          <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: (shift.user?.name_color || t.accent) + '20', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: shift.user?.name_color || t.accent }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: 'var(--surface-alt)', borderRadius: 'var(--radius-sm)' }}>
+          <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: (shift.user?.name_color || 'var(--accent)') + '20', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: shift.user?.name_color || 'var(--accent)' }}>
             {(shift.user?.display_name || '?')[0]}
           </div>
           <div>
             <div style={{ fontWeight: 600 }}>{shift.user?.display_name || '—'}</div>
-            <div style={{ fontSize: '12px', color: t.textMuted }}>{shift.date} · {shift.start_time?.slice(0,5) || '—'}–{shift.end_time?.slice(0,5) || '—'}</div>
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{shift.date} · {shift.start_time?.slice(0,5) || '—'}–{shift.end_time?.slice(0,5) || '—'}</div>
           </div>
           <Badge color={isPublished ? 'green' : 'yellow'} style={{ marginLeft: 'auto' }}>{isPublished ? 'published' : 'draft'}</Badge>
         </div>
@@ -429,25 +426,24 @@ function ShiftDetailModal({ shift, configs, onClose, onSave, onDelete }) {
 }
 
 function TimeOffDetailModal({ entry, isAdmin, onClose, onReview, onDelete }) {
-  const { theme: t } = useTheme();
   const { t: tr } = useLang();
   const offTypeColors = { vacation: '#2563eb', sick_leave: '#dc2626', day_off: '#6b7280' };
-  const offTypeEmoji = { vacation: '🏖️', sick_leave: '🤒', day_off: '🌿' };
+  const offTypeIcon = { vacation: 'leaf', sick_leave: 'alertTriangle', day_off: 'leaf' };
   const color = offTypeColors[entry.off_type] || '#6b7280';
 
   return (
     <Overlay onClose={onClose} title="Time-off Request">
       <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-        <div style={{ padding: '12px 16px', background: `${color}10`, borderRadius: t.radiusSm, borderLeft: `3px solid ${color}` }}>
-          <div style={{ fontWeight: 600, fontSize: '15px', marginBottom: '4px' }}>
-            {offTypeEmoji[entry.off_type]} {entry.user?.display_name || 'You'}
+        <div style={{ padding: '12px 16px', background: `${color}10`, borderRadius: 'var(--radius-sm)', borderLeft: `3px solid ${color}` }}>
+          <div style={{ fontWeight: 600, fontSize: '15px', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+            <Icon name={offTypeIcon[entry.off_type] || 'leaf'} size={15} /> {entry.user?.display_name || 'You'}
           </div>
-          <div style={{ fontSize: '13px', color: t.textSecondary }}>{entry.start_date} → {entry.end_date}</div>
+          <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{entry.start_date} → {entry.end_date}</div>
           <div style={{ display: 'flex', gap: '6px', marginTop: '8px', flexWrap: 'wrap' }}>
             <Badge color={entry.off_type === 'vacation' ? 'blue' : entry.off_type === 'sick_leave' ? 'red' : 'gray'}>{entry.off_type.replace('_',' ')}</Badge>
             <Badge color={entry.status === 'approved' ? 'green' : entry.status === 'rejected' ? 'red' : 'yellow'}>{entry.status}</Badge>
           </div>
-          {entry.comment && <div style={{ fontSize: '12px', color: t.textMuted, marginTop: '8px' }}>{entry.comment}</div>}
+          {entry.comment && <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '8px' }}>{entry.comment}</div>}
         </div>
 
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
@@ -480,7 +476,6 @@ const CLOCKS = [
 ];
 
 export function WorldClock() {
-  const { theme: t } = useTheme();
   const [now, setNow] = useState(new Date());
   const timerRef = useRef(null);
 
@@ -496,8 +491,8 @@ export function WorldClock() {
   return (
     <div style={{
       display: 'flex', overflow: 'hidden',
-      borderRadius: t.radius, border: `1px solid ${t.border}`,
-      background: t.surface,
+      borderRadius: 'var(--radius)', border: '1px solid var(--border)',
+      background: 'var(--surface)',
     }}>
       {CLOCKS.map((c, i) => {
         const time = now.toLocaleTimeString('en-GB', { timeZone: c.tz, hour: '2-digit', minute: '2-digit' });
@@ -506,13 +501,13 @@ export function WorldClock() {
         return (
           <div key={c.tz} style={{
             flex: 1, padding: '10px 12px', textAlign: 'center',
-            borderRight: i < CLOCKS.length - 1 ? `1px solid ${t.borderLight}` : 'none',
-            background: isNight ? t.surfaceAlt : 'transparent',
+            borderRight: i < CLOCKS.length - 1 ? '1px solid var(--border-light)' : 'none',
+            background: isNight ? 'var(--surface-alt)' : 'transparent',
           }}>
-            <div style={{ fontSize: '10px', fontWeight: 600, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '3px' }}>
-              {isNight ? '🌙' : '☀️'} {c.label}
+            <div className="t-eyebrow" style={{ marginBottom: '3px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
+              <Icon name={isNight ? 'moon' : 'sun'} size={13} /> {c.label}
             </div>
-            <div style={{ fontSize: '16px', fontWeight: 700, fontFamily: t.fontMono, color: t.text, letterSpacing: '1px' }}>
+            <div style={{ fontSize: '16px', fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--text)', letterSpacing: '1px' }}>
               {time}
             </div>
           </div>
