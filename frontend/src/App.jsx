@@ -4,7 +4,7 @@ import { getGlobalCSS } from './theme';
 import { useTheme } from './components/ThemeContext';
 import { useLang } from './components/LangContext';
 import { Icon } from './components/Icons';
-import { Button } from './components/UI';
+import { Button, Kbd } from './components/UI';
 import LoginPage from './pages/LoginPage';
 import SchedulePage from './pages/SchedulePage';
 import AdminPage from './pages/AdminPage';
@@ -126,8 +126,8 @@ export default function App() {
     <aside style={{
       width: sidebarWidth,
       minWidth: sidebarWidth,
-      background: t.surface,
-      borderRight: `1px solid ${t.border}`,
+      background: 'var(--surface)',
+      borderRight: '1px solid var(--border)',
       display: 'flex',
       flexDirection: 'column',
       flexShrink: 0,
@@ -138,36 +138,46 @@ export default function App() {
       zIndex: isMobile ? 900 : 1,
       transition: 'left 0.25s cubic-bezier(0.4,0,0.2,1)',
       overflow: 'hidden',
-      boxShadow: isMobile && sidebarOpen ? t.shadowLg : 'none',
+      boxShadow: isMobile && sidebarOpen ? 'var(--shadow-lg)' : 'none',
+      padding: '18px 12px 14px',
     }}>
-      {/* Logo */}
-      <div style={{
-        padding: isRail ? '14px 0' : '14px 16px',
-        borderBottom: `1px solid ${t.border}`,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: isRail ? 'center' : 'flex-start',
-        gap: 10,
-        minHeight: 56,
-        flexShrink: 0,
-      }}>
-        <div style={{
-          width: 30, height: 30, borderRadius: 7,
-          background: t.accentLight,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontWeight: 800, fontSize: 14, color: t.accent, letterSpacing: '-0.05em',
-          flexShrink: 0,
-        }}>P</div>
-        {!isRail && (
-          <div>
-            <div style={{ fontWeight: 700, fontSize: 14, color: t.text, letterSpacing: '-0.03em', lineHeight: 1.2 }}>Portal</div>
-            <div style={{ fontSize: 10, color: t.textMuted, letterSpacing: '0.08em', textTransform: 'uppercase' }}>Operations</div>
+      {/* Workspace identity pill */}
+      {!isRail && (
+        <button
+          onClick={() => navigate('schedule')}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 10,
+            padding: '8px 10px', marginBottom: 12,
+            background: 'var(--surface-alt)',
+            border: '1px solid var(--border)',
+            borderRadius: 'var(--radius-sm)',
+            cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left', width: '100%',
+            color: 'var(--text-secondary)',
+          }}
+        >
+          <span style={{
+            width: 22, height: 22, borderRadius: 5,
+            background: 'var(--surface)', border: '1px solid var(--border)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: 'var(--accent)', flexShrink: 0,
+          }}>
+            <Icon name="workspace" size={13} />
+          </span>
+          <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+            <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)', lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              Engineering Ops
+            </div>
+            <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2, fontFamily: 'var(--font-mono)' }}>
+              prod
+            </div>
           </div>
-        )}
-      </div>
+          <Icon name="arrowUpDown" size={11} />
+        </button>
+      )}
+      {isRail && <div style={{ marginBottom: 12 }} />}
 
-      {/* Nav */}
-      <nav style={{ flex: 1, padding: isRail ? '8px 4px' : '8px', overflowY: 'auto' }}>
+      {/* Primary nav */}
+      <nav style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 1 }}>
         {nav.map(item => (
           <button
             key={item.id}
@@ -175,63 +185,65 @@ export default function App() {
             title={isRail ? item.label : undefined}
             className={`nav-item${page === item.id ? ' active' : ''}`}
             style={{
-              marginBottom: 2,
-              color: page === item.id ? t.accent : t.textSecondary,
-              background: page === item.id ? t.accentLight : 'transparent',
+              marginBottom: 1,
+              color: page === item.id ? 'var(--accent)' : 'var(--text-secondary)',
+              background: page === item.id ? 'var(--accent-light)' : 'transparent',
               justifyContent: isRail ? 'center' : 'flex-start',
-              padding: isRail ? '9px' : '8px 10px',
+              padding: isRail ? '9px' : '7px 10px 7px 14px',
             }}
           >
-            <Icon name={NAV_ICONS[item.id]} size={18} color="currentColor" />
-            {!isRail && <span>{item.label}</span>}
+            <Icon name={NAV_ICONS[item.id]} size={15} color="currentColor" />
+            {!isRail && <span style={{ flex: 1 }}>{item.label}</span>}
           </button>
         ))}
       </nav>
 
-      {/* User footer */}
+      {/* User profile + logout */}
       <div style={{
-        padding: isRail ? '10px 4px' : '10px 12px',
-        borderTop: `1px solid ${t.border}`,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 6,
-        alignItems: isRail ? 'center' : 'stretch',
+        paddingTop: 12, borderTop: '1px solid var(--border-light)',
+        marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4,
         flexShrink: 0,
       }}>
-        <div
-          style={{ display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden' }}
-          title={isRail ? `${auth.user.display_name} (${auth.user.role})` : undefined}
+        <button
+          onClick={() => navigate('profile')}
+          title={isRail ? auth.user.display_name : undefined}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 10,
+            padding: isRail ? '6px' : '6px 8px',
+            background: 'transparent', border: 'none',
+            borderRadius: 'var(--radius-sm)', cursor: 'pointer',
+            fontFamily: 'inherit', textAlign: 'left', width: '100%',
+            justifyContent: isRail ? 'center' : 'flex-start',
+          }}
         >
           <div style={{
-            width: 28, height: 28, borderRadius: 6, flexShrink: 0,
-            background: (auth.user.name_color || t.accent) + '22',
+            width: 30, height: 30, borderRadius: 'var(--radius-sm)', flexShrink: 0,
+            background: (auth.user.name_color || 'var(--accent)') + '22',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontWeight: 700, color: auth.user.name_color || t.accent, fontSize: 12,
-            border: `1px solid ${(auth.user.name_color || t.accent)}44`,
+            fontWeight: 700, color: auth.user.name_color || 'var(--accent)', fontSize: 12,
+            border: `1px solid ${(auth.user.name_color || 'var(--accent)') + '44'}`,
           }}>
             {auth.user.display_name[0].toUpperCase()}
           </div>
           {!isRail && (
-            <div style={{ minWidth: 0 }}>
-              <div style={{ fontWeight: 600, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text)' }}>
                 {auth.user.display_name}
               </div>
-              <div style={{ fontSize: 10, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                 {auth.user.role}
               </div>
             </div>
           )}
-        </div>
+          {!isRail && <Icon name="chevronRight" size={14} color="var(--text-muted)" />}
+        </button>
         <button
           onClick={onLogout}
           title={isRail ? tr('signOut') : undefined}
           className="btn btn-ghost btn-sm"
           style={{
-            width: '100%',
-            justifyContent: isRail ? 'center' : 'flex-start',
-            fontSize: 12,
-            gap: 6,
-            padding: isRail ? '5px' : '5px 10px',
+            width: '100%', justifyContent: isRail ? 'center' : 'flex-start',
+            fontSize: 12, gap: 6, padding: isRail ? '5px' : '5px 10px',
           }}
         >
           <Icon name="logout" size={14} />
@@ -240,6 +252,120 @@ export default function App() {
       </div>
     </aside>
   );
+
+  function TopBar() {
+    const [now, setNow] = useState(new Date());
+    useEffect(() => {
+      const t = setInterval(() => setNow(new Date()), 1000);
+      return () => clearInterval(t);
+    }, []);
+    const fmt = (tz) => now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: tz });
+
+    return (
+      <header style={{
+        height: 48, flexShrink: 0,
+        padding: '0 20px',
+        borderBottom: '1px solid var(--border)',
+        background: 'var(--bg)',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        position: 'sticky',
+        top: 0,
+        zIndex: 100,
+      }}>
+        {/* Mobile hamburger */}
+        {isMobile && (
+          <button
+            onClick={() => setSidebarOpen(true)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text)', padding: 4, display: 'flex', alignItems: 'center' }}
+          >
+            <Icon name="menu" size={20} />
+          </button>
+        )}
+
+        {/* ⌘K command palette stub */}
+        <button style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          padding: '5px 10px',
+          background: 'var(--surface)',
+          border: '1px solid var(--border)',
+          borderRadius: 'var(--radius-sm)',
+          minWidth: isMobile ? 'auto' : 200, height: 30, cursor: 'pointer',
+          color: 'var(--text-muted)', fontSize: 12, fontFamily: 'inherit',
+        }}>
+          <Icon name="search" size={13} />
+          {!isMobile && <span style={{ flex: 1, textAlign: 'left' }}>Jump to page…</span>}
+          {!isMobile && <Kbd>⌘K</Kbd>}
+        </button>
+
+        <span style={{ flex: 1 }} />
+
+        {/* Multi-timezone clocks: BER / NYC / TYO */}
+        {!isMobile && (
+          <div style={{ display: 'flex', alignItems: 'center', fontFamily: 'var(--font-mono)', fontSize: 11.5 }}>
+            {[
+              ['BER', fmt('Europe/Berlin'),    true],
+              ['NYC', fmt('America/New_York'), false],
+              ['TYO', fmt('Asia/Tokyo'),       false],
+            ].map(([city, time, here], i) => (
+              <div key={city} style={{
+                padding: '3px 10px',
+                borderRight: i < 2 ? '1px solid var(--border-light)' : 'none',
+                color: here ? 'var(--text)' : 'var(--text-muted)',
+              }}>
+                <div style={{ fontSize: 9, letterSpacing: 0.1, color: 'var(--text-muted)', fontWeight: 700 }}>{city}</div>
+                <div>{time}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* EN / RU language pill */}
+        <div className="lang-pill-wrap">
+          {['en', 'ru'].map(l => (
+            <button
+              key={l}
+              onClick={() => l !== lang && toggleLang()}
+              className={`lang-pill${lang === l ? ' active' : ''}`}
+            >
+              {l.toUpperCase()}
+            </button>
+          ))}
+        </div>
+
+        {/* Theme toggle */}
+        <button
+          onClick={toggle}
+          title={mode === 'dark' ? 'Light mode' : 'Dark mode'}
+          className="btn btn-icon btn-sm"
+          style={{ width: 32, height: 32, padding: 0 }}
+        >
+          <Icon name={mode === 'dark' ? 'sun' : 'moon'} size={15} />
+        </button>
+
+        {/* Notification bell */}
+        <button
+          onClick={() => setShowNotifs(v => !v)}
+          className="btn btn-icon btn-sm"
+          style={{ width: 32, height: 32, padding: 0, position: 'relative' }}
+          title="Notifications"
+        >
+          <Icon name="bell" size={15} />
+          {unread > 0 && (
+            <span style={{
+              position: 'absolute', top: -3, right: -3,
+              minWidth: 16, height: 16, borderRadius: 999,
+              background: 'var(--danger)', color: '#fff',
+              fontSize: 10, fontWeight: 700, fontFamily: 'var(--font-mono)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              padding: '0 4px', border: '2px solid var(--bg)',
+            }}>{unread}</span>
+          )}
+        </button>
+      </header>
+    );
+  }
 
   return (
     <>
@@ -256,60 +382,7 @@ export default function App() {
         {sidebar}
 
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-          {/* Header */}
-          <header style={{
-            height: 48,
-            padding: '0 20px',
-            borderBottom: `1px solid ${t.border}`,
-            background: t.surface,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            position: 'sticky',
-            top: 0,
-            zIndex: 100,
-            flexShrink: 0,
-          }}>
-            {isMobile ? (
-              <button
-                onClick={() => setSidebarOpen(true)}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: t.text, padding: 4, display: 'flex', alignItems: 'center' }}
-              >
-                <Icon name="menu" size={20} />
-              </button>
-            ) : <div />}
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              <button
-                onClick={toggle}
-                title={mode === 'dark' ? 'Light mode' : 'Dark mode'}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: t.textSecondary, padding: '4px 6px', borderRadius: 6, display: 'flex', alignItems: 'center' }}
-              >
-                <Icon name={mode === 'dark' ? 'sun' : 'moon'} size={17} />
-              </button>
-              <button
-                onClick={toggleLang}
-                title={lang === 'en' ? 'Русский' : 'English'}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: t.textSecondary, padding: '4px 8px', borderRadius: 6, fontSize: 11, fontWeight: 700, letterSpacing: '0.06em' }}
-              >
-                {lang === 'en' ? 'RU' : 'EN'}
-              </button>
-              <button
-                onClick={() => setShowNotifs(v => !v)}
-                title="Notifications"
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: t.textSecondary, padding: '4px 6px', borderRadius: 6, display: 'flex', alignItems: 'center', position: 'relative' }}
-              >
-                <Icon name="bell" size={18} />
-                {unread > 0 && (
-                  <span style={{
-                    position: 'absolute', top: 2, right: 2,
-                    width: 7, height: 7, borderRadius: '50%',
-                    background: t.danger, border: `1.5px solid ${t.surface}`,
-                  }} />
-                )}
-              </button>
-            </div>
-          </header>
+          <TopBar />
 
           {/* Page content */}
           <main style={{ flex: 1, minWidth: 0 }}>
