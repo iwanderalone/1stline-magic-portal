@@ -1,11 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '../api';
-import { useTheme } from '../components/ThemeContext';
 import { useLang } from '../components/LangContext';
 import { Card, Button, Input, Badge, EmptyState, Overlay, Toast, Select } from '../components/UI';
 
 export default function RemindersPage() {
-  const { theme: t } = useTheme();
   const { t: tr } = useLang();
   const [reminders, setReminders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -35,8 +33,14 @@ export default function RemindersPage() {
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
         <div>
-          <h2 style={{ fontSize: '20px', fontWeight: 700 }}>{tr('reminders_title')}</h2>
-          <p style={{ color: t.textMuted, fontSize: '13px' }}>{reminders.length} {filter}</p>
+          <h1 style={{
+            fontFamily: 'var(--font-display)',
+            fontWeight: 600,
+            fontSize: 30,
+            letterSpacing: '-0.02em',
+            margin: 0,
+          }}>{tr('reminders_title')}</h1>
+          <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>{reminders.length} {filter}</p>
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
           <Button variant={filter === 'active' ? 'primary' : 'secondary'} size="sm" onClick={() => setFilter('active')}>{tr('active')}</Button>
@@ -45,10 +49,10 @@ export default function RemindersPage() {
         </div>
       </div>
       <Card style={{ padding: '4px' }}>
-        {loading ? <div style={{ padding: '48px', textAlign: 'center', color: t.textMuted }}>{tr('loading')}</div> :
+        {loading ? <div style={{ padding: '48px', textAlign: 'center', color: 'var(--text-muted)' }}>{tr('loading')}</div> :
           reminders.length === 0 ? <EmptyState icon="🔔" title={tr('noReminders')} subtitle={tr('noRemindersDesc')} /> : (
           <div>{reminders.map((r, i) => (
-            <div key={r.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', gap: '12px', flexWrap: 'wrap', borderBottom: i < reminders.length - 1 ? `1px solid ${t.borderLight}` : 'none' }}>
+            <div key={r.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', gap: '12px', flexWrap: 'wrap', borderBottom: i < reminders.length - 1 ? `1px solid var(--border-light)` : 'none' }}>
               <div style={{ flex: 1, minWidth: '200px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '3px' }}>
                   <span style={{ fontWeight: 600, fontSize: '14px' }}>{r.title}</span>
@@ -60,8 +64,8 @@ export default function RemindersPage() {
                     <Badge color="gray">💬 {r.telegram_target}</Badge>
                   )}
                 </div>
-                {r.description && <div style={{ fontSize: '13px', color: t.textSecondary }}>{r.description}</div>}
-                <div style={{ fontSize: '12px', color: t.textMuted, fontFamily: t.fontMono, marginTop: '4px' }}>
+                {r.description && <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{r.description}</div>}
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: '4px' }}>
                   {new Date(r.remind_at).toLocaleString()}{r.fired_at && ` · fired ${new Date(r.fired_at).toLocaleString()}`}
                 </div>
               </div>
@@ -90,7 +94,6 @@ const RECURRENCE_OPTIONS = [
 ];
 
 function CreateReminderModal({ onClose, onCreate }) {
-  const { theme: t } = useTheme();
   const { t: tr } = useLang();
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
@@ -115,7 +118,7 @@ function CreateReminderModal({ onClose, onCreate }) {
         <Input label={tr('description')} value={desc} onChange={e => setDesc(e.target.value)} />
 
         <div>
-          <label style={{ fontSize: '13px', fontWeight: 500, color: t.textSecondary, display: 'block', marginBottom: '6px' }}>{tr('quickSet')}</label>
+          <label style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>{tr('quickSet')}</label>
           <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
             {[['15m', 15], ['30m', 30], ['1h', 60], ['2h', 120], [tr('tomorrow'), null]].map(([l, m]) => (
               <Button key={l} variant="secondary" size="sm" onClick={() => setQuick(m)}>{l}</Button>
@@ -128,8 +131,8 @@ function CreateReminderModal({ onClose, onCreate }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
           <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer', userSelect: 'none' }}>
             <input type="checkbox" checked={rec} onChange={e => setRec(e.target.checked)}
-              style={{ width: 15, height: 15, accentColor: t.accent, cursor: 'pointer' }} />
-            <span style={{ fontWeight: 500, color: t.text }}>{tr('recurring')}</span>
+              style={{ width: 15, height: 15, accentColor: 'var(--accent)', cursor: 'pointer' }} />
+            <span style={{ fontWeight: 500, color: 'var(--text)' }}>{tr('recurring')}</span>
           </label>
           {rec && (
             <Select value={String(recMin)} onChange={e => setRecMin(parseInt(e.target.value))}>
