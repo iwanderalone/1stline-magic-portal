@@ -552,20 +552,20 @@ function TelegramTab() {
         {diagResult && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '10px' }}>
             {/* Bot token */}
-            <div style={{ fontSize: '12px', padding: '6px 10px', borderRadius: 'var(--radius-sm)', background: diagResult.bot?.ok ? '#10b98120' : '#ef444420', color: diagResult.bot?.ok ? '#059669' : '#dc2626' }}>
+            <div style={{ fontSize: '12px', padding: '6px 10px', borderRadius: 'var(--radius-sm)', background: diagResult.bot?.ok ? 'var(--success-light)' : 'var(--danger-light)', color: diagResult.bot?.ok ? 'var(--success)' : 'var(--danger)' }}>
               {diagResult.bot?.ok
                 ? `✓ Bot token valid — @${diagResult.bot.username} (${diagResult.bot.name})`
                 : `✗ Bot token error: ${diagResult.bot?.error}`}
             </div>
             {/* Group chats */}
             {diagResult.chats?.map((c, i) => (
-              <div key={i} style={{ fontSize: '12px', padding: '6px 10px', borderRadius: 'var(--radius-sm)', background: c.ok ? '#10b98120' : '#ef444420', color: c.ok ? '#059669' : '#dc2626' }}>
+              <div key={i} style={{ fontSize: '12px', padding: '6px 10px', borderRadius: 'var(--radius-sm)', background: c.ok ? 'var(--success-light)' : 'var(--danger-light)', color: c.ok ? 'var(--success)' : 'var(--danger)' }}>
                 {c.ok ? `✓ ${c.name} (${c.chat_id}) — message delivered` : `✗ ${c.name} (${c.chat_id}) — delivery failed`}
               </div>
             ))}
             {/* Personal DMs */}
             {diagResult.personal_dms?.map((u, i) => (
-              <div key={i} style={{ fontSize: '12px', padding: '6px 10px', borderRadius: 'var(--radius-sm)', background: u.ok ? '#10b98120' : '#ef444420', color: u.ok ? '#059669' : '#dc2626' }}>
+              <div key={i} style={{ fontSize: '12px', padding: '6px 10px', borderRadius: 'var(--radius-sm)', background: u.ok ? 'var(--success-light)' : 'var(--danger-light)', color: u.ok ? 'var(--success)' : 'var(--danger)' }}>
                 {u.ok ? `✓ DM to ${u.display_name} — delivered` : `✗ DM to ${u.display_name} — failed`}
               </div>
             ))}

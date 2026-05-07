@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { setTokens } from '../api';
 import { Card, Button, Input } from '../components/UI';
 import { useLang } from '../components/LangContext';
+import { Icon } from '../components/Icons';
 
 export default function LoginPage({ onLogin }) {
   const { t: tr } = useLang();
@@ -45,7 +46,7 @@ export default function LoginPage({ onLogin }) {
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', padding: '20px' }}>
       <Card className="fade-in" style={{ width: '100%', maxWidth: '400px', padding: '40px 32px' }}>
         <div style={{ textAlign: 'center', marginBottom: '32px' }}>
-          <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', fontSize: '22px', color: '#fff' }}>⚡</div>
+          <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', color: '#fff' }}><Icon name="zap" size={22} /></div>
           <h1 style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 28, letterSpacing: '-0.02em', color: 'var(--text)', marginBottom: 6 }}>Support Portal</h1>
           <p style={{ color: 'var(--text-muted)', fontSize: '14px', marginTop: '6px' }}>{step === 'otp' ? tr('enterCode') : tr('signIn')}</p>
         </div>
