@@ -13,6 +13,7 @@ import MailReporterPage from './pages/MailReporterPage';
 import TimeOffPage from './pages/TimeOffPage';
 import RemindersPage from './pages/RemindersPage';
 import ContainersPage from './pages/ContainersPage';
+import HomePage from './pages/HomePage';
 import NotificationsPanel from './components/NotificationsPanel';
 
 function useBreakpoint() {
@@ -32,6 +33,7 @@ function useBreakpoint() {
 }
 
 const NAV_ICONS = {
+  home:       'grid',
   profile:    'user',
   schedule:   'calendar',
   mail:       'mail',
@@ -172,14 +174,14 @@ export default function App() {
   });
 
   const isAdmin = (u) => u?.role === 'admin';
-  const PAGES = ['schedule', 'timeoff', 'profile', 'admin', 'mail', 'reminders', 'containers'];
+  const PAGES = ['home', 'schedule', 'timeoff', 'profile', 'admin', 'mail', 'reminders', 'containers'];
 
   const [page, setPage] = useState(() => {
     const hash = window.location.hash.slice(1);
-    if (!PAGES.includes(hash)) return 'profile';
+    if (!PAGES.includes(hash)) return 'home';
     if (hash === 'admin') {
       const tk = getTokens();
-      if (tk?.user?.role !== 'admin') return 'profile';
+      if (tk?.user?.role !== 'admin') return 'home';
     }
     return hash;
   });
@@ -197,8 +199,8 @@ export default function App() {
 
   useEffect(() => {
     if ((page === 'admin' || page === 'containers') && !isAdmin(auth.user)) {
-      setPage('profile');
-      window.location.hash = 'profile';
+      setPage('home');
+      window.location.hash = 'home';
       setSidebarOpen(false);
     }
   }, [page, auth.user]);
@@ -227,6 +229,7 @@ export default function App() {
   );
 
   const nav = [
+    { id: 'home',      label: lang === 'ru' ? 'Главная'  : 'Home' },
     { id: 'profile',   label: lang === 'ru' ? 'Профиль'  : 'My Profile' },
     { id: 'schedule',  label: tr('schedule') },
     { id: 'mail',      label: lang === 'ru' ? 'Почта'    : 'Mail' },
@@ -402,6 +405,7 @@ export default function App() {
           {/* Page content */}
           <main style={{ flex: 1, minWidth: 0, padding: isMobile ? '20px 16px 32px' : '28px 36px 48px' }}>
             <div style={{ width: '100%', maxWidth: 1440, margin: '0 auto' }}>
+              {page === 'home'       && <HomePage user={auth.user} unread={unread} onNavigate={navigate} />}
               {page === 'schedule'   && <SchedulePage user={auth.user} />}
               {page === 'timeoff'    && <TimeOffPage user={auth.user} />}
               {page === 'profile'    && <ProfilePage user={auth.user} onUserUpdate={onUserUpdate} />}
