@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { api, getPublicConfig } from '../api';
 import { Card, Button, Input, Badge, Toast, Select } from '../components/UI';
 import { useLang } from '../components/LangContext';
+import { Icon } from '../components/Icons';
 
 const TIMEZONES = [
   { value: 'Europe/Berlin',  label: 'Berlin (UTC+1/+2)' },
@@ -244,7 +245,7 @@ export default function ProfilePage({ user, onUserUpdate }) {
               </div>
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
                 <Button variant="secondary" onClick={getLinkCode}>
-                  {linkCode ? `📋 /link ${linkCode} — copied!` : tr('getLinkCode')}
+                  {linkCode ? <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Icon name="copy" size={13} /> /link {linkCode} — copied!</span> : tr('getLinkCode')}
                 </Button>
                 {botUsername && (
                   <a href={`https://t.me/${botUsername}`} target="_blank" rel="noreferrer"
