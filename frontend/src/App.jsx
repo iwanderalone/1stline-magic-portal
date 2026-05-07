@@ -89,21 +89,27 @@ function TopBar({ isMobile, onMenu, mode, toggle, lang, toggleLang, unread, onNo
 
       <span style={{ flex: 1 }} />
 
-      {/* Multi-timezone clocks: BER / NYC / TYO */}
+      {/* Multi-timezone clocks ordered by local time from earliest to latest. */}
       {!isMobile && (
         <div style={{ display: 'flex', alignItems: 'center', fontFamily: 'var(--font-mono)', fontSize: 11.5 }}>
           {[
-            ['BER', fmt('Europe/Berlin'),    true],
-            ['NYC', fmt('America/New_York'), false],
-            ['TYO', fmt('Asia/Tokyo'),       false],
-          ].map(([city, time, here], i) => (
+            ['MEX', 'Mexico City', fmt('America/Mexico_City')],
+            ['BER', 'Berlin',      fmt('Europe/Berlin')],
+            ['MSK', 'Moscow',      fmt('Europe/Moscow')],
+            ['AUH', 'Abu Dhabi',   fmt('Asia/Dubai')],
+          ].map(([city, label, time], i, clocks) => (
             <div key={city} style={{
               padding: '3px 10px',
-              borderRight: i < 2 ? '1px solid var(--border-light)' : 'none',
-              color: here ? 'var(--text)' : 'var(--text-muted)',
+              borderRight: i < clocks.length - 1 ? '1px solid var(--border-light)' : 'none',
+              color: 'var(--text-muted)',
             }}>
-              <div style={{ fontSize: 9, letterSpacing: 0.1, color: 'var(--text-muted)', fontWeight: 700 }}>{city}</div>
-              <div>{time}</div>
+              <div
+                title={label}
+                style={{ fontSize: 9, letterSpacing: 0.1, color: 'var(--text-muted)', fontWeight: 700 }}
+              >
+                {city}
+              </div>
+              <div style={{ color: 'var(--text)' }}>{time}</div>
             </div>
           ))}
         </div>
@@ -279,10 +285,10 @@ export default function App() {
           </span>
           <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
             <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)', lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              Engineering Ops
+              基盤
             </div>
             <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2, fontFamily: 'var(--font-mono)' }}>
-              prod
+              dev
             </div>
           </div>
           <Icon name="arrowUpDown" size={11} />
@@ -394,8 +400,8 @@ export default function App() {
           />
 
           {/* Page content */}
-          <main style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ maxWidth: 1440, margin: '0 auto', height: '100%' }}>
+          <main style={{ flex: 1, minWidth: 0, padding: isMobile ? '20px 16px 32px' : '28px 36px 48px' }}>
+            <div style={{ width: '100%', maxWidth: 1440, margin: '0 auto' }}>
               {page === 'schedule'   && <SchedulePage user={auth.user} />}
               {page === 'timeoff'    && <TimeOffPage user={auth.user} />}
               {page === 'profile'    && <ProfilePage user={auth.user} onUserUpdate={onUserUpdate} />}
