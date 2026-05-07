@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { api, getPublicConfig } from '../api';
 import { useLang } from '../components/LangContext';
 import { Card, Button, Input, Badge, Select, Overlay, Toast, Tabs, EmptyState } from '../components/UI';
+import { Icon } from '../components/Icons';
 
 export default function AdminPage() {
   const { t: tr } = useLang();
@@ -105,7 +106,7 @@ function UsersTab() {
               {u.telegram_chat_id
                 ? <Badge color="blue">TG ✓</Badge>
                 : linkCodes[u.id]
-                  ? <span onClick={() => copyCode(u.id)} title="Click to copy" style={{ cursor: 'pointer' }}><Badge color="yellow">📋 /link {linkCodes[u.id]}</Badge></span>
+                  ? <span onClick={() => copyCode(u.id)} title="Click to copy" style={{ cursor: 'pointer' }}><Badge color="yellow"><Icon name="copy" size={12} /> /link {linkCodes[u.id]}</Badge></span>
                   : <Button size="sm" variant="ghost" onClick={() => linkTg(u.id)}>Link TG</Button>}
               {u.is_active && <Button size="sm" variant="ghost" onClick={() => setEditTarget(u)}>Edit</Button>}
               {u.is_active && <Button size="sm" variant="ghost" onClick={() => setResetTarget(u.id)}>Reset PW</Button>}
@@ -829,7 +830,7 @@ function LogsTab() {
       </div>
       <Card style={{ padding: '4px' }}>
         {loading && <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>Loading…</div>}
-        {!loading && displayed.length === 0 && <EmptyState icon="📋" title="No log entries" subtitle="Actions will appear here as users interact with the portal" />}
+        {!loading && displayed.length === 0 && <EmptyState icon={<Icon name="copy" size={32} />} title="No log entries" subtitle="Actions will appear here as users interact with the portal" />}
         {displayed.map((log, i) => {
           const meta = ACTION_LABELS[log.action] || { label: log.action, color: 'gray' };
           return (
