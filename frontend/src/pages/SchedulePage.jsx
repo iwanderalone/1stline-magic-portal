@@ -8,6 +8,11 @@ const fmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-$
 const DAY_NAMES = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 const DAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 
+function fmtTime(value) {
+  if (!value) return '';
+  return String(value).slice(0, 5);
+}
+
 function getWeekDates(offset) {
   const n = new Date(); n.setDate(n.getDate() + offset * 7);
   const s = new Date(n); s.setDate(s.getDate() - s.getDay() + 1);
