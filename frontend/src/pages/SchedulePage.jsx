@@ -138,7 +138,7 @@ export default function SchedulePage({ user }) {
       r.status === 'approved' && r.start_date <= dayStr && r.end_date >= dayStr
     );
 
-    const offTypeColors = { vacation: '#2563eb', sick_leave: '#dc2626', day_off: '#6b7280' };
+    const offTypeColors = { vacation: '#2563eb', sick_leave: 'var(--danger)', day_off: '#6b7280' };
     const offTypeIcon = { vacation: 'leaf', sick_leave: 'alertTriangle', day_off: 'leaf' };
 
     const offItems = dayOff.map(r => (
@@ -427,7 +427,7 @@ function ShiftDetailModal({ shift, configs, onClose, onSave, onDelete }) {
 
 function TimeOffDetailModal({ entry, isAdmin, onClose, onReview, onDelete }) {
   const { t: tr } = useLang();
-  const offTypeColors = { vacation: '#2563eb', sick_leave: '#dc2626', day_off: '#6b7280' };
+  const offTypeColors = { vacation: '#2563eb', sick_leave: 'var(--danger)', day_off: '#6b7280' };
   const offTypeIcon = { vacation: 'leaf', sick_leave: 'alertTriangle', day_off: 'leaf' };
   const color = offTypeColors[entry.off_type] || '#6b7280';
 
