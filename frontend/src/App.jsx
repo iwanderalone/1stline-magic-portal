@@ -229,7 +229,7 @@ export default function App() {
   );
 
   const nav = [
-    { id: 'home',      label: lang === 'ru' ? 'Главная'  : 'Home' },
+    { id: 'home',      label: tr('home') },
     { id: 'profile',   label: lang === 'ru' ? 'Профиль'  : 'My Profile' },
     { id: 'schedule',  label: tr('schedule') },
     { id: 'mail',      label: lang === 'ru' ? 'Почта'    : 'Mail' },
