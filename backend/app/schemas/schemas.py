@@ -48,11 +48,6 @@ class GroupCreate(BaseModel):
     description: Optional[str] = None
     color: str = Field(default="#6366f1", pattern=r"^#[0-9a-fA-F]{6}$")
 
-class GroupUpdate(BaseModel):
-    name: Optional[str] = None
-    description: Optional[str] = None
-    color: Optional[str] = None
-
 class GroupResponse(BaseOrmModel):
     id: UUID
     name: str
@@ -60,9 +55,6 @@ class GroupResponse(BaseOrmModel):
     color: str
     member_ids: list[UUID] = []
     created_at: datetime
-
-class GroupMemberUpdate(BaseModel):
-    user_ids: list[UUID]
 
 
 # ─── Users ───────────────────────────────────────────────
@@ -183,16 +175,6 @@ class UserResponse(BaseOrmModel):
 
 
 # ─── Shift Config ────────────────────────────────────────
-
-class ShiftConfigCreate(BaseModel):
-    shift_type: ShiftType
-    label: str = Field(..., min_length=1, max_length=50)
-    duration_hours: float = Field(default=12, gt=0, le=24)
-    default_start_time: Optional[time] = None
-    default_end_time: Optional[time] = None
-    color: str = Field(default="#3b82f6", pattern=r"^#[0-9a-fA-F]{6}$")
-    emoji: str = Field(default="☀️", max_length=4)
-    requires_location: bool = False
 
 class ShiftConfigUpdate(BaseModel):
     label: Optional[str] = None
@@ -332,16 +314,6 @@ class ActivityLogResponse(BaseOrmModel):
     created_at: datetime
 
 
-# ─── Admin / Test Notifications ─────────────────────────
-
-class TestNotificationRequest(BaseModel):
-    title: str = Field(default="Test Notification", min_length=1, max_length=255)
-    message: str = Field(default="This is a test notification from the admin panel.", min_length=1)
-    user_ids: Optional[list[UUID]] = None  # None = send to all active users
-    send_telegram: bool = False
-    telegram_chat_db_ids: Optional[list[UUID]] = None  # configured TelegramChat record IDs
-
-
 # ─── Telegram Chats ──────────────────────────────────────
 
 class TelegramChatCreate(BaseModel):
@@ -434,7 +406,6 @@ class EmailLogResponse(BaseOrmModel):
     sender: Optional[str]
     category: str
     rule_id: Optional[int] = None
-    body: Optional[str] = None
     telegram_sent: bool
     telegram_target_used: Optional[str]
     extracted_code: Optional[str]
@@ -445,6 +416,9 @@ class EmailLogResponse(BaseOrmModel):
     solver_comment: Optional[str] = None
     solved_at: Optional[datetime] = None
     comment_count: int = 0
+
+class EmailLogDetailResponse(EmailLogResponse):
+    body: Optional[str] = None
 
 
 # ─── Mail Routing Rules ───────────────────────────────────
@@ -520,129 +494,3 @@ class TelegramTemplateResponse(BaseOrmModel):
     updated_at: datetime
 
 
-# ─── Container Dashboard ─────────────────────────────────
-
-class VPSAgentCreate(BaseModel):
-    name: str = Field(..., min_length=1, max_length=100)
-    description: Optional[str] = None
-    alert_template_id: Optional[UUID] = None
-    disk_alert_threshold: int = Field(default=85, ge=50, le=99)
-    cpu_alert_threshold: int = Field(default=80, ge=1, le=100)
-    alert_flags: Optional[dict] = None
-
-class VPSAgentUpdate(BaseModel):
-    name: Optional[str] = Field(default=None, max_length=100)
-    description: Optional[str] = None
-    alert_template_id: Optional[UUID] = None
-    is_enabled: Optional[bool] = None
-    disk_alert_threshold: Optional[int] = Field(default=None, ge=50, le=99)
-    cpu_alert_threshold: Optional[int] = Field(default=None, ge=1, le=100)
-    alert_flags: Optional[dict] = None
-
-class VPSAgentResponse(BaseOrmModel):
-    id: UUID
-    name: str
-    description: Optional[str]
-    last_seen: Optional[datetime]
-    ip_address: Optional[str]
-    hostname: Optional[str]
-    is_enabled: bool
-    created_at: datetime
-    alert_template_id: Optional[UUID]
-    disk_alert_threshold: int = 85
-    cpu_alert_threshold: int = 80
-    alert_flags: Optional[dict] = None
-
-class VPSAgentRegisterResponse(VPSAgentResponse):
-    api_key: Optional[str] = None  # plain token shown once; never stored again
-
-class ContainerStateInput(BaseModel):
-    docker_id: str = Field(..., min_length=1, max_length=64)
-    name: str = Field(..., max_length=255)
-    image: str = Field(..., max_length=500)
-    status: str = Field(..., max_length=50)
-    state_detail: Optional[dict] = None
-    ports: Optional[list[dict]] = None
-    cpu_percent: Optional[float] = Field(default=None, ge=0, le=100)
-    mem_usage_bytes: Optional[int] = Field(default=None, ge=0)
-    mem_limit_bytes: Optional[int] = Field(default=None, ge=0)
-    logs: Optional[list[str]] = Field(default=None, max_length=50)
-
-class SystemMetrics(BaseModel):
-    cpu_percent: Optional[float] = Field(default=None, ge=0, le=100)
-    mem_used_bytes: Optional[int] = Field(default=None, ge=0)
-    mem_total_bytes: Optional[int] = Field(default=None, ge=0)
-    disk_used_bytes: Optional[int] = Field(default=None, ge=0)
-    disk_total_bytes: Optional[int] = Field(default=None, ge=0)
-    load_avg_1m: Optional[float] = Field(default=None, ge=0)
-    load_avg_5m: Optional[float] = Field(default=None, ge=0)
-    uptime_seconds: Optional[int] = Field(default=None, ge=0)
-
-class LoginEvent(BaseModel):
-    username: str = Field(..., max_length=100)
-    ip: Optional[str] = Field(default=None, max_length=45)
-    timestamp: Optional[str] = None
-    event_type: str = Field(default="login", max_length=20)
-
-class PendingUpdate(BaseModel):
-    package: str = Field(..., max_length=200)
-    current_version: Optional[str] = Field(default=None, max_length=100)
-    new_version: Optional[str] = Field(default=None, max_length=100)
-
-class SystemSnapshotResponse(BaseModel):
-    system: Optional[SystemMetrics] = None
-    recent_logins: list[LoginEvent] = []
-    pending_updates: list[PendingUpdate] = []
-    failed_services: list[str] = []
-    snapshot_at: Optional[str] = None
-
-class AgentReportRequest(BaseModel):
-    hostname: Optional[str] = Field(default=None, max_length=255)
-    ip_address: Optional[str] = Field(default=None, max_length=45)
-    containers: list[ContainerStateInput] = Field(default_factory=list, max_length=500)
-    system: Optional[SystemMetrics] = None
-    recent_logins: Optional[list[LoginEvent]] = None
-    pending_updates: Optional[list[PendingUpdate]] = None
-    failed_services: Optional[list[str]] = None
-
-class AgentReportResponse(BaseModel):
-    ok: bool = True
-
-class ContainerStateResponse(BaseOrmModel):
-    id: UUID
-    agent_id: UUID
-    docker_id: str
-    name: str
-    image: str
-    status: str
-    state_detail: Optional[dict] = None
-    ports: Optional[list] = None
-    cpu_percent: Optional[float] = None
-    mem_usage_bytes: Optional[int] = None
-    mem_limit_bytes: Optional[int] = None
-    last_logs: Optional[list] = None
-    reported_at: datetime
-    is_absent: bool
-    display_name: Optional[str] = None
-    description: Optional[str] = None
-    hosted_on: Optional[str] = None
-
-    @field_validator('state_detail', 'ports', 'last_logs', mode='before')
-    @classmethod
-    def _parse_json(cls, v: Any) -> Any:
-        if isinstance(v, str):
-            try:
-                return _json.loads(v)
-            except Exception:
-                return None
-        return v
-
-class ContainerMetaUpdate(BaseModel):
-    display_name: Optional[str] = Field(default=None, max_length=100)
-    description: Optional[str] = None
-    hosted_on: Optional[str] = Field(default=None, max_length=150)
-
-class AgentWithContainersResponse(VPSAgentResponse):
-    containers: list[ContainerStateResponse] = Field(default_factory=list)
-    online: bool = False
-    snapshot: Optional[SystemSnapshotResponse] = None

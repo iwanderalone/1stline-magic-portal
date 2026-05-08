@@ -4,7 +4,8 @@ import { Card, Button, Input, Badge, Toast, Select } from '../components/UI';
 import { useLang } from '../components/LangContext';
 import { Icon } from '../components/Icons';
 
-export default function ProfilePage({ user, onUpdate }) {
+export default function ProfilePage({ user, onUserUpdate }) {
+  const onUpdate = onUserUpdate;
   const { t: tr } = useLang();
   const [f, setF] = useState({ display_name: '', name_color: '', avatar_url: '', timezone: '', telegram_username: '' });
   const [otpQr, setOtpQr] = useState('');
@@ -59,7 +60,7 @@ export default function ProfilePage({ user, onUpdate }) {
 
   const getCode = async () => {
     try {
-      const r = await api('/auth/telegram-link-code', { method: 'POST' });
+      const r = await api('/users/me/telegram-link-code', { method: 'POST' });
       setLinkCode(r.code);
       try { await navigator.clipboard.writeText(`/link ${r.code}`); showToast('Code copied to clipboard'); } catch {}
     } catch (e) { showToast(e.message, 'error'); }
@@ -141,7 +142,7 @@ export default function ProfilePage({ user, onUpdate }) {
                 <Button variant="primary" icon="send" onClick={getCode}>{tr('getLinkCode')}</Button>
               </div>
             )}
-            {user?.telegram_chat_id && <Button variant="danger" icon="trash" onClick={() => api('/auth/telegram-unlink', { method: 'POST' }).then(() => onUpdate({ ...user, telegram_chat_id: null }))}>{tr('unlinkTelegram')}</Button>}
+            {user?.telegram_chat_id && <Button variant="danger" icon="trash" onClick={() => api('/users/me/telegram-unlink', { method: 'POST' }).then(() => onUpdate({ ...user, telegram_chat_id: null }))}>{tr('unlinkTelegram')}</Button>}
           </div>
         </div>
       </Card>

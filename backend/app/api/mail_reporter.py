@@ -13,7 +13,7 @@ from app.core.deps import get_current_user, require_admin, get_or_404
 from app.models.models import MailboxConfig, EmailLog, EmailComment, MailRoutingRule, User
 from app.schemas.schemas import (
     MailboxConfigCreate, MailboxConfigUpdate, MailboxConfigResponse, EmailLogResponse,
-    EmailLogUpdate, EmailCommentCreate, EmailCommentResponse,
+    EmailLogDetailResponse, EmailLogUpdate, EmailCommentCreate, EmailCommentResponse,
     MailRoutingRuleCreate, MailRoutingRuleUpdate, MailRoutingRuleResponse,
 )
 from app.services.mail_reporter_service import (
@@ -143,6 +143,23 @@ async def list_email_logs(
         data.comment_count = comment_counts.get(log.id, 0)
         out.append(data)
     return out
+
+
+@router.get("/emails/{email_id}", response_model=EmailLogDetailResponse)
+async def get_email_log(
+    email_id: int,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    log = await get_or_404(db, EmailLog, email_id)
+    mb = await db.get(MailboxConfig, log.mailbox_id)
+    count_result = await db.execute(
+        select(func.count(EmailComment.id)).where(EmailComment.email_id == log.id)
+    )
+    data = EmailLogDetailResponse.model_validate(log)
+    data.mailbox_email = mb.email if mb else "deleted"
+    data.comment_count = count_result.scalar() or 0
+    return data
 
 
 @router.patch("/emails/{email_id}", response_model=EmailLogResponse)
