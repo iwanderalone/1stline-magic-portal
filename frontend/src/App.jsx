@@ -311,11 +311,11 @@ export default function App() {
             <Icon name="workspace" size={13} />
           </span>
           <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
-            <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)', lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <div style={{ fontSize: 14.5, fontWeight: 600, color: 'var(--text)', lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               基盤
             </div>
             <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2, fontFamily: 'var(--font-mono)' }}>
-              dev
+              prod
             </div>
           </div>
           <Icon name="arrowUpDown" size={11} />

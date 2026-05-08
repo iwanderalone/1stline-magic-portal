@@ -105,15 +105,23 @@ export default function TimeOffPage({ user }) {
                         {r.status}
                       </Badge>
                     </div>
-                    {r.comment && <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '3px' }}>💬 {r.comment}</div>}
+                    {r.comment && (
+                      <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '3px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <Icon name="message" size={12} /> {r.comment}
+                      </div>
+                    )}
                     {r.admin_comment && <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '3px' }}>Admin: {r.admin_comment}</div>}
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                   {isAdmin && r.status === 'pending' && (
                     <>
-                      <Button size="sm" onClick={() => handleReview(r.id, 'approved')} style={{ background: 'var(--success)', color: '#fff' }}>✓ Approve</Button>
-                      <Button size="sm" variant="danger" onClick={() => handleReview(r.id, 'rejected')}>✗ Reject</Button>
+                      <Button size="sm" onClick={() => handleReview(r.id, 'approved')} style={{ background: 'var(--success)', color: '#fff', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <Icon name="check" size={14} /> Approve
+                      </Button>
+                      <Button size="sm" variant="danger" onClick={() => handleReview(r.id, 'rejected')} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <Icon name="x" size={14} /> Reject
+                      </Button>
                     </>
                   )}
                   {(isAdmin || r.status === 'pending') && (
