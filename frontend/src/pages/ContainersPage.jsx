@@ -159,8 +159,9 @@ function SystemPanel({ snapshot }) {
           {logins.length > 0 && (
             <button onClick={() => { setShowLogins(v => !v); setShowUpdates(false); setShowFailed(false); }}
               style={{ background: 'var(--accent-light)', border: '1px solid var(--border)', borderRadius: 20,
-                padding: '3px 10px', fontSize: 11, color: 'var(--accent)', cursor: 'pointer', fontWeight: 600 }}>
-              👤 {logins.length} recent login{logins.length !== 1 ? 's' : ''}
+                padding: '3px 10px', fontSize: 11, color: 'var(--accent)', cursor: 'pointer', fontWeight: 600,
+                display: 'flex', alignItems: 'center', gap: 4 }}>
+              <Icon name="user" size={12} /> {logins.length} recent login{logins.length !== 1 ? 's' : ''}
             </button>
           )}
         </div>
@@ -190,8 +191,8 @@ function SystemPanel({ snapshot }) {
         <div style={{ padding: '0 16px 12px' }}>
           <div style={{ background: 'var(--surface)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 'var(--radius-sm)', padding: '8px 12px' }}>
             {failed.map((svc, i) => (
-              <div key={i} style={{ fontSize: 12, fontFamily: 'var(--font-mono)', color: '#ef4444', padding: '2px 0' }}>
-                ● {svc}
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, fontFamily: 'var(--font-mono)', color: '#ef4444', padding: '2px 0' }}>
+                <StatusDot tone="#ef4444" size={6} /> {svc}
               </div>
             ))}
           </div>
@@ -253,8 +254,9 @@ function ContainerCard({ container, agentId, onEdit, onViewLogs }) {
           </button>
           <button onClick={() => onEdit(container)} title="Edit metadata"
             style={{ background: 'none', border: 'none', cursor: 'pointer',
-              fontSize: 12, color: 'var(--text-muted)', padding: '2px 4px', borderRadius: 4 }}>
-            ✏️
+              fontSize: 12, color: 'var(--text-muted)', padding: '2px 4px', borderRadius: 4,
+              display: 'flex', alignItems: 'center' }}>
+            <Icon name="edit" size={13} />
           </button>
         </div>
       </div>
@@ -268,10 +270,16 @@ function ContainerCard({ container, agentId, onEdit, onViewLogs }) {
               {(container.status || 'unknown').toLowerCase()}
             </Tag>
           </div>
-          {ports && <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>🔌 {ports}</span>}
+          {ports && (
+            <span style={{ fontSize: 10, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 3 }}>
+              <Icon name="zap" size={10} /> {ports}
+            </span>
+          )}
         </div>
         {container.hosted_on && (
-          <div style={{ fontSize: 10, color: 'var(--text-secondary)' }}>📍 {container.hosted_on}</div>
+          <div style={{ fontSize: 10, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 3 }}>
+            <Icon name="workspace" size={10} /> {container.hosted_on}
+          </div>
         )}
         {container.description && (
           <div style={{ fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.4,
@@ -452,8 +460,9 @@ function AgentSection({ agent, onEdit, onViewLogs, onDeleteAgent, onEditAgent })
         display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <button onClick={() => setCollapsed(v => !v)}
           style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13,
-            color: 'var(--text-muted)', padding: '2px 4px', borderRadius: 4, flexShrink: 0 }}>
-          {collapsed ? '▶' : '▼'}
+            color: 'var(--text-muted)', padding: '2px 4px', borderRadius: 4, flexShrink: 0,
+            display: 'flex', alignItems: 'center' }}>
+          <Icon name={collapsed ? 'chevronRight' : 'chevronDown'} size={14} />
         </button>
 
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -492,12 +501,14 @@ function AgentSection({ agent, onEdit, onViewLogs, onDeleteAgent, onEditAgent })
 
         <button onClick={() => setEditingAgent(true)}
           style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13,
-            color: 'var(--text-muted)', padding: '4px 6px', borderRadius: 4 }}
-          title="Edit agent settings">⚙️</button>
+            color: 'var(--text-muted)', padding: '4px 6px', borderRadius: 4,
+            display: 'flex', alignItems: 'center' }}
+          title="Edit agent settings"><Icon name="settings" size={14} /></button>
         <button onClick={() => { if (confirm(`Delete agent "${agent.name}"? This removes all container history.`)) onDeleteAgent(agent.id); }}
           style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13,
-            color: 'var(--text-muted)', padding: '4px 6px', borderRadius: 4 }}
-          title="Delete agent">🗑</button>
+            color: 'var(--text-muted)', padding: '4px 6px', borderRadius: 4,
+            display: 'flex', alignItems: 'center' }}
+          title="Delete agent"><Icon name="trash" size={14} /></button>
       </div>
 
       {editingAgent && (
@@ -590,7 +601,11 @@ function LogsOverlay({ container, onClose }) {
               ? new Date((container.reported_at.endsWith('Z') ? container.reported_at : container.reported_at + 'Z')).toLocaleString()
               : '—'}
           </div>
-          {logs && logs.length > 0 && <Button size="sm" variant="ghost" onClick={handleCopy}>{copied ? '✓ Copied' : <><Icon name="copy" size={13} /> Copy</>}</Button>}
+          {logs && logs.length > 0 && (
+            <Button size="sm" variant="ghost" onClick={handleCopy} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              {copied ? <><Icon name="check" size={13} /> Copied</> : <><Icon name="copy" size={13} /> Copy</>}
+            </Button>
+          )}
         </div>
         {!logs || logs.length === 0 ? (
           <EmptyState icon={<Icon name="copy" size={32} />} title="No logs captured" subtitle="The agent will include logs on the next report cycle" />
@@ -666,7 +681,9 @@ function NewKeyOverlay({ agentId, apiKey, onClose }) {
           </pre>
         </div>
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <Button variant="secondary" onClick={handleCopy}>{copied ? '✓ Copied!' : <><Icon name="copy" size={13} /> Copy Key</>}</Button>
+          <Button variant="secondary" onClick={handleCopy} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+            {copied ? <><Icon name="check" size={13} /> Copied!</> : <><Icon name="copy" size={13} /> Copy Key</>}
+          </Button>
           <Button variant="primary" onClick={onClose}>Done</Button>
         </div>
       </div>

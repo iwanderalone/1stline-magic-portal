@@ -64,6 +64,9 @@ const PATHS = {
   chevronRight: (
     <path d="M6 4l6 5-6 5" strokeLinecap="round" strokeLinejoin="round" />
   ),
+  chevronDown: (
+    <path d="M4 6.5l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
+  ),
   message: (
     <path d="M2 3h14a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H5l-3 2V4a1 1 0 0 1 1-1z" />
   ),
@@ -172,6 +175,17 @@ const PATHS = {
       <path d="M12 6V4a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h2" strokeLinecap="round" />
     </>
   ),
+  edit: (
+    <>
+      <path d="M11 2.5l3.5 3.5-9.5 9.5H2V12l9.5-9.5z" />
+      <path d="M9.5 4l3.5 3.5" strokeLinecap="round" />
+    </>
+  ),
+  trash: (
+    <>
+      <path d="M2 4h14M6 4V2a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M4 4v11a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V4M7 8v5M11 8v5" strokeLinecap="round" />
+    </>
+  ),
   star: (
     <path d="M9 2l1.9 5.8H17l-5 3.6 1.9 5.8L9 13.6l-4.9 3.6 1.9-5.8-5-3.6h6.1L9 2z" strokeLinejoin="round" />
   ),
@@ -213,6 +227,19 @@ const PATHS = {
     <>
       <circle cx="8" cy="8" r="5.5" />
       <path d="M13 13l3 3" strokeLinecap="round" />
+    </>
+  ),
+  inbox: (
+    <>
+      <path d="M15 10H11a2 2 0 0 0-4 0H3" strokeLinecap="round" />
+      <path d="M2.5 10l1.5-6h10l1.5 6M16 10v4a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-4" strokeLinejoin="round" />
+    </>
+  ),
+  archive: (
+    <>
+      <path d="M15 5H3v3h12V5z" strokeLinejoin="round" />
+      <path d="M14 8v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8" strokeLinejoin="round" />
+      <path d="M8 11h2" strokeLinecap="round" />
     </>
   ),
 };

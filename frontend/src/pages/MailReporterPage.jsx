@@ -1,26 +1,18 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { api } from '../api';
 import { useLang } from '../components/LangContext';
-import { Button, Card, Badge, Input, Overlay, Toast } from '../components/UI';
+import { Button, Card, Badge, Input, Overlay, Toast, EmptyState, Tag } from '../components/UI';
+import { Icon } from '../components/Icons';
 
-// Fallback for old logs that pre-date the rule_id column
-const CATEGORY_COLORS = {
-  adobe: 'red', onboarding: 'blue', offboarding: 'blue',
-  onboarding_offboarding: 'blue', yandex_support: 'yellow',
-  general: 'gray', filtered: 'gray',
-};
-const CATEGORY_LABELS = {
-  adobe: '🔴 Adobe', onboarding: '🔵 Onboarding', offboarding: '🔵 Offboarding',
-  onboarding_offboarding: '🔵 On+Offboarding (legacy)', yandex_support: '🟡 Yandex',
-  general: '📩 General', filtered: '⛔ Filtered',
-};
+// --- Constants & Config ---
 
 const EMAIL_STATUS_CONFIG = {
-  unchecked: { label: 'Unchecked', color: 'yellow' },
-  solved:    { label: 'Solved',    color: 'green'  },
-  on_pause:  { label: 'Paused',    color: 'blue'   },
-  blocked:   { label: 'Blocked',   color: 'red'    },
+  unchecked: { label: 'Unchecked', color: 'yellow', icon: 'clock' },
+  solved:    { label: 'Solved',    color: 'green',  icon: 'checkCircle' },
+  on_pause:  { label: 'Paused',    color: 'blue',   icon: 'play' },
+  blocked:   { label: 'Blocked',   color: 'red',    icon: 'alertTriangle' },
 };
+
 const STATUS_CYCLE = ['unchecked', 'on_pause', 'blocked', 'solved'];
 
 const MATCH_TYPE_LABELS = {
@@ -30,16 +22,20 @@ const MATCH_TYPE_LABELS = {
   sender_domain: 'Sender domain',
 };
 
+// --- Helpers ---
+
 function toUtc(dt) {
   if (!dt) return null;
   const s = dt.endsWith('Z') || dt.includes('+') ? dt : dt + 'Z';
   return new Date(s);
 }
+
 function fmtTime(dt) {
   const d = toUtc(dt);
   if (!d) return '—';
   return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
 }
+
 function fmtSince(dt) {
   if (!dt) return 'Never';
   const diff = Math.floor((Date.now() - toUtc(dt)) / 1000);
@@ -49,31 +45,6 @@ function fmtSince(dt) {
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
-// Hex color pill badge used for rule labels
-function RuleBadge({ rule }) {
-  if (!rule) return null;
-  return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center',
-      background: rule.color + '22',
-      color: rule.color,
-      border: `1px solid ${rule.color}44`,
-      borderRadius: '999px',
-      padding: '2px 10px',
-      fontSize: '12px',
-      fontWeight: 600,
-      whiteSpace: 'nowrap',
-      letterSpacing: '0.01em',
-    }}>
-      {rule.label}
-    </span>
-  );
-}
-
-const PAGE_SIZE = 10;
-
-// ─── Mailbox Modal ────────────────────────────────────────────────────
-
 // Parse combined "chat_id:thread_id" into parts
 function parseTelegramTarget(target) {
   if (!target) return { chatId: '', threadId: '' };
@@ -81,6 +52,7 @@ function parseTelegramTarget(target) {
   if (idx < 0) return { chatId: target.trim(), threadId: '' };
   return { chatId: target.slice(0, idx).trim(), threadId: target.slice(idx + 1).trim() };
 }
+
 function buildTelegramTarget(chatId, threadId) {
   const c = (chatId || '').trim();
   const t = (threadId || '').trim();
@@ -88,15 +60,36 @@ function buildTelegramTarget(chatId, threadId) {
   return t ? `${c}:${t}` : c;
 }
 
-// Reusable Telegram target fields with optional template picker
+// --- Components ---
+
+function RuleBadge({ rule, style }) {
+  if (!rule) return null;
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 6,
+      background: rule.color + '15',
+      color: rule.color,
+      border: `1px solid ${rule.color}33`,
+      borderRadius: 'var(--radius-pill)',
+      padding: '1px 10px',
+      fontSize: '11px',
+      fontWeight: 600,
+      whiteSpace: 'nowrap',
+      letterSpacing: '0.01em',
+      ...style,
+    }}>
+      <Icon name="hash" size={10} color={rule.color} />
+      {rule.label}
+    </span>
+  );
+}
+
 function TelegramTargetFields({ chatId, threadId, onChatId, onThreadId, templates }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
       {templates && templates.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          <label className="t-eyebrow">
-            From template
-          </label>
+          <label className="t-eyebrow">From template</label>
           <select
             style={{ padding: '8px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', fontSize: '13px', background: 'var(--surface-alt)', color: 'var(--text)', width: '100%', boxSizing: 'border-box', fontFamily: 'inherit' }}
             value=""
@@ -119,6 +112,8 @@ function TelegramTargetFields({ chatId, threadId, onChatId, onThreadId, template
     </div>
   );
 }
+
+// --- Modals ---
 
 function MailboxModal({ mailbox, onClose, onSave }) {
   const { t: tr } = useLang();
@@ -162,9 +157,7 @@ function MailboxModal({ mailbox, onClose, onSave }) {
         <Input label={isEdit ? 'New password (blank = keep current)' : tr('appPassword')} type="password" value={form.password} onChange={set('password')} required={!isEdit} />
         <Input label={tr('subjectFilter')} value={form.subject_filter} onChange={set('subject_filter')} />
         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          <label className="t-eyebrow">
-            Telegram target (default for this mailbox)
-          </label>
+          <label className="t-eyebrow">Telegram target (default for this mailbox)</label>
           <TelegramTargetFields chatId={tgChatId} threadId={tgThreadId} onChatId={setTgChatId} onThreadId={setTgThreadId} templates={templates} />
         </div>
         <Input label={tr('monitorSince')} type="date" value={form.monitor_since} onChange={set('monitor_since')} />
@@ -182,85 +175,6 @@ function MailboxModal({ mailbox, onClose, onSave }) {
   );
 }
 
-// ─── Comment History Modal ────────────────────────────────────────────
-
-function CommentHistoryModal({ email, onClose }) {
-  const [comments, setComments] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [text, setText] = useState('');
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    api(`/mail-reporter/emails/${email.id}/comments`)
-      .then(setComments).catch(() => {}).finally(() => setLoading(false));
-  }, [email.id]);
-
-  async function submit(e) {
-    e.preventDefault();
-    if (!text.trim()) return;
-    setSaving(true);
-    try {
-      const c = await api(`/mail-reporter/emails/${email.id}/comments`, {
-        method: 'POST', body: JSON.stringify({ text: text.trim() }),
-      });
-      setComments(prev => [...prev, c]);
-      setText('');
-    } catch (err) { /* ignore */ }
-    finally { setSaving(false); }
-  }
-
-  const taStyle = {
-    width: '100%', padding: '9px 12px', borderRadius: 'var(--radius-sm)',
-    border: '1px solid var(--border)', fontSize: '13px', resize: 'vertical',
-    fontFamily: 'inherit', boxSizing: 'border-box', background: 'var(--surface-alt)',
-    color: 'var(--text)', outline: 'none', lineHeight: 1.5,
-  };
-
-  return (
-    <Overlay onClose={onClose} title="Comment history">
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-        <div style={{ fontSize: '12px', color: 'var(--text-muted)', wordBreak: 'break-word', borderLeft: '3px solid var(--border)', paddingLeft: '10px' }}>
-          {email.subject || '(no subject)'}
-        </div>
-
-        {loading ? (
-          <div style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)', fontSize: '13px' }}>Loading…</div>
-        ) : comments.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)', fontSize: '13px' }}>No comments yet.</div>
-        ) : (
-          <div style={{ maxHeight: '300px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {comments.map(c => (
-              <div key={c.id} style={{
-                background: 'var(--surface-alt)', borderRadius: 'var(--radius-sm)',
-                padding: '10px 12px', border: '1px solid var(--border)',
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px', gap: '8px' }}>
-                  <span style={{ fontWeight: 700, fontSize: '12px', color: 'var(--accent)' }}>{c.username}</span>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{fmtTime(c.created_at)}</span>
-                </div>
-                <div style={{ fontSize: '13px', lineHeight: 1.55, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{c.text}</div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        <div style={{ borderTop: '1px solid var(--border)', paddingTop: '12px' }}>
-          <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            <textarea value={text} onChange={e => setText(e.target.value)} rows={3}
-              placeholder="Add a comment…" style={taStyle} required />
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-              <Button variant="ghost" type="button" onClick={onClose}>Close</Button>
-              <Button type="submit" disabled={saving || !text.trim()}>{saving ? '…' : 'Add comment'}</Button>
-            </div>
-          </form>
-        </div>
-      </div>
-    </Overlay>
-  );
-}
-
-// ─── Rule Modal ───────────────────────────────────────────────────────
-
 function RuleModal({ rule, onClose, onSave, mailboxes = [] }) {
   const isEdit = !!rule?.id;
   const isBuiltin = rule?.is_builtin ?? false;
@@ -272,7 +186,7 @@ function RuleModal({ rule, onClose, onSave, mailboxes = [] }) {
     name: rule?.name || '',
     match_type: rule?.match_type || 'keyword',
     match_values: rule?.match_values || '',
-    label: rule?.label || '📩 Custom',
+    label: rule?.label || 'Custom',
     color: rule?.color || '#6b7280',
     hashtag: rule?.hashtag || '',
     mention_users: rule?.mention_users || '',
@@ -316,168 +230,297 @@ function RuleModal({ rule, onClose, onSave, mailboxes = [] }) {
     finally { setSaving(false); }
   }
 
-  const lbl = {
-    fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)',
-    textTransform: 'uppercase', letterSpacing: '0.06em',
-  };
-  const inp = {
-    padding: '8px 10px', borderRadius: 'var(--radius-sm)',
-    border: '1px solid var(--border)', fontSize: '13px',
-    background: 'var(--surface-alt)', color: 'var(--text)',
-    width: '100%', boxSizing: 'border-box', fontFamily: 'inherit',
-    outline: 'none', transition: 'border-color 0.15s, box-shadow 0.15s',
-  };
-  const inpDisabled = { ...inp, opacity: 0.45, cursor: 'not-allowed' };
-  const field = { display: 'flex', flexDirection: 'column', gap: '5px' };
-
   return (
-    <Overlay onClose={onClose} title={isEdit ? `Edit Rule${isBuiltin ? (isGeneral ? ' — General (catch-all)' : ' — Built-in') : ''}` : 'Add Routing Rule'}>
+    <Overlay onClose={onClose} title={isEdit ? `Edit Rule${isBuiltin ? (isGeneral ? ' — General' : ' — Built-in') : ''}` : 'Add Routing Rule'}>
       <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-
-        {/* Info banner */}
         {isBuiltin && (
-          <div style={{
-            background: 'var(--surface-alt)', border: '1px solid var(--border)',
-            borderLeft: `3px solid ${isGeneral ? 'var(--text-muted)' : 'var(--accent)'}`,
-            borderRadius: 'var(--radius-sm)', padding: '9px 12px',
-            fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5,
-          }}>
-            {isGeneral
-              ? '🔒 General is the catch-all — it matches everything with no conditions. Only display settings can be edited.'
-              : '⚙️ Built-in rule — you can add extra keywords below to extend detection. The original hardcoded detection still runs as fallback.'}
+          <div style={{ background: 'var(--surface-alt)', border: '1px solid var(--border)', borderLeft: '3px solid var(--accent)', borderRadius: 'var(--radius-sm)', padding: '9px 12px', fontSize: '12px', color: 'var(--text-muted)' }}>
+            {isGeneral ? 'General is the catch-all rule.' : 'Built-in rule — you can add keywords to extend detection.'}
           </div>
         )}
-
-        {/* Name */}
-        <div style={field}>
-          <label style={lbl}>Name</label>
-          <input style={isGeneral ? inpDisabled : inp} value={form.name} onChange={set('name')} required disabled={isGeneral} />
-        </div>
-
-        {/* Label + Color */}
+        <Input label="Name" value={form.name} onChange={set('name')} required disabled={isGeneral} />
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-          <div style={field}>
-            <label style={lbl}>Label</label>
-            <input style={inp} value={form.label} onChange={set('label')} required placeholder="🔴 Adobe" />
-          </div>
-          <div style={field}>
-            <label style={lbl}>Color</label>
-            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-              <input type="color" value={form.color} onChange={set('color')} style={{
-                width: '36px', height: '34px', padding: '2px 3px',
-                border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
-                cursor: 'pointer', background: 'none',
-              }} />
-              <input style={{ ...inp, flex: 1 }} value={form.color} onChange={set('color')} placeholder="#6b7280" pattern="^#[0-9a-fA-F]{6}$" />
+          <Input label="Label" value={form.label} onChange={set('label')} required placeholder="Adobe" />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+            <label className="t-eyebrow">Color</label>
+            <div style={{ display: 'flex', gap: '6px' }}>
+              <input type="color" value={form.color} onChange={set('color')} style={{ width: '36px', height: '34px', padding: '2px', border: '1px solid var(--border)', background: 'none', cursor: 'pointer' }} />
+              <Input value={form.color} onChange={set('color')} placeholder="#6b7280" />
             </div>
           </div>
         </div>
-
-        {/* Badge preview */}
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: '10px',
-          padding: '9px 12px', background: 'var(--surface-alt)',
-          borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)',
-        }}>
-          <span className="t-eyebrow">Preview</span>
-          <RuleBadge rule={form} />
-        </div>
-
-        {/* Hashtag + Mentions */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-          <div style={field}>
-            <label style={lbl}>Hashtag(s)</label>
-            <input style={inp} value={form.hashtag} onChange={set('hashtag')} placeholder="#adobe #ticket" />
-          </div>
-          <div style={field}>
-            <label style={lbl}>Mentions</label>
-            <input style={inp} value={form.mention_users} onChange={set('mention_users')} placeholder="@alice @bob" />
-          </div>
+          <Input label="Hashtag" value={form.hashtag} onChange={set('hashtag')} placeholder="#adobe" />
+          <Input label="Mentions" value={form.mention_users} onChange={set('mention_users')} placeholder="@user" />
         </div>
-
-        {/* Telegram target override */}
-        <div style={field}>
-          <label style={lbl}>Telegram target override</label>
-          <TelegramTargetFields chatId={tgChatId} threadId={tgThreadId} onChatId={setTgChatId} onThreadId={setTgThreadId} templates={templates} />
-        </div>
-
-        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer' }}>
-          <input type="checkbox" checked={form.include_body} onChange={e => setForm(f => ({ ...f, include_body: e.target.checked }))} />
-          <span style={{ color: 'var(--text-secondary)' }}>Include email body in Telegram message</span>
-        </label>
-
-        {/* Mailbox scope — only for non-general rules */}
-        {!isGeneral && (
-          <div style={field}>
-            <label style={lbl}>Apply to mailbox</label>
-            <select style={inp} value={form.mailbox_id ?? ''} onChange={e => setForm(f => ({ ...f, mailbox_id: e.target.value ? Number(e.target.value) : null }))}>
-              <option value="">All mailboxes (global)</option>
-              {mailboxes.map(mb => <option key={mb.id} value={mb.id}>{mb.email}</option>)}
-            </select>
-          </div>
-        )}
-
-        {/* Match conditions — for custom rules AND non-general built-ins */}
+        <TelegramTargetFields chatId={tgChatId} threadId={tgThreadId} onChatId={setTgChatId} onThreadId={setTgThreadId} templates={templates} />
         {!matchLocked && (
           <>
-            <div style={{ borderTop: '1px solid var(--border)', margin: '2px 0' }} />
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', alignItems: 'flex-end' }}>
-              <div style={field}>
-                <label style={lbl}>Match type</label>
-                <select style={inp} value={form.match_type} onChange={set('match_type')} required={!isBuiltin}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                <label className="t-eyebrow">Match type</label>
+                <select style={{ padding: '8px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', background: 'var(--surface-alt)', color: 'var(--text)' }} value={form.match_type} onChange={set('match_type')}>
                   {Object.entries(MATCH_TYPE_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                 </select>
               </div>
-              <div style={field}>
-                <label style={lbl}>Priority</label>
-                <input
-                  type="number" style={inp}
-                  value={form.priority} onChange={set('priority')}
-                  min={1} max={999}
-                />
-              </div>
+              <Input label="Priority" type="number" value={form.priority} onChange={set('priority')} />
             </div>
-            <div style={field}>
-              <label style={lbl}>Match values (comma-separated)</label>
-              <input
-                style={inp}
-                value={form.match_values}
-                onChange={set('match_values')}
-                required={!isBuiltin}
-                placeholder="payment declined,keyword,phrase with spaces"
-              />
-              {isBuiltin && (
-                <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '3px' }}>
-                  Added on top of built-in detection — leave empty to rely on hardcoded logic only
-                </div>
-              )}
-            </div>
+            <Input label="Match values (comma-separated)" value={form.match_values} onChange={set('match_values')} placeholder="keyword1, keyword2" />
           </>
         )}
-
-        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer' }}>
-          <input
-            type="checkbox" checked={form.enabled}
-            onChange={e => setForm(f => ({ ...f, enabled: e.target.checked }))}
-            disabled={isGeneral}
-          />
-          <span style={{ color: isGeneral ? 'var(--text-muted)' : 'var(--text-secondary)' }}>
-            {isGeneral ? 'Enabled (General catch-all is always active)' : 'Enabled'}
-          </span>
-        </label>
-
-        {err && <div style={{ color: 'var(--danger)', fontSize: '12px', padding: '6px 10px', background: 'var(--danger-light)', borderRadius: 'var(--radius-sm)' }}>{err}</div>}
-
-        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', paddingTop: '4px' }}>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <Button variant="ghost" type="button" onClick={onClose}>Cancel</Button>
-          <Button type="submit" disabled={saving}>{saving ? '…' : (isEdit ? 'Save' : 'Add Rule')}</Button>
+          <Button type="submit" disabled={saving}>{saving ? '…' : 'Save'}</Button>
         </div>
       </form>
     </Overlay>
   );
 }
 
-// ─── Main Page ────────────────────────────────────────────────────────
+// --- Internal Page Modules ---
+
+function EmailSidebar({ counts, activeFolder, onSelect, rules, mailboxes }) {
+  const { t: tr } = useLang();
+
+  const Item = ({ id, label, icon, count, color }) => (
+    <button
+      onClick={() => onSelect(id)}
+      style={{
+        width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
+        background: activeFolder === id ? 'var(--accent-light)' : 'transparent',
+        border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
+        color: activeFolder === id ? 'var(--accent)' : 'var(--text-secondary)',
+        fontSize: '13px', fontWeight: activeFolder === id ? 600 : 500,
+        textAlign: 'left', transition: 'all 0.15s ease',
+      }}
+    >
+      <Icon name={icon} size={15} color={activeFolder === id ? 'var(--accent)' : color || 'var(--text-muted)'} />
+      <span style={{ flex: 1 }}>{label}</span>
+      {count > 0 && (
+        <span style={{
+          fontSize: '10px', background: activeFolder === id ? 'var(--accent)' : 'var(--surface-sunken)',
+          color: activeFolder === id ? '#fff' : 'var(--text-muted)',
+          padding: '1px 6px', borderRadius: '10px', minWidth: '18px', textAlign: 'center'
+        }}>{count}</span>
+      )}
+    </button>
+  );
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16, height: '100%' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <Item id="inbox" label="Inbox" icon="inbox" count={counts.inbox} />
+        <Item id="unrouted" label="Unrouted" icon="filter" count={counts.unrouted} />
+        <Item id="archive" label="Archive" icon="archive" />
+      </div>
+
+      <div style={{ height: 1, background: 'var(--border-light)', margin: '4px 0' }} />
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <div className="t-eyebrow" style={{ padding: '0 12px', marginBottom: 4 }}>Categories</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+          {rules.filter(r => r.builtin_key !== 'general').map(r => (
+            <Item key={r.id} id={`rule:${r.id}`} label={r.label} icon="hash" color={r.color} count={counts[`rule:${r.id}`]} />
+          ))}
+        </div>
+      </div>
+
+      {mailboxes.length > 0 && (
+        <div style={{ marginTop: 'auto', paddingTop: 12 }}>
+          <div className="t-eyebrow" style={{ padding: '0 12px', marginBottom: 6 }}>Mailboxes</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: '0 12px' }}>
+            {mailboxes.map(mb => (
+              <div key={mb.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '11px', color: 'var(--text-muted)' }}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: mb.enabled ? 'var(--success)' : 'var(--text-muted)' }} />
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{mb.email}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EmailList({ emails, activeId, onSelect, loading, ruleMap }) {
+  if (loading) return <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>Loading…</div>;
+  if (emails.length === 0) return <EmptyState icon={<Icon name="mail" size={32} />} title="No messages" subtitle="Try another folder or check back later" />;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column' }}>
+      {emails.map(em => {
+        const rule = em.rule_id ? ruleMap[em.rule_id] : null;
+        const status = EMAIL_STATUS_CONFIG[em.status] || EMAIL_STATUS_CONFIG.unchecked;
+        return (
+          <div
+            key={em.id}
+            onClick={() => onSelect(em)}
+            style={{
+              padding: '12px 16px', borderBottom: '1px solid var(--border-light)', cursor: 'pointer',
+              background: activeId === em.id ? 'var(--surface-alt)' : 'transparent',
+              transition: 'background 0.1s ease', position: 'relative',
+            }}
+          >
+            {activeId === em.id && <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: 'var(--accent)' }} />}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{fmtTime(em.received_at || em.created_at)}</div>
+              {em.comment_count > 0 && <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '10px', color: 'var(--accent)', fontWeight: 600 }}><Icon name="message" size={10} /> {em.comment_count}</div>}
+            </div>
+            <div style={{ fontWeight: 600, fontSize: '13.5px', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: activeId === em.id ? 'var(--text)' : 'var(--text-secondary)' }}>
+              {em.subject || '(no subject)'}
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 6 }}>
+              {em.sender}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {rule ? <RuleBadge rule={rule} style={{ fontSize: '10px', padding: '0 8px' }} /> : <Badge tone="gray" style={{ fontSize: '10px' }}>General</Badge>}
+              <span style={{ flex: 1 }} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, color: `var(--${status.color})`, fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                <Icon name={status.icon} size={10} />
+                {status.label}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function EmailDetail({ email, ruleMap, onStatusChange, onAddComment }) {
+  const [commentText, setCommentText] = useState('');
+  const [comments, setComments] = useState([]);
+  const [loadingComments, setLoadingComments] = useState(false);
+  const [savingComment, setSavingComment] = useState(false);
+  const [updatingStatus, setUpdatingStatus] = useState(false);
+
+  const loadComments = useCallback(async () => {
+    if (!email) return;
+    setLoadingComments(true);
+    try { const data = await api(`/mail-reporter/emails/${email.id}/comments`); setComments(data); }
+    catch {} finally { setLoadingComments(false); }
+  }, [email]);
+
+  useEffect(() => { loadComments(); }, [loadComments]);
+
+  if (!email) return <EmptyState icon={<Icon name="mail" size={48} />} title="Select an email" subtitle="Click on a message from the list to view its details and history" />;
+
+  const rule = email.rule_id ? ruleMap[email.id] : null;
+  const status = EMAIL_STATUS_CONFIG[email.status] || EMAIL_STATUS_CONFIG.unchecked;
+
+  const handleStatus = async (next) => {
+    setUpdatingStatus(true);
+    await onStatusChange(email, next);
+    setUpdatingStatus(false);
+  };
+
+  const handleComment = async (e) => {
+    e.preventDefault();
+    if (!commentText.trim()) return;
+    setSavingComment(true);
+    try {
+      const c = await onAddComment(email, commentText.trim());
+      setComments(prev => [...prev, c]);
+      setCommentText('');
+    } catch {}
+    finally { setSavingComment(false); }
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 20 }}>
+      {/* Header */}
+      <section>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          {email.rule_id ? <RuleBadge rule={ruleMap[email.rule_id]} /> : <Badge tone="gray">General</Badge>}
+          {email.extracted_code && <Tag>Code: {email.extracted_code}</Tag>}
+          <span style={{ flex: 1 }} />
+          <div style={{ display: 'flex', background: 'var(--surface-sunken)', padding: 2, borderRadius: 'var(--radius-sm)' }}>
+            {STATUS_CYCLE.map(s => {
+              const cfg = EMAIL_STATUS_CONFIG[s];
+              const isActive = email.status === s;
+              return (
+                <button
+                  key={s}
+                  onClick={() => handleStatus(s)}
+                  disabled={updatingStatus || isActive}
+                  style={{
+                    border: 'none', background: isActive ? 'var(--surface)' : 'transparent',
+                    color: isActive ? `var(--${cfg.color})` : 'var(--text-muted)',
+                    padding: '4px 10px', fontSize: '11px', fontWeight: 700,
+                    borderRadius: 'var(--radius-xs)', cursor: isActive ? 'default' : 'pointer',
+                    display: 'flex', alignItems: 'center', gap: 4, transition: 'all 0.1s ease',
+                    boxShadow: isActive ? 'var(--shadow-xs)' : 'none',
+                  }}
+                >
+                  <Icon name={cfg.icon} size={11} />
+                  {cfg.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <h2 style={{ fontSize: '20px', fontWeight: 700, lineHeight: 1.3, margin: '0 0 16px' }}>{email.subject || '(no subject)'}</h2>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '8px 16px', fontSize: '13px' }}>
+          <span className="t-eyebrow">From</span>
+          <span style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>{email.sender}</span>
+          <span className="t-eyebrow">Mailbox</span>
+          <span style={{ color: 'var(--text-secondary)' }}>{email.mailbox_email}</span>
+          <span className="t-eyebrow">Received</span>
+          <span style={{ color: 'var(--text-secondary)' }}>{new Date(email.received_at || email.created_at).toLocaleString()}</span>
+        </div>
+      </section>
+
+      <div style={{ height: 1, background: 'var(--border-light)' }} />
+
+      {/* Internal Activity */}
+      <section style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 16, minHeight: 0 }}>
+        <div className="t-eyebrow">Activity & Comments</div>
+
+        <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10, paddingRight: 4 }}>
+          {loadingComments ? (
+            <div style={{ color: 'var(--text-muted)', fontSize: '13px' }}>Loading history…</div>
+          ) : comments.length === 0 ? (
+            <div style={{ padding: '20px', background: 'var(--surface-alt)', borderRadius: 'var(--radius)', border: '1px dashed var(--border)', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
+              No comments yet.
+            </div>
+          ) : (
+            comments.map(c => (
+              <div key={c.id} style={{ background: 'var(--surface-alt)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '10px 12px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                  <span style={{ fontWeight: 700, fontSize: '12px', color: 'var(--accent)' }}>{c.username}</span>
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{fmtSince(c.created_at)}</span>
+                </div>
+                <div style={{ fontSize: '13px', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{c.text}</div>
+              </div>
+            ))
+          )}
+        </div>
+
+        <form onSubmit={handleComment} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <textarea
+            value={commentText}
+            onChange={e => setCommentText(e.target.value)}
+            placeholder="Write a comment…"
+            style={{
+              width: '100%', padding: '10px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)',
+              background: 'var(--surface-alt)', color: 'var(--text)', fontSize: '13px', fontFamily: 'inherit',
+              resize: 'none', minHeight: '80px', outline: 'none'
+            }}
+          />
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <Button type="submit" size="sm" disabled={savingComment || !commentText.trim()} icon="send">
+              {savingComment ? 'Saving…' : 'Post Comment'}
+            </Button>
+          </div>
+        </form>
+      </section>
+    </div>
+  );
+}
+
+// --- Main Page ---
 
 export default function MailReporterPage({ user }) {
   const { t: tr } = useLang();
@@ -488,515 +531,132 @@ export default function MailReporterPage({ user }) {
   const [rules, setRules] = useState([]);
   const [loading, setLoading] = useState(true);
   const [emailsLoading, setEmailsLoading] = useState(false);
-  const [page, setPage] = useState(0);
-  const [pendingStatus, setPendingStatus] = useState(null);
+  const [activeFolder, setActiveFolder] = useState('inbox');
+  const [selectedEmail, setSelectedEmail] = useState(null);
+  const [toast, setToast] = useState(null);
 
   const [showMailboxModal, setShowMailboxModal] = useState(false);
-  const [editMailbox, setEditMailbox] = useState(null);
-  const [confirmDelete, setConfirmDelete] = useState(null);
-  const [testResult, setTestResult] = useState(null);
-  const [toast, setToast] = useState(null);
-  const [commentTarget, setCommentTarget] = useState(null);
-
   const [showRuleModal, setShowRuleModal] = useState(false);
-  const [editRule, setEditRule] = useState(null);
-  const [confirmDeleteRule, setConfirmDeleteRule] = useState(null);
 
-  const showToast = (msg, type = 'success') => { setToast({ msg, type }); setTimeout(() => setToast(null), 3500); };
+  const ruleMap = useMemo(() => Object.fromEntries(rules.map(r => [r.id, r])), [rules]);
 
-  // Build rule lookup map keyed by id for fast badge lookup
-  const ruleMap = Object.fromEntries(rules.map(r => [r.id, r]));
+  const showToast = (message, type = 'success') => { setToast({ message, type }); setTimeout(() => setToast(null), 3500); };
 
-  const loadMailboxes = useCallback(async () => {
-    if (!isAdmin) return;
+  const loadData = useCallback(async () => {
     try {
-      const data = await api('/mail-reporter/mailboxes');
-      setMailboxes(data);
-    } catch (e) { showToast(e.message || 'Failed to load mailboxes', 'error'); }
-    finally { setLoading(false); }
-  }, [isAdmin]);
-
-  const loadEmails = useCallback(async () => {
-    setEmailsLoading(true);
-    try {
-      const data = await api('/mail-reporter/emails?limit=500');
-      setEmails(data);
-    } catch (e) { showToast(e.message || 'Failed to load emails', 'error'); }
-    finally { setEmailsLoading(false); }
-  }, []);
-
-  const loadRules = useCallback(async () => {
-    if (!isAdmin) return;
-    try {
-      const data = await api('/mail-reporter/rules');
-      setRules(data);
-    } catch (e) { showToast(e.message || 'Failed to load rules', 'error'); }
+      const [uEmails, uMailboxes, uRules] = await Promise.all([
+        api('/mail-reporter/emails?limit=500'),
+        isAdmin ? api('/mail-reporter/mailboxes') : Promise.resolve([]),
+        isAdmin ? api('/mail-reporter/rules') : Promise.resolve([]),
+      ]);
+      setEmails(uEmails || []);
+      setMailboxes(uMailboxes || []);
+      setRules(uRules || []);
+    } catch (e) {
+      showToast(e.message, 'error');
+    } finally {
+      setLoading(false);
+    }
   }, [isAdmin]);
 
   useEffect(() => {
-    if (isAdmin) { loadMailboxes(); loadRules(); }
-    else setLoading(false);
-    loadEmails();
-    const interval = setInterval(loadEmails, 30000);
-    return () => clearInterval(interval);
-  }, [loadMailboxes, loadEmails, loadRules, isAdmin]);
+    loadData();
+    const i = setInterval(loadData, 30000);
+    return () => clearInterval(i);
+  }, [loadData]);
 
-  // ── Mailbox actions ──────────────────────────────────────────────
+  const filteredEmails = useMemo(() => {
+    if (activeFolder === 'inbox') return emails.filter(e => e.status !== 'solved');
+    if (activeFolder === 'unrouted') return emails.filter(e => !e.rule_id && e.status !== 'solved');
+    if (activeFolder === 'archive') return emails.filter(e => e.status === 'solved');
+    if (activeFolder.startsWith('rule:')) {
+      const rid = parseInt(activeFolder.split(':')[1]);
+      return emails.filter(e => e.rule_id === rid);
+    }
+    return emails;
+  }, [emails, activeFolder]);
 
-  function onMailboxSaved(mb) {
-    setMailboxes(prev => {
-      const idx = prev.findIndex(m => m.id === mb.id);
-      if (idx >= 0) { const next = [...prev]; next[idx] = mb; return next; }
-      return [...prev, mb];
+  const counts = useMemo(() => {
+    const c = { inbox: 0, unrouted: 0 };
+    emails.forEach(e => {
+      if (e.status !== 'solved') {
+        c.inbox++;
+        if (!e.rule_id) c.unrouted++;
+        if (e.rule_id) {
+          const key = `rule:${e.rule_id}`;
+          c[key] = (c[key] || 0) + 1;
+        }
+      }
     });
-    setShowMailboxModal(false); setEditMailbox(null); showToast('Mailbox saved');
-  }
+    return c;
+  }, [emails]);
 
-  async function doDeleteMailbox(id) {
+  const handleStatusChange = async (email, status) => {
     try {
-      await api(`/mail-reporter/mailboxes/${id}`, { method: 'DELETE' });
-      setMailboxes(prev => prev.filter(m => m.id !== id));
-      showToast('Mailbox deleted');
-    } catch (e) { showToast(e.message || 'Delete failed', 'error'); }
-    setConfirmDelete(null);
-  }
+      const updated = await api(`/mail-reporter/emails/${email.id}`, { method: 'PATCH', body: JSON.stringify({ status }) });
+      setEmails(prev => prev.map(e => e.id === updated.id ? updated : e));
+      if (selectedEmail?.id === email.id) setSelectedEmail(updated);
+      showToast('Status updated');
+    } catch (e) { showToast(e.message, 'error'); }
+  };
 
-  async function testConn(mb) {
-    setTestResult({ id: mb.id, success: null, message: 'Testing…' });
-    try { const res = await api(`/mail-reporter/mailboxes/${mb.id}/test`, { method: 'POST' }); setTestResult({ id: mb.id, ...res }); }
-    catch (e) { setTestResult({ id: mb.id, success: false, message: e.message }); }
-  }
-
-  async function toggleEnabled(mb) {
+  const handleAddComment = async (email, text) => {
     try {
-      const updated = await api(`/mail-reporter/mailboxes/${mb.id}`, { method: 'PATCH', body: JSON.stringify({ enabled: !mb.enabled }) });
-      setMailboxes(prev => prev.map(m => m.id === updated.id ? updated : m));
-    } catch (e) { showToast(e.message || 'Update failed', 'error'); }
-  }
+      const c = await api(`/mail-reporter/emails/${email.id}/comments`, { method: 'POST', body: JSON.stringify({ text }) });
+      setEmails(prev => prev.map(e => e.id === email.id ? { ...e, comment_count: (e.comment_count || 0) + 1 } : e));
+      return c;
+    } catch (e) { showToast(e.message, 'error'); throw e; }
+  };
 
-  async function pollNow() {
+  const pollNow = async () => {
     try {
       await api('/mail-reporter/poll-now', { method: 'POST' });
-      showToast('Poll triggered — refreshing in 5s…');
-      setTimeout(() => { loadMailboxes(); loadEmails(); }, 5000);
-    } catch (e) { showToast(e.message || 'Failed', 'error'); }
-  }
-
-  async function clearLogs() {
-    if (!window.confirm('Delete all email logs? Emails will be re-processed on next poll.')) return;
-    try {
-      const res = await api('/mail-reporter/emails', { method: 'DELETE' });
-      setEmails([]); setPage(0); showToast(`Cleared ${res.deleted} log entries`);
-    } catch (e) { showToast(e.message || 'Failed', 'error'); }
-  }
-
-  async function setEmailStatus(em, status) {
-    try {
-      const updated = await api(`/mail-reporter/emails/${em.id}`, { method: 'PATCH', body: JSON.stringify({ status }) });
-      setEmails(prev => prev.map(e => e.id === updated.id ? updated : e));
-    } catch (e) { showToast(e.message || 'Failed', 'error'); }
-  }
-
-  // ── Rule actions ─────────────────────────────────────────────────
-
-  function onRuleSaved(r) {
-    setRules(prev => {
-      const idx = prev.findIndex(x => x.id === r.id);
-      if (idx >= 0) { const next = [...prev]; next[idx] = r; return next; }
-      return [...prev, r];
-    });
-    setShowRuleModal(false); setEditRule(null); showToast('Rule saved');
-  }
-
-  async function doDeleteRule(id) {
-    try {
-      await api(`/mail-reporter/rules/${id}`, { method: 'DELETE' });
-      setRules(prev => prev.filter(r => r.id !== id));
-      showToast('Rule deleted');
-    } catch (e) { showToast(e.message || 'Delete failed', 'error'); }
-    setConfirmDeleteRule(null);
-  }
-
-  async function moveRule(rule, direction) {
-    // All rules except the General catch-all participate in ordering
-    const movable = rules
-      .filter(r => r.builtin_key !== 'general')
-      .sort((a, b) => a.priority - b.priority || a.id - b.id);
-    const idx = movable.findIndex(r => r.id === rule.id);
-    const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
-    if (swapIdx < 0 || swapIdx >= movable.length) return;
-
-    // Swap positions then renumber sequentially (avoids equal-priority deadlocks)
-    const newOrder = [...movable];
-    [newOrder[idx], newOrder[swapIdx]] = [newOrder[swapIdx], newOrder[idx]];
-    const renumbered = newOrder.map((r, i) => ({ ...r, priority: (i + 1) * 10 }));
-    const changed = renumbered.filter((r, i) => r.priority !== movable[i].priority);
-
-    try {
-      const results = await Promise.all(
-        changed.map(r => api(`/mail-reporter/rules/${r.id}`, {
-          method: 'PATCH', body: JSON.stringify({ priority: r.priority }),
-        }))
-      );
-      setRules(prev => {
-        const next = [...prev];
-        results.forEach(r => { const i = next.findIndex(x => x.id === r.id); if (i >= 0) next[i] = r; });
-        return next;
-      });
-    } catch (e) { showToast(e.message || 'Reorder failed', 'error'); }
-  }
-
-  async function toggleRuleEnabled(rule) {
-    try {
-      const updated = await api(`/mail-reporter/rules/${rule.id}`, { method: 'PATCH', body: JSON.stringify({ enabled: !rule.enabled }) });
-      setRules(prev => prev.map(r => r.id === updated.id ? updated : r));
-    } catch (e) { showToast(e.message || 'Update failed', 'error'); }
-  }
-
-  // ── Shared styles ────────────────────────────────────────────────
-
-  const totalPages = Math.ceil(emails.length / PAGE_SIZE);
-  const pagedEmails = emails.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
-  const hasAdobeCode = emails.some(em => em.extracted_code);
-
-  const labelStyle = { fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' };
-  const cellStyle = { padding: '8px 10px', fontSize: '13px', borderBottom: '1px solid var(--border)', verticalAlign: 'middle' };
-  const headStyle = { ...cellStyle, fontSize: 11, fontWeight: 500, color: 'var(--text-muted)', padding: '8px 10px', background: 'var(--surface-alt)', borderBottom: '1px solid var(--border)' };
+      showToast('Sync triggered…');
+      setTimeout(loadData, 5000);
+    } catch (e) { showToast(e.message, 'error'); }
+  };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-      {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
+    <div style={{ height: 'calc(100vh - 120px)', display: 'flex', flexDirection: 'column', gap: 20 }}>
+      {toast && <Toast {...toast} onClose={() => setToast(null)} />}
 
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: '22px', fontWeight: 700 }}>{tr('mailReporter')}</h1>
-          <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-muted)' }}>IMAP monitoring → Telegram alerts</p>
+      {/* Action Bar */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>Mail</h1>
+          <Badge tone="blue" dot>{emails.length} logs</Badge>
         </div>
-        {isAdmin && (
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-            <Button variant="ghost" size="sm" onClick={pollNow}>{tr('pollNow')}</Button>
-            <Button size="sm" onClick={() => { setEditMailbox(null); setShowMailboxModal(true); }}>{tr('addMailbox')}</Button>
-          </div>
-        )}
+        <div style={{ display: 'flex', gap: 8 }}>
+          {isAdmin && <Button variant="secondary" size="sm" icon="settings" onClick={() => setShowRuleModal(true)}>Rules</Button>}
+          {isAdmin && <Button variant="secondary" size="sm" icon="plus" onClick={() => setShowMailboxModal(true)}>Mailbox</Button>}
+          <Button variant="primary" size="sm" icon="refresh" onClick={pollNow}>Sync IMAP</Button>
+        </div>
       </div>
 
-      {/* ── Mailboxes — admin only ─────────────────────────────── */}
-      {isAdmin && (
-        <Card>
-          <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontWeight: 600, fontSize: '15px' }}>{tr('mailboxes')}</span>
-            <span style={{ ...labelStyle }}>{mailboxes.length} configured</span>
-          </div>
-          {loading ? (
-            <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '14px' }}>{tr('loading')}</div>
-          ) : mailboxes.length === 0 ? (
-            <div style={{ padding: '40px', textAlign: 'center' }}>
-              <div style={{ fontSize: '28px', marginBottom: '8px' }}>📭</div>
-              <div style={{ fontWeight: 600, marginBottom: '4px' }}>{tr('noMailboxes')}</div>
-              <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>{tr('noMailboxesDesc')}</div>
-            </div>
-          ) : (
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr>{['Email', 'Filter', 'Telegram target', 'Last poll', 'Failures', 'Status', 'Actions'].map(h => (
-                    <th key={h} style={{ ...headStyle, textAlign: 'left' }}>{h}</th>
-                  ))}</tr>
-                </thead>
-                <tbody>
-                  {mailboxes.map(mb => (
-                    <tr key={mb.id} style={{ background: mb.consecutive_failures > 0 ? 'color-mix(in srgb, var(--danger) 5%, transparent)' : 'transparent' }}>
-                      <td style={cellStyle}>
-                        <div style={{ fontWeight: 500, fontFamily: 'var(--font-mono)', fontSize: '13px' }}>{mb.email}</div>
-                        {mb.last_error && <div style={{ fontSize: '11px', color: 'var(--danger)', marginTop: '3px', maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={mb.last_error}>⚠ {mb.last_error}</div>}
-                      </td>
-                      <td style={cellStyle}><code style={{ fontSize: '12px', background: 'var(--surface-alt)', padding: '2px 6px', borderRadius: '4px', border: '1px solid var(--border)' }}>{mb.subject_filter || 'NONE'}</code></td>
-                      <td style={cellStyle}>{mb.telegram_target ? <code style={{ fontFamily: 'var(--font-mono)', fontSize: '12px' }}>{mb.telegram_target}</code> : <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>global default</span>}</td>
-                      <td style={{ ...cellStyle, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>{fmtSince(mb.last_poll_at)}</td>
-                      <td style={cellStyle}>{mb.consecutive_failures > 0 ? <Badge color="red">{mb.consecutive_failures} fail{mb.consecutive_failures !== 1 ? 's' : ''}</Badge> : <Badge color="green">0</Badge>}</td>
-                      <td style={cellStyle}>
-                        <button onClick={() => toggleEnabled(mb)} className={`toggle-pill ${mb.enabled ? 'toggle-on' : 'toggle-off'}`}>
-                          {mb.enabled ? 'ON' : 'OFF'}
-                        </button>
-                      </td>
-                      <td style={{ ...cellStyle, whiteSpace: 'nowrap' }}>
-                        <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                          <Button size="sm" variant="ghost" onClick={() => testConn(mb)} style={{ fontSize: '11px', padding: '3px 8px' }}>{testResult?.id === mb.id && testResult.message === 'Testing…' ? '…' : '🔌'}</Button>
-                          <Button size="sm" variant="secondary" onClick={() => { setEditMailbox(mb); setShowMailboxModal(true); }} style={{ fontSize: '11px', padding: '3px 8px' }}>Edit</Button>
-                          <Button size="sm" variant="danger" onClick={() => setConfirmDelete(mb)} style={{ fontSize: '11px', padding: '3px 8px' }}>Del</Button>
-                        </div>
-                        {testResult?.id === mb.id && testResult.message !== 'Testing…' && (
-                          <div style={{ marginTop: '6px', fontSize: '11px', padding: '4px 8px', borderRadius: '6px', background: testResult.success ? 'var(--success-light)' : 'var(--danger-light)', color: testResult.success ? 'var(--success)' : 'var(--danger)', maxWidth: '200px' }}>
-                            {testResult.success ? '✓' : '✗'} {testResult.message}
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Card>
-      )}
-
-      {/* ── Routing Rules — admin only ─────────────────────────── */}
-      {isAdmin && (
-        <Card>
-          <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div>
-              <span style={{ fontWeight: 600, fontSize: '15px' }}>Routing Rules</span>
-              <span style={{ ...labelStyle, marginLeft: '10px' }}>{rules.filter(r => !r.is_builtin).length} custom · {rules.filter(r => r.is_builtin).length} built-in</span>
-            </div>
-            <Button size="sm" onClick={() => { setEditRule(null); setShowRuleModal(true); }}>+ Add Rule</Button>
-          </div>
-
-          {rules.length === 0 ? (
-            <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '14px' }}>No rules found — built-ins load on first startup.</div>
-          ) : (
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
-                <colgroup>
-                  <col style={{ width: '110px' }} />{/* Badge */}
-                  <col style={{ width: '140px' }} />{/* Name */}
-                  <col style={{ width: '130px' }} />{/* Mailbox scope */}
-                  <col style={{ width: '100px' }} />{/* Type */}
-                  <col />{/* Match values — fills remaining */}
-                  <col style={{ width: '110px' }} />{/* Mentions */}
-                  <col style={{ width: '46px' }} />{/* Body */}
-                  <col style={{ width: '46px' }} />{/* Prio */}
-                  <col style={{ width: '60px' }} />{/* Status */}
-                  <col style={{ width: '130px' }} />{/* Actions */}
-                </colgroup>
-                <thead>
-                  <tr>{['Badge', 'Name', 'Mailbox scope', 'Type', 'Match values', 'Mentions', 'Body', 'Prio', 'Status', 'Actions'].map(h => (
-                    <th key={h} style={{ ...headStyle, textAlign: 'left' }}>{h}</th>
-                  ))}</tr>
-                </thead>
-                <tbody>
-                  {rules.map(rule => (
-                    <tr key={rule.id}>
-                      <td style={{ ...cellStyle, overflow: 'hidden' }}><RuleBadge rule={rule} /></td>
-                      <td style={{ ...cellStyle }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '5px', overflow: 'hidden' }}>
-                          {rule.is_builtin && <span title={rule.builtin_key === 'general' ? 'General catch-all — cannot be deleted' : 'Built-in rule — re-created on server restart'} style={{ fontSize: '12px', flexShrink: 0 }}>{rule.builtin_key === 'general' ? '🔒' : '⚙️'}</span>}
-                          <span style={{ fontWeight: 500, fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rule.name}</span>
-                        </div>
-                        {rule.hashtag && <div style={{ fontSize: '11px', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rule.hashtag}</div>}
-                      </td>
-                      <td style={{ ...cellStyle, fontSize: '12px', maxWidth: '130px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {rule.is_builtin
-                          ? <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>all (built-in)</span>
-                          : rule.mailbox_id
-                            ? <span style={{ color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>{mailboxes.find(m => m.id === rule.mailbox_id)?.email || `#${rule.mailbox_id}`}</span>
-                            : <span style={{ color: 'var(--text-muted)' }}>all mailboxes</span>}
-                      </td>
-                      <td style={{ ...cellStyle, fontSize: '12px', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {rule.is_builtin && !rule.match_values
-                          ? <span style={{ fontStyle: 'italic' }}>built-in</span>
-                          : (MATCH_TYPE_LABELS[rule.match_type] || rule.match_type || <span style={{ fontStyle: 'italic' }}>built-in</span>)}
-                      </td>
-                      <td style={{ ...cellStyle, fontSize: '12px', overflow: 'hidden' }}>
-                        {rule.match_values
-                          ? <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', display: 'block', whiteSpace: 'nowrap' }} title={rule.match_values}>{rule.match_values}</span>
-                          : <span style={{ color: 'var(--border)' }}>—</span>}
-                      </td>
-                      <td style={{ ...cellStyle, fontSize: '12px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={rule.mention_users}>
-                        {rule.mention_users || <span style={{ color: 'var(--border)' }}>—</span>}
-                      </td>
-                      <td style={{ ...cellStyle, fontSize: '12px', textAlign: 'center' }}>{rule.include_body ? '✓' : '—'}</td>
-                      <td style={{ ...cellStyle, fontSize: '12px', textAlign: 'center', color: 'var(--text-muted)' }}>{rule.priority}</td>
-                      <td style={cellStyle}>
-                        <button
-                          onClick={() => !(rule.is_builtin && rule.builtin_key === 'general') && toggleRuleEnabled(rule)}
-                          disabled={rule.is_builtin && rule.builtin_key === 'general'}
-                          className={`toggle-pill ${rule.enabled ? 'toggle-on' : 'toggle-off'}`}
-                          style={{ opacity: (rule.is_builtin && rule.builtin_key === 'general') ? 0.5 : 1 }}
-                        >
-                          {rule.enabled ? 'ON' : 'OFF'}
-                        </button>
-                      </td>
-                      <td style={{ ...cellStyle, whiteSpace: 'nowrap' }}>
-                        <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-                          {rule.builtin_key !== 'general' && (() => {
-                            const movable = rules.filter(r => r.builtin_key !== 'general').sort((a, b) => a.priority - b.priority || a.id - b.id);
-                            const idx = movable.findIndex(r => r.id === rule.id);
-                            return (
-                              <>
-                                <Button size="sm" variant="ghost" disabled={idx === 0} onClick={() => moveRule(rule, 'up')} style={{ fontSize: '11px', padding: '3px 6px' }} title="Move up">↑</Button>
-                                <Button size="sm" variant="ghost" disabled={idx === movable.length - 1} onClick={() => moveRule(rule, 'down')} style={{ fontSize: '11px', padding: '3px 6px' }} title="Move down">↓</Button>
-                              </>
-                            );
-                          })()}
-                          <Button size="sm" variant="secondary" onClick={() => { setEditRule(rule); setShowRuleModal(true); }} style={{ fontSize: '11px', padding: '3px 8px' }}>Edit</Button>
-                          {rule.builtin_key !== 'general' && (
-                            <Button size="sm" variant="danger" onClick={() => setConfirmDeleteRule(rule)} style={{ fontSize: '11px', padding: '3px 8px' }}>Del</Button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Card>
-      )}
-
-      {/* ── Email Log ─────────────────────────────────────────────── */}
-      <Card>
-        <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <span style={{ fontWeight: 600, fontSize: '15px' }}>{tr('recentEmails')}</span>
-            <span style={{ ...labelStyle }}>{emails.length} entries</span>
-            {emailsLoading && <span style={{ ...labelStyle }}>⟳</span>}
-          </div>
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <Button variant="ghost" size="sm" onClick={loadEmails}>Refresh</Button>
-            {isAdmin && <Button variant="ghost" size="sm" onClick={clearLogs}>{tr('clearLogs')}</Button>}
-          </div>
+      <div style={{ flex: 1, display: 'flex', gap: 2, background: 'var(--border-light)', borderRadius: 'var(--radius)', overflow: 'hidden', border: '1px solid var(--border)' }}>
+        {/* Sidebar */}
+        <div style={{ width: 220, background: 'var(--surface)', padding: 12, overflowY: 'auto' }}>
+          <EmailSidebar counts={counts} activeFolder={activeFolder} onSelect={setActiveFolder} rules={rules} mailboxes={mailboxes} />
         </div>
 
-        {emails.length === 0 ? (
-          <div style={{ padding: '40px', textAlign: 'center' }}>
-            <div style={{ fontSize: '28px', marginBottom: '8px' }}>📬</div>
-            <div style={{ color: 'var(--text-muted)', fontSize: '14px' }}>{tr('noEmailLogs')}</div>
-          </div>
-        ) : (
-          <>
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
-                <colgroup>
-                  <col style={{ width: '100px' }} />{/* Time */}
-                  <col style={{ width: '140px' }} />{/* Mailbox */}
-                  <col style={{ width: '120px' }} />{/* From */}
-                  <col />{/* Subject — fills remaining */}
-                  <col style={{ width: '120px' }} />{/* Category */}
-                  {hasAdobeCode && <col style={{ width: '70px' }} />}{/* Code */}
-                  <col style={{ width: '85px' }} />{/* Status */}
-                  <col style={{ width: '150px' }} />{/* Actions */}
-                </colgroup>
-                <thead>
-                  <tr>
-                    {['Time', 'Mailbox', 'From', 'Subject', 'Category'].map(h => (
-                      <th key={h} style={{ ...headStyle, textAlign: 'left' }}>{h}</th>
-                    ))}
-                    {hasAdobeCode && <th style={{ ...headStyle, textAlign: 'left' }}>Code</th>}
-                    {['Status', 'Actions'].map(h => (
-                      <th key={h} style={{ ...headStyle, textAlign: 'left' }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {pagedEmails.map(em => {
-                    // Use rule_id → live rule for badge, fall back to static category map
-                    const rule = em.rule_id ? ruleMap[em.rule_id] : null;
-                    return (
-                      <tr key={em.id} style={{ opacity: em.skip_reason === 'filter' ? 0.5 : 1, background: em.status === 'solved' ? 'color-mix(in srgb, var(--success) 5%, transparent)' : 'transparent' }}>
-                        <td style={{ ...cellStyle, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden' }}>{fmtTime(em.received_at || em.created_at)}</td>
-                        <td style={{ ...cellStyle, fontSize: '12px', fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{em.mailbox_email || '—'}</td>
-                        <td style={{ ...cellStyle, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={em.sender}>{em.sender || '—'}</td>
-                        <td style={cellStyle}>
-                          <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={em.subject}>{em.subject || '—'}</div>
-                          {em.comment_count > 0 && <div style={{ fontSize: '11px', color: 'var(--accent)', marginTop: '2px' }}>💬 {em.comment_count}</div>}
-                        </td>
-                        <td style={cellStyle}>
-                          {rule
-                            ? <RuleBadge rule={rule} />
-                            : <Badge color={CATEGORY_COLORS[em.category] || 'gray'}>{CATEGORY_LABELS[em.category] || em.category}</Badge>
-                          }
-                        </td>
-                        {hasAdobeCode && <td style={cellStyle}>{em.extracted_code ? <code style={{ background: 'var(--surface-alt)', padding: '2px 6px', borderRadius: '4px', fontSize: '13px', fontWeight: 700, border: '1px solid var(--border)' }}>{em.extracted_code}</code> : <span style={{ color: 'var(--border)' }}>—</span>}</td>}
-                        <td style={cellStyle}>
-                          {(() => {
-                            const st = em.status || 'unchecked';
-                            const cfg = EMAIL_STATUS_CONFIG[st] || EMAIL_STATUS_CONFIG.unchecked;
-                            return (
-                              <span
-                                style={{ cursor: pendingStatus === em.id ? 'wait' : 'pointer', userSelect: 'none', opacity: pendingStatus === em.id ? 0.6 : 1 }}
-                                onClick={async () => {
-                                  if (pendingStatus === em.id) return;
-                                  const idx = STATUS_CYCLE.indexOf(st);
-                                  const next = STATUS_CYCLE[(idx + 1) % STATUS_CYCLE.length];
-                                  setPendingStatus(em.id);
-                                  try { await setEmailStatus(em, next); } finally { setPendingStatus(null); }
-                                }}
-                              >
-                                <Badge color={cfg.color} dot>{cfg.label}</Badge>
-                              </span>
-                            );
-                          })()}
-                        </td>
-                        <td style={{ ...cellStyle, whiteSpace: 'nowrap' }}>
-                          <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-                            <button
-                              onClick={() => setCommentTarget(em)}
-                              title={em.comment_count > 0 ? `${em.comment_count} comment${em.comment_count !== 1 ? 's' : ''}` : 'Add comment'}
-                              className="btn btn-ghost btn-sm"
-                              style={{ padding: '3px 8px', position: 'relative' }}
-                            >
-                              💬{em.comment_count > 0 && <span style={{ fontSize: '10px', marginLeft: '2px', color: 'var(--accent)' }}>{em.comment_count}</span>}
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+        {/* List */}
+        <div style={{ width: 380, background: 'var(--bg)', overflowY: 'auto', borderRight: '1px solid var(--border-light)' }}>
+          <EmailList emails={filteredEmails} activeId={selectedEmail?.id} onSelect={setSelectedEmail} loading={loading} ruleMap={ruleMap} />
+        </div>
 
-            {/* Pagination */}
-            {totalPages > 1 && (
-              <div style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid var(--border)' }}>
-                <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
-                  Page {page + 1} of {totalPages} · {emails.length} total
-                </span>
-                <div style={{ display: 'flex', gap: '4px' }}>
-                  <Button size="sm" variant="ghost" disabled={page === 0} onClick={() => setPage(0)}>«</Button>
-                  <Button size="sm" variant="ghost" disabled={page === 0} onClick={() => setPage(p => p - 1)}>‹</Button>
-                  {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
-                    const p = totalPages <= 7 ? i : Math.max(0, Math.min(page - 3, totalPages - 7)) + i;
-                    return (
-                      <Button key={p} size="sm" variant={p === page ? 'primary' : 'ghost'} onClick={() => setPage(p)}>
-                        {p + 1}
-                      </Button>
-                    );
-                  })}
-                  <Button size="sm" variant="ghost" disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)}>›</Button>
-                  <Button size="sm" variant="ghost" disabled={page >= totalPages - 1} onClick={() => setPage(totalPages - 1)}>»</Button>
-                </div>
-              </div>
-            )}
-          </>
-        )}
-      </Card>
+        {/* Detail */}
+        <div style={{ flex: 1, background: 'var(--surface)', padding: 24, overflowY: 'auto' }}>
+          <EmailDetail
+            email={selectedEmail}
+            ruleMap={ruleMap}
+            onStatusChange={handleStatusChange}
+            onAddComment={handleAddComment}
+          />
+        </div>
+      </div>
 
-      {/* ── Modals ───────────────────────────────────────────────── */}
-      {showMailboxModal && <MailboxModal mailbox={editMailbox} onClose={() => { setShowMailboxModal(false); setEditMailbox(null); }} onSave={onMailboxSaved} />}
-      {showRuleModal && <RuleModal rule={editRule} mailboxes={mailboxes} onClose={() => { setShowRuleModal(false); setEditRule(null); }} onSave={onRuleSaved} />}
-
-      {confirmDelete && (
-        <Overlay onClose={() => setConfirmDelete(null)} title="Delete Mailbox">
-          <p style={{ margin: '0 0 16px', fontSize: '14px' }}>Delete <strong>{confirmDelete.email}</strong>? This also removes all email logs for this mailbox.</p>
-          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-            <Button variant="ghost" onClick={() => setConfirmDelete(null)}>{tr('cancel')}</Button>
-            <Button variant="danger" onClick={() => doDeleteMailbox(confirmDelete.id)}>Delete</Button>
-          </div>
-        </Overlay>
-      )}
-
-      {confirmDeleteRule && (
-        <Overlay onClose={() => setConfirmDeleteRule(null)} title="Delete Rule">
-          <p style={{ margin: '0 0 16px', fontSize: '14px' }}>Delete rule <strong>{confirmDeleteRule.name}</strong>? Email logs referencing this rule will keep their category string but lose the colored badge.</p>
-          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-            <Button variant="ghost" onClick={() => setConfirmDeleteRule(null)}>Cancel</Button>
-            <Button variant="danger" onClick={() => doDeleteRule(confirmDeleteRule.id)}>Delete</Button>
-          </div>
-        </Overlay>
-      )}
-
-      {commentTarget && <CommentHistoryModal email={commentTarget} onClose={() => { setCommentTarget(null); loadEmails(); }} />}
+      {showMailboxModal && <MailboxModal onClose={() => setShowMailboxModal(false)} onSave={loadData} />}
+      {showRuleModal && <RuleModal mailboxes={mailboxes} onClose={() => setShowRuleModal(false)} onSave={loadData} />}
     </div>
   );
 }
