@@ -82,7 +82,7 @@ function MetricCard({ label, value, detail, icon, color = 'var(--accent)' }) {
     <Card style={{ minHeight: 126 }}>
       <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-          <div className="t-eyebrow">{label}</div>
+          <div className="t-eyebrow" style={{ marginTop: 2 }}>{label}</div>
           {icon && <Icon name={icon} size={17} color={color} />}
         </div>
         <div style={{ fontFamily: 'var(--font-display)', fontSize: 34, lineHeight: 1, color: 'var(--text)' }}>{value}</div>

@@ -257,7 +257,7 @@ export function Icon({ name, size = 18, color = 'currentColor', style }) {
       strokeWidth="1.75"
       strokeLinecap="round"
       strokeLinejoin="round"
-      style={{ flexShrink: 0, display: 'block', ...style }}
+      style={{ flexShrink: 0, ...style }}
     >
       {paths}
     </svg>
