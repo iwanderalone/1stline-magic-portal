@@ -434,6 +434,7 @@ class EmailLogResponse(BaseOrmModel):
     sender: Optional[str]
     category: str
     rule_id: Optional[int] = None
+    body: Optional[str] = None
     telegram_sent: bool
     telegram_target_used: Optional[str]
     extracted_code: Optional[str]
