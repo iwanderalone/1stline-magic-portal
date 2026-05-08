@@ -397,3 +397,39 @@ class TelegramTemplate(Base):
     updated_at  = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
+# ─── Runbooks ─────────────────────────────────────────────
+
+class Runbook(Base):
+    __tablename__ = "runbooks"
+
+    id          = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    slug        = Column(String(20), unique=True, nullable=False)   # rb-001
+    title       = Column(String(200), nullable=False)
+    category    = Column(String(50), nullable=False, default="general")
+    tags        = Column(Text, nullable=True)                        # JSON list of strings
+    when_to_use = Column(Text, nullable=True)
+    owner_id    = Column(Uuid(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    run_count   = Column(Integer, default=0, nullable=False)
+    created_at  = Column(DateTime(timezone=True), default=utcnow)
+    updated_at  = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+    owner = relationship("User", foreign_keys=[owner_id])
+    steps = relationship("RunbookStep", back_populates="runbook",
+                         cascade="all, delete-orphan",
+                         order_by="RunbookStep.order")
+
+
+class RunbookStep(Base):
+    __tablename__ = "runbook_steps"
+
+    id            = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    runbook_id    = Column(Uuid(as_uuid=True), ForeignKey("runbooks.id", ondelete="CASCADE"), nullable=False)
+    order         = Column(Integer, nullable=False)
+    title         = Column(String(200), nullable=False)
+    description   = Column(Text, nullable=True)
+    code_block    = Column(Text, nullable=True)
+    code_language = Column(String(20), nullable=True)   # shell, sql, python, ini, yaml, …
+
+    runbook = relationship("Runbook", back_populates="steps")
+
+

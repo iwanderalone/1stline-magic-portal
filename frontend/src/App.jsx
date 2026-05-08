@@ -13,6 +13,7 @@ import MailReporterPage from './pages/MailReporterPage';
 import TimeOffPage from './pages/TimeOffPage';
 import RemindersPage from './pages/RemindersPage';
 import HomePage from './pages/HomePage';
+import RunbooksPage from './pages/RunbooksPage';
 import NotificationsPanel from './components/NotificationsPanel';
 
 function useBreakpoint() {
@@ -172,7 +173,7 @@ export default function App() {
   });
 
   const isAdmin = (u) => u?.role === 'admin';
-  const PAGES = ['home', 'schedule', 'timeoff', 'profile', 'admin', 'mail', 'reminders'];
+  const PAGES = ['home', 'schedule', 'timeoff', 'profile', 'admin', 'mail', 'reminders', 'runbooks'];
   const pageFromLocation = () => {
     const rawHash = window.location.hash.replace(/^#\/?/, '');
     const rawPath = window.location.pathname.replace(/^\/+|\/+$/g, '').split('/')[0];
@@ -255,6 +256,7 @@ export default function App() {
     { id: 'profile',   label: lang === 'ru' ? 'Профиль'  : 'My Profile' },
     { id: 'schedule',  label: tr('schedule') },
     { id: 'mail',      label: lang === 'ru' ? 'Почта'    : 'Mail' },
+    { id: 'runbooks',  label: lang === 'ru' ? 'Рунбуки'  : 'Runbooks' },
     { id: 'timeoff',   label: tr('timeOff') },
     { id: 'reminders', label: tr('reminders') },
     ...(auth.user.role === 'admin' ? [
@@ -432,6 +434,7 @@ export default function App() {
               {page === 'profile'    && <ProfilePage user={auth.user} onUserUpdate={onUserUpdate} />}
               {page === 'admin'      && isAdmin(auth.user) && <AdminPage />}
               {page === 'mail'       && <MailReporterPage user={auth.user} />}
+              {page === 'runbooks'   && <RunbooksPage user={auth.user} />}
               {page === 'reminders'  && <RemindersPage user={auth.user} />}
             </div>
           </main>

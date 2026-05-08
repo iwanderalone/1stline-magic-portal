@@ -23,6 +23,7 @@ from app.core.security import hash_password
 from app.core.scheduler import scheduler
 from app.api import auth, users, groups, schedule, reminders, notifications, admin_config
 from app.api import mail_reporter
+from app.api import runbooks
 from app.workers.reminder_worker import check_and_fire_reminders
 from app.workers.shift_notification_scheduler import schedule_pending_notifications
 from app.workers.shift_notification_worker import check_shift_notifications
@@ -288,6 +289,7 @@ app.include_router(reminders.router, prefix="/api")
 app.include_router(notifications.router, prefix="/api")
 app.include_router(admin_config.router, prefix="/api")
 app.include_router(mail_reporter.router, prefix="/api")
+app.include_router(runbooks.router, prefix="/api")
 
 
 @app.exception_handler(Exception)
