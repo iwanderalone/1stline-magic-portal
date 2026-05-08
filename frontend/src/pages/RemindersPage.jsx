@@ -49,9 +49,13 @@ export default function RemindersPage() {
           <Button size="sm" onClick={() => setShowCreate(true)}>{tr('newReminder')}</Button>
         </div>
       </div>
-      <Card style={{ padding: '4px' }}>
+      <Card style={{ padding: '4px', minHeight: '300px', display: 'flex', flexDirection: 'column' }}>
         {loading ? <div style={{ padding: '48px', textAlign: 'center', color: 'var(--text-muted)' }}>{tr('loading')}</div> :
-          reminders.length === 0 ? <EmptyState icon={<Icon name="bell" size={32} />} title={tr('noReminders')} subtitle={tr('noRemindersDesc')} /> : (
+          reminders.length === 0 ? (
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <EmptyState icon={<Icon name="bell" size={32} />} title={tr('noReminders')} subtitle={tr('noRemindersDesc')} />
+            </div>
+          ) : (
           <div>{reminders.map((r, i) => (
             <div key={r.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', gap: '12px', flexWrap: 'wrap', borderBottom: i < reminders.length - 1 ? `1px solid var(--border-light)` : 'none' }}>
               <div style={{ flex: 1, minWidth: '200px' }}>

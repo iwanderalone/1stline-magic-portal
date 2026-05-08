@@ -271,8 +271,16 @@ export function Toast({ message, type = 'info', onClose }) {
 /* ─── EmptyState ───────────────────────────────────────────── */
 export function EmptyState({ icon, title, subtitle }) {
   return (
-    <div style={{ textAlign: 'center', padding: '56px 24px' }}>
-      {icon && <div style={{ marginBottom: 14, opacity: 0.5 }}>{icon}</div>}
+    <div style={{
+      textAlign: 'center', padding: '56px 24px',
+      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+    }}>
+      {icon && (
+        <div style={{
+          marginBottom: 14, opacity: 0.5,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>{icon}</div>
+      )}
       <div style={{ fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 5, fontSize: 14 }}>{title}</div>
       {subtitle && (
         <div style={{ fontSize: 12, color: 'var(--text-muted)', maxWidth: 280, margin: '0 auto', lineHeight: 1.6 }}>

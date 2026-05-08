@@ -344,7 +344,11 @@ function EmailSidebar({ counts, activeFolder, onSelect, rules, mailboxes }) {
 
 function EmailList({ emails, activeId, onSelect, loading, ruleMap }) {
   if (loading) return <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>Loading…</div>;
-  if (emails.length === 0) return <EmptyState icon={<Icon name="mail" size={32} />} title="No messages" subtitle="Try another folder or check back later" />;
+  if (emails.length === 0) return (
+    <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <EmptyState icon={<Icon name="mail" size={32} />} title="No messages" subtitle="Try another folder or check back later" />
+    </div>
+  );
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -403,7 +407,11 @@ function EmailDetail({ email, ruleMap, onStatusChange, onAddComment }) {
 
   useEffect(() => { loadComments(); }, [loadComments]);
 
-  if (!email) return <EmptyState icon={<Icon name="mail" size={48} />} title="Select an email" subtitle="Click on a message from the list to view its details and history" />;
+  if (!email) return (
+    <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <EmptyState icon={<Icon name="mail" size={48} />} title="Select an email" subtitle="Click on a message from the list to view its details and history" />
+    </div>
+  );
 
   const rule = email.rule_id ? ruleMap[email.id] : null;
   const status = EMAIL_STATUS_CONFIG[email.status] || EMAIL_STATUS_CONFIG.unchecked;
@@ -640,12 +648,12 @@ export default function MailReporterPage({ user }) {
         </div>
 
         {/* List */}
-        <div style={{ width: 380, background: 'var(--bg)', overflowY: 'auto', borderRight: '1px solid var(--border-light)' }}>
+        <div style={{ width: 380, background: 'var(--bg)', overflowY: 'auto', borderRight: '1px solid var(--border-light)', display: 'flex', flexDirection: 'column' }}>
           <EmailList emails={filteredEmails} activeId={selectedEmail?.id} onSelect={setSelectedEmail} loading={loading} ruleMap={ruleMap} />
         </div>
 
         {/* Detail */}
-        <div style={{ flex: 1, background: 'var(--surface)', padding: 24, overflowY: 'auto' }}>
+        <div style={{ flex: 1, background: 'var(--surface)', padding: 24, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
           <EmailDetail
             email={selectedEmail}
             ruleMap={ruleMap}
