@@ -9,5 +9,5 @@ COPY . .
 
 EXPOSE 8000
 
-# Use 2 workers; increase for more CPU cores (keep at 1 if SQLite WAL has contention)
+# Use 2 workers; increase for more CPU cores
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]

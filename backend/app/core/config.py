@@ -13,8 +13,8 @@ class Settings(BaseSettings):
     DEBUG: bool = False
     SECRET_KEY: str = "change-me-in-production-use-openssl-rand-hex-32"
 
-    # Database — defaults to SQLite (file-based, zero-config)
-    DATABASE_URL: str = "sqlite+aiosqlite:///./portal.db"
+    # Database — PostgreSQL (asyncpg)
+    DATABASE_URL: str = "postgresql+asyncpg://portal:portal@localhost:5432/portal"
 
     # JWT
     JWT_SECRET: str = "change-me-use-openssl-rand-hex-64"
