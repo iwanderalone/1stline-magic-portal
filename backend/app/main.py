@@ -19,7 +19,7 @@ configure_logging()
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
-from app.core.database import engine, Base, _is_sqlite, get_db  # _is_sqlite kept for test fixtures
+from app.core.database import engine, Base, get_db
 from app.core.security import hash_password
 from app.core.scheduler import scheduler
 from app.api import auth, users, groups, schedule, reminders, notifications, admin_config
@@ -162,15 +162,6 @@ async def _migrate_imap_passwords() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    if _is_sqlite:
-        # Local dev / tests: create tables directly from models
-        db_url = settings.DATABASE_URL
-        db_path = db_url.split("///", 1)[-1]
-        db_dir = os.path.dirname(db_path)
-        if db_dir:
-            os.makedirs(db_dir, exist_ok=True)
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
     await seed_defaults()
     await seed_routing_rules()
     await _migrate_imap_passwords()
@@ -334,5 +325,3 @@ async def public_config():
         "telegram_bot_username": settings.TELEGRAM_BOT_USERNAME,
         "portal_timezone": settings.PORTAL_TIMEZONE,
     }
-
-

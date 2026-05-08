@@ -353,7 +353,7 @@ def downgrade() -> None:
     op.drop_table('groups')
     op.drop_index(op.f('ix_users_username'), table_name='users')
     op.drop_table('users')
-    # Drop PostgreSQL enum types (PostgreSQL only — SQLite has no native enum types)
+    # Drop PostgreSQL enum types
     if op.get_context().dialect.name == "postgresql":
         op.execute("DROP TYPE IF EXISTS shifttype")
         op.execute("DROP TYPE IF EXISTS userrole")
