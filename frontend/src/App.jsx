@@ -37,9 +37,10 @@ const NAV_ICONS = {
   profile:    'user',
   schedule:   'calendar',
   mail:       'mail',
+  runbooks:   'bookmark',
   timeoff:    'sun',
   reminders:  'bell',
-  admin:      'settings',
+  admin:      'shield',
 };
 
 function TopBar({ isMobile, onMenu, mode, toggle, lang, toggleLang, unread, onNotif }) {
