@@ -494,3 +494,66 @@ class TelegramTemplateResponse(BaseOrmModel):
     updated_at: datetime
 
 
+# ─── Runbooks ────────────────────────────────────────────
+
+class RunbookStepCreate(BaseModel):
+    order: int = Field(..., ge=1)
+    title: str = Field(..., min_length=1, max_length=200)
+    description: Optional[str] = None
+    code_block: Optional[str] = None
+    code_language: Optional[str] = Field(default=None, max_length=20)
+
+class RunbookStepResponse(BaseOrmModel):
+    id: UUID
+    order: int
+    title: str
+    description: Optional[str]
+    code_block: Optional[str]
+    code_language: Optional[str]
+
+class RunbookCreate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=200)
+    category: str = Field(default="general", max_length=50)
+    tags: Optional[list[str]] = None
+    when_to_use: Optional[str] = None
+    owner_id: Optional[UUID] = None
+    steps: list[RunbookStepCreate] = []
+
+class RunbookUpdate(BaseModel):
+    title: Optional[str] = Field(default=None, max_length=200)
+    category: Optional[str] = Field(default=None, max_length=50)
+    tags: Optional[list[str]] = None
+    when_to_use: Optional[str] = None
+    owner_id: Optional[UUID] = None
+    steps: Optional[list[RunbookStepCreate]] = None
+
+class RunbookOwnerResponse(BaseOrmModel):
+    id: UUID
+    display_name: str
+    username: str
+
+class RunbookResponse(BaseOrmModel):
+    id: UUID
+    slug: str
+    title: str
+    category: str
+    tags: Optional[list[str]] = None
+    when_to_use: Optional[str]
+    owner: Optional[RunbookOwnerResponse]
+    run_count: int
+    steps: list[RunbookStepResponse] = []
+    created_at: datetime
+    updated_at: datetime
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def parse_tags(cls, v):
+        if isinstance(v, str):
+            import json
+            try:
+                return json.loads(v)
+            except Exception:
+                return []
+        return v
+
+
