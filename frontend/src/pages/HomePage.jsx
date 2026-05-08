@@ -3,6 +3,7 @@ import { api } from '../api';
 import { useLang } from '../components/LangContext';
 import { Avatar, Badge, Button, Card, EmptyState, Tag } from '../components/UI';
 import { Icon } from '../components/Icons';
+import EmailDetailModal from '../components/EmailDetailModal';
 
 const dateKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const addDays = (d, n) => {
@@ -121,6 +122,7 @@ export default function HomePage({ user, unread = 0, onNavigate }) {
   const [reminders, setReminders] = useState([]);
   const [shifts, setShifts] = useState([]);
   const [error, setError] = useState('');
+  const [openEmailId, setOpenEmailId] = useState(null);
 
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 30000);
@@ -243,14 +245,22 @@ export default function HomePage({ user, unread = 0, onNavigate }) {
           ) : (
             <div>
               {unresolvedEmails.slice(0, 5).map(email => (
-                <div key={email.id} style={{
-                  padding: '14px 18px',
-                  display: 'grid',
-                  gridTemplateColumns: 'auto minmax(0, 1fr) auto',
-                  gap: 12,
-                  alignItems: 'center',
-                  borderBottom: '1px solid var(--border-light)',
-                }}>
+                <div
+                  key={email.id}
+                  onClick={() => setOpenEmailId(email.id)}
+                  style={{
+                    padding: '14px 18px',
+                    display: 'grid',
+                    gridTemplateColumns: 'auto minmax(0, 1fr) auto',
+                    gap: 12,
+                    alignItems: 'center',
+                    borderBottom: '1px solid var(--border-light)',
+                    cursor: 'pointer',
+                    transition: 'background 120ms ease',
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-alt)'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                >
                   <StatusMarker status={email.status} />
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontWeight: 650, fontSize: 14.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -308,6 +318,14 @@ export default function HomePage({ user, unread = 0, onNavigate }) {
       </section>
 
       {error && <Tag style={{ color: 'var(--danger)' }}>{error}</Tag>}
+
+      {openEmailId && (
+        <EmailDetailModal
+          emailId={openEmailId}
+          onClose={() => setOpenEmailId(null)}
+          onChange={(updated) => setEmails(prev => prev.map(e => e.id === updated.id ? { ...e, ...updated } : e))}
+        />
+      )}
     </div>
   );
 }
