@@ -12,7 +12,7 @@ from app.core.deps import get_current_user
 from app.models.models import User
 from app.schemas.schemas import (
     LoginRequest, OTPVerifyRequest, OTPSetupResponse,
-    TokenResponse, RefreshRequest, UserResponse,
+    TokenResponse, RefreshRequest, UserResponse, ProfileUpdate,
 )
 from app.services.audit import log_action
 import secrets
@@ -215,4 +215,19 @@ async def refresh_tokens(req: RefreshRequest, request: Request, db: AsyncSession
 
 @router.get("/me", response_model=UserResponse)
 async def get_me(user: User = Depends(get_current_user)):
+    return UserResponse.model_validate(user)
+
+
+@router.patch("/me", response_model=UserResponse)
+async def update_me(
+    body: ProfileUpdate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Self-service profile update."""
+    updates = body.model_dump(exclude_unset=True)
+    for field, value in updates.items():
+        setattr(user, field, value)
+    await db.commit()
+    await db.refresh(user)
     return UserResponse.model_validate(user)

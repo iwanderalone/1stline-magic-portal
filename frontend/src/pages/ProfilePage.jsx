@@ -66,14 +66,9 @@ export default function ProfilePage({ user, onUpdate }) {
   };
 
   const TIMEZONES = [
-    { value: 'UTC', label: 'UTC' },
-    { value: 'Europe/London', label: 'London (GMT/BST)' },
     { value: 'Europe/Berlin', label: 'Berlin (CET/CEST)' },
     { value: 'Europe/Moscow', label: 'Moscow (MSK)' },
     { value: 'Asia/Dubai', label: 'Abu Dhabi (GST)' },
-    { value: 'Asia/Almaty', label: 'Almaty' },
-    { value: 'Asia/Singapore', label: 'Singapore' },
-    { value: 'America/New_York', label: 'New York (EST/EDT)' },
   ];
 
   return (
@@ -124,11 +119,11 @@ export default function ProfilePage({ user, onUpdate }) {
 
           <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer' }}>
-              <input type="checkbox" checked={user?.notify_shifts} onChange={e => save({ notify_shifts: e.target.checked })} />
+              <input type="checkbox" checked={user?.telegram_notify_shifts} onChange={e => save({ telegram_notify_shifts: e.target.checked })} />
               {tr('shiftNotifications')}
             </label>
             <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer' }}>
-              <input type="checkbox" checked={user?.notify_reminders} onChange={e => save({ notify_reminders: e.target.checked })} />
+              <input type="checkbox" checked={user?.telegram_notify_reminders} onChange={e => save({ telegram_notify_reminders: e.target.checked })} />
               {tr('reminderNotifications')}
             </label>
           </div>
