@@ -7,9 +7,9 @@ from app.core.database import get_db
 from app.core.deps import require_admin, get_or_404
 from app.models.models import User, ShiftConfig, TelegramChat, Notification, ActivityLog, ShiftType, Shift, TelegramTemplate
 from app.schemas.schemas import (
-    ShiftConfigCreate, ShiftConfigUpdate, ShiftConfigResponse,
+    ShiftConfigUpdate, ShiftConfigResponse,
     TelegramChatCreate, TelegramChatUpdate, TelegramChatResponse,
-    TestNotificationRequest, ActivityLogResponse,
+    ActivityLogResponse,
     TelegramTemplateCreate, TelegramTemplateUpdate, TelegramTemplateResponse,
 )
 from app.services.telegram_service import send_telegram_message, notify_shift_start, notify_office_roster
@@ -27,24 +27,6 @@ async def list_shift_configs(
 ):
     result = await db.execute(select(ShiftConfig).order_by(ShiftConfig.shift_type))
     return [ShiftConfigResponse.model_validate(c) for c in result.scalars().all()]
-
-
-@router.post("/shift-configs", response_model=ShiftConfigResponse)
-async def create_shift_config(
-    req: ShiftConfigCreate,
-    admin: User = Depends(require_admin),
-    db: AsyncSession = Depends(get_db),
-):
-    existing = await db.execute(
-        select(ShiftConfig).where(ShiftConfig.shift_type == req.shift_type)
-    )
-    if existing.scalar_one_or_none():
-        raise HTTPException(status_code=409, detail="Config for this shift type already exists")
-    config = ShiftConfig(**req.model_dump())
-    db.add(config)
-    await db.flush()
-    result = await db.execute(select(ShiftConfig).where(ShiftConfig.id == config.id))
-    return ShiftConfigResponse.model_validate(result.scalar_one())
 
 
 @router.patch("/shift-configs/{config_id}", response_model=ShiftConfigResponse)
@@ -106,61 +88,6 @@ async def delete_telegram_chat(
     chat = await get_or_404(db, TelegramChat, chat_db_id)
     await db.delete(chat)
     return {"deleted": True}
-
-
-# ─── Test Notifications ───────────────────────────────────
-
-@router.post("/test-notification")
-async def send_test_notification(
-    req: TestNotificationRequest,
-    admin: User = Depends(require_admin),
-    db: AsyncSession = Depends(get_db),
-):
-    """Send a test in-app (and optionally Telegram) notification to selected users and/or chats."""
-    query = select(User).where(User.is_active == True)
-    if req.user_ids:
-        query = query.where(User.id.in_(req.user_ids))
-    result = await db.execute(query)
-    users = result.scalars().all()
-
-    sent_in_app = 0
-    sent_telegram = 0
-    for user in users:
-        notif = Notification(
-            user_id=user.id,
-            title=req.title,
-            message=req.message,
-        )
-        db.add(notif)
-        sent_in_app += 1
-
-        if req.send_telegram and user.telegram_chat_id:
-            text = f"🔔 <b>{req.title}</b>\n\n{req.message}"
-            await send_telegram_message(user.telegram_chat_id, text)
-            sent_telegram += 1
-
-    # Send to configured Telegram group chats / channels
-    sent_channels = 0
-    if req.telegram_chat_db_ids:
-        chats_result = await db.execute(
-            select(TelegramChat).where(
-                TelegramChat.id.in_(req.telegram_chat_db_ids),
-                TelegramChat.is_active == True,
-            )
-        )
-        for chat in chats_result.scalars().all():
-            text = f"📢 <b>{req.title}</b>\n\n{req.message}"
-            if await send_telegram_message(chat.chat_id, text, chat.topic_id):
-                sent_channels += 1
-
-    await db.flush()
-    details = f"'{req.title}' → {sent_in_app} users"
-    if sent_telegram:
-        details += f", {sent_telegram} via Telegram"
-    if sent_channels:
-        details += f", {sent_channels} channels"
-    await log_action(db, admin, "test_notification_sent", details)
-    return {"sent_in_app": sent_in_app, "sent_telegram": sent_telegram, "sent_channels": sent_channels}
 
 
 # ─── Test Telegram shift notification ────────────────────

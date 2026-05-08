@@ -613,11 +613,22 @@ export default function MailReporterPage({ user }) {
     return c;
   }, [emails]);
 
+  const pickEmail = async (email) => {
+    if (!email) { setSelectedEmail(null); return; }
+    setSelectedEmail(email);
+    try {
+      const full = await api(`/mail-reporter/emails/${email.id}`);
+      setSelectedEmail(prev => prev?.id === full.id ? full : prev);
+    } catch (e) { showToast(e.message, 'error'); }
+  };
+
   const handleStatusChange = async (email, status) => {
     try {
       const updated = await api(`/mail-reporter/emails/${email.id}`, { method: 'PATCH', body: JSON.stringify({ status }) });
       setEmails(prev => prev.map(e => e.id === updated.id ? updated : e));
-      if (selectedEmail?.id === email.id) setSelectedEmail(updated);
+      if (selectedEmail?.id === email.id) {
+        setSelectedEmail(prev => ({ ...updated, body: prev?.body }));
+      }
       showToast('Status updated');
     } catch (e) { showToast(e.message, 'error'); }
   };
@@ -663,7 +674,7 @@ export default function MailReporterPage({ user }) {
 
         {/* List */}
         <div style={{ width: 380, background: 'var(--bg)', overflowY: 'auto', borderRight: '1px solid var(--border-light)', display: 'flex', flexDirection: 'column' }}>
-          <EmailList emails={filteredEmails} activeId={selectedEmail?.id} onSelect={setSelectedEmail} loading={loading} ruleMap={ruleMap} />
+          <EmailList emails={filteredEmails} activeId={selectedEmail?.id} onSelect={pickEmail} loading={loading} ruleMap={ruleMap} />
         </div>
 
         {/* Detail */}

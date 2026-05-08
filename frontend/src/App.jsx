@@ -12,7 +12,6 @@ import ProfilePage from './pages/ProfilePage';
 import MailReporterPage from './pages/MailReporterPage';
 import TimeOffPage from './pages/TimeOffPage';
 import RemindersPage from './pages/RemindersPage';
-import ContainersPage from './pages/ContainersPage';
 import HomePage from './pages/HomePage';
 import NotificationsPanel from './components/NotificationsPanel';
 
@@ -39,7 +38,6 @@ const NAV_ICONS = {
   mail:       'mail',
   timeoff:    'sun',
   reminders:  'bell',
-  containers: 'server',
   admin:      'settings',
 };
 
@@ -174,7 +172,7 @@ export default function App() {
   });
 
   const isAdmin = (u) => u?.role === 'admin';
-  const PAGES = ['home', 'schedule', 'timeoff', 'profile', 'admin', 'mail', 'reminders', 'containers'];
+  const PAGES = ['home', 'schedule', 'timeoff', 'profile', 'admin', 'mail', 'reminders'];
   const pageFromLocation = () => {
     const rawHash = window.location.hash.replace(/^#\/?/, '');
     const rawPath = window.location.pathname.replace(/^\/+|\/+$/g, '').split('/')[0];
@@ -196,14 +194,14 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const navigate = (p) => {
-    if ((p === 'admin' || p === 'containers') && !isAdmin(auth.user)) return;
+    if (p === 'admin' && !isAdmin(auth.user)) return;
     setPage(p);
     window.history.pushState(null, '', `/#${p}`);
     setSidebarOpen(false);
   };
 
   useEffect(() => {
-    if ((page === 'admin' || page === 'containers') && !isAdmin(auth.user)) {
+    if (page === 'admin' && !isAdmin(auth.user)) {
       setPage('home');
       window.history.replaceState(null, '', '/#home');
       setSidebarOpen(false);
@@ -213,7 +211,7 @@ export default function App() {
   useEffect(() => {
     const syncRoute = () => {
       const nextPage = pageFromLocation();
-      if ((nextPage === 'admin' || nextPage === 'containers') && !isAdmin(auth.user)) {
+      if (nextPage === 'admin' && !isAdmin(auth.user)) {
         setPage('home');
         window.history.replaceState(null, '', '/#home');
         return;
@@ -260,7 +258,6 @@ export default function App() {
     { id: 'timeoff',   label: tr('timeOff') },
     { id: 'reminders', label: tr('reminders') },
     ...(auth.user.role === 'admin' ? [
-      { id: 'containers', label: lang === 'ru' ? 'Серверы' : 'Containers' },
       { id: 'admin',      label: tr('admin') },
     ] : []),
   ];
@@ -370,7 +367,7 @@ export default function App() {
             fontWeight: 700, color: auth.user.name_color || 'var(--accent)', fontSize: 12,
             border: `1px solid ${(auth.user.name_color || 'var(--accent)') + '44'}`,
           }}>
-            {auth.user.display_name[0].toUpperCase()}
+            {(auth.user.display_name || auth.user.username || '?')[0].toUpperCase()}
           </div>
           {!isRail && (
             <div style={{ flex: 1, minWidth: 0 }}>
@@ -436,7 +433,6 @@ export default function App() {
               {page === 'admin'      && isAdmin(auth.user) && <AdminPage />}
               {page === 'mail'       && <MailReporterPage user={auth.user} />}
               {page === 'reminders'  && <RemindersPage user={auth.user} />}
-              {page === 'containers' && isAdmin(auth.user) && <ContainersPage />}
             </div>
           </main>
         </div>

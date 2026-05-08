@@ -105,32 +105,7 @@ async def create_user(
 # ─── Self-service (me) routes come BEFORE /{user_id} routes ─────────────────
 # FastAPI matches routes in registration order; static paths must be registered
 # before parameterised ones to prevent /me being swallowed by /{user_id}.
-
-@router.get("/me/profile", response_model=UserResponse)
-async def get_profile(
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    result = await db.execute(
-        select(User).options(selectinload(User.groups)).where(User.id == user.id)
-    )
-    return user_to_response(result.scalar_one())
-
-
-@router.patch("/me/profile", response_model=UserResponse)
-async def update_profile(
-    req: ProfileUpdate,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    for field, value in req.model_dump(exclude_unset=True).items():
-        setattr(user, field, value)
-    await db.flush()
-    result = await db.execute(
-        select(User).options(selectinload(User.groups)).where(User.id == user.id)
-    )
-    return user_to_response(result.scalar_one())
-
+# Profile read/update is served by /api/auth/me (auth.py).
 
 @router.post("/me/telegram-link-code")
 async def self_telegram_link_code(
