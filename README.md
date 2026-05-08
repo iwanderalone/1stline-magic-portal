@@ -39,7 +39,7 @@ A lightweight internal operations portal for first-line support teams. Provides 
    └──────────────┘
 ```
 
-**Docker Compose runs PostgreSQL** (asyncpg driver, `postgres:16-alpine`). Schema is managed by Alembic — `alembic upgrade head` runs automatically before uvicorn starts. For local development outside Docker, SQLite via aiosqlite is still supported (set `DATABASE_URL=sqlite+aiosqlite:///./portal.db`).
+**Docker Compose runs PostgreSQL** (asyncpg driver, `postgres:16-alpine`). Schema is managed by Alembic — `alembic upgrade head` runs automatically before uvicorn starts.
 
 ## Quick Start
 
@@ -280,7 +280,7 @@ GET    /api/config                           # Public config (Telegram bot usern
 
 ## Database Schema
 
-PostgreSQL in Docker (named volume `postgres_data`). Schema managed by Alembic — `alembic upgrade head` runs on every `docker compose up` before the API starts. For local development with SQLite, schema is created via `Base.metadata.create_all` on startup.
+PostgreSQL in Docker (named volume `postgres_data`). Schema managed by Alembic — `alembic upgrade head` runs on every `docker compose up` before the API starts.
 
 **Tables:**
 
@@ -327,7 +327,7 @@ PostgreSQL in Docker (named volume `postgres_data`). Schema managed by Alembic �
 |------------|---------------------------------------------------------|-----------|
 | Frontend   | React, Vite, CSS-in-JS (no UI library)                 | 18 / 5    |
 | Backend    | FastAPI, Python                                         | 0.115 / 3.12 |
-| Database   | PostgreSQL 16 (Docker) / SQLite (local dev)             | asyncpg 0.29 |
+| Database   | PostgreSQL 16 (Docker)                                | asyncpg 0.29 |
 | ORM        | SQLAlchemy async                                        | 2.0.35    |
 | Auth       | python-jose (JWT HS256), passlib/bcrypt, pyotp (TOTP)  | —         |
 | Workers    | APScheduler asyncio (reminders every 30s, shift crons) | 3.10.4    |
@@ -357,7 +357,7 @@ PostgreSQL in Docker (named volume `postgres_data`). Schema managed by Alembic �
 | `MAIL_DEFAULT_CHAT_ID`  | no       | *(empty)*                            | Fallback Telegram chat_id if mailbox has no target |
 | `MAIL_DEFAULT_THREAD_ID`| no       | *(empty)*                            | Fallback Telegram thread/topic id              |
 
-In Docker Compose `DATABASE_URL` is set to `postgresql+asyncpg://portal:<pw>@db:5432/portal`. For local development outside Docker, set `DATABASE_URL=sqlite+aiosqlite:///./portal.db` to use SQLite instead.
+In Docker Compose `DATABASE_URL` is set to `postgresql+asyncpg://portal:<pw>@db:5432/portal`. For local development outside Docker, set `postgresql+asyncpg://portal:<password>@localhost:5432/portal` instead.
 
 ## Backend Structure
 
@@ -371,7 +371,7 @@ backend/
 │   ├── main.py                     # FastAPI app, lifespan (DB init + seed + migrations + scheduler)
 │   ├── core/
 │   │   ├── config.py               # Settings via pydantic-settings; startup secret validation
-│   │   ├── database.py             # Async SQLAlchemy engine (PostgreSQL/asyncpg); SQLite WAL pragmas for local dev; get_db() dependency
+│   │   ├── database.py             # Async SQLAlchemy engine (PostgreSQL/asyncpg); get_db() dependency
 │   │   ├── deps.py                 # get_current_user, require_admin, get_or_404 dependencies
 │   │   ├── security.py             # hash_password, verify_password, create/decode JWT tokens
 │   │   ├── scheduler.py            # Shared AsyncIOScheduler instance
@@ -399,7 +399,7 @@ backend/
 │   │   ├── shift_notification_worker.py # 60s safety-net: fires shift notifications based on UTC clock
 │   │   └── shift_notification_scheduler.py # On startup/publish: registers precise APScheduler 'date' jobs
 │   └── tests/
-│       ├── conftest.py             # pytest fixtures: in-memory SQLite, async httpx client
+│       ├── conftest.py             # pytest fixtures: PostgreSQL engine, async httpx client
 │       ├── test_health.py          # /api/health smoke + DB check
 │       ├── test_config.py          # Secret validation tests
 │       ├── test_encryption.py      # Fernet roundtrip tests
@@ -436,3 +436,4 @@ frontend/src/
 **Navigation (sidebar):** My Profile · Schedule · Mail · Time Off · Admin *(admin only)*
 
 **Routing:** No React Router. `page` state in `App.jsx` synced with `window.location.hash`. On refresh, hash is read to restore the current page.
+current page.

@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from app.main import app
 from app.core.database import Base, get_db
 
-TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
+TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "postgresql+asyncpg://portal:portal@localhost:5432/portal_test")
 
 @pytest.fixture(scope="function")
 async def db_engine():

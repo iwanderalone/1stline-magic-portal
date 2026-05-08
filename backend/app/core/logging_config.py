@@ -41,6 +41,5 @@ def configure_logging() -> None:
 
     # Silence noisy third-party loggers
     logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
-    logging.getLogger("aiosqlite").setLevel(logging.WARNING)
     logging.getLogger("apscheduler").setLevel(logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)

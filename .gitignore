@@ -43,8 +43,14 @@ agents/**/logs/
 *.log
 logs/
 
-# Claude Code AI assistant (personal memory, local instructions, planning docs)
+# AI Assistants (Claude, Cursor, Windsurf, etc.)
 .claude/
+.cursor/
+.windsurf/
+.codeium/
+.aider*
 CLAUDE.md
 docs/superpowers/
 codex-plans/
+memory/
+
