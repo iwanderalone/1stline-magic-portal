@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { api } from '../api';
 import { useLang } from '../components/LangContext';
 import { Card, Button, Input, Badge, EmptyState, Overlay, Toast, Select } from '../components/UI';
+import { Icon } from '../components/Icons';
 
 export default function RemindersPage() {
   const { t: tr } = useLang();
@@ -50,7 +51,7 @@ export default function RemindersPage() {
       </div>
       <Card style={{ padding: '4px' }}>
         {loading ? <div style={{ padding: '48px', textAlign: 'center', color: 'var(--text-muted)' }}>{tr('loading')}</div> :
-          reminders.length === 0 ? <EmptyState icon="🔔" title={tr('noReminders')} subtitle={tr('noRemindersDesc')} /> : (
+          reminders.length === 0 ? <EmptyState icon={<Icon name="bell" size={32} />} title={tr('noReminders')} subtitle={tr('noRemindersDesc')} /> : (
           <div>{reminders.map((r, i) => (
             <div key={r.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', gap: '12px', flexWrap: 'wrap', borderBottom: i < reminders.length - 1 ? `1px solid var(--border-light)` : 'none' }}>
               <div style={{ flex: 1, minWidth: '200px' }}>
@@ -58,10 +59,16 @@ export default function RemindersPage() {
                   <span style={{ fontWeight: 600, fontSize: '14px' }}>{r.title}</span>
                   <Badge color={sc[r.status]}>{r.status}</Badge>
                   {r.is_recurring && (
-                    <Badge color="blue">↻ {RECURRENCE_OPTIONS.find(o => o.value === r.recurrence_minutes)?.label ?? `${r.recurrence_minutes}m`}</Badge>
+                    <Badge color="blue" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <Icon name="refresh" size={12} />
+                      {RECURRENCE_OPTIONS.find(o => o.value === r.recurrence_minutes)?.label ?? `${r.recurrence_minutes}m`}
+                    </Badge>
                   )}
                   {r.telegram_target && r.telegram_target !== 'none' && (
-                    <Badge color="gray">💬 {r.telegram_target}</Badge>
+                    <Badge color="gray" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <Icon name="message" size={12} />
+                      {r.telegram_target}
+                    </Badge>
                   )}
                 </div>
                 {r.description && <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{r.description}</div>}

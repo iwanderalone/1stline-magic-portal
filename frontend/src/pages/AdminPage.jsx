@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { api, getPublicConfig } from '../api';
 import { useLang } from '../components/LangContext';
 import { Card, Button, Input, Badge, Select, Overlay, Toast, Tabs, EmptyState } from '../components/UI';
@@ -30,13 +30,26 @@ export default function AdminPage() {
 
 // ─── Users Tab ──────────────────────────────────────────
 function UsersTab() {
-  const [users, setUsers] = useState([]); const [groups, setGroups] = useState([]);
-  const [show, setShow] = useState(false); const [toast, setToast] = useState(null);
+  const [users, setUsers] = useState([]);
+  const [groups, setGroups] = useState([]);
+  const [configs, setConfigs] = useState([]);
+  const [show, setShow] = useState(false);
+  const [toast, setToast] = useState(null);
   const [resetTarget, setResetTarget] = useState(null);
   const [editTarget, setEditTarget] = useState(null);
   const [linkCodes, setLinkCodes] = useState({});
   const [botUsername, setBotUsername] = useState('');
-  const load = () => Promise.all([api('/users/'), api('/groups/')]).then(([u, g]) => { setUsers(u || []); setGroups(g || []); });
+
+  const load = () => Promise.all([
+    api('/users/'),
+    api('/groups/'),
+    api('/schedule/shift-configs')
+  ]).then(([u, g, c]) => {
+    setUsers(u || []);
+    setGroups(g || []);
+    setConfigs(c || []);
+  });
+
   useEffect(() => {
     load();
     getPublicConfig().then(c => setBotUsername(c.telegram_bot_username || ''));
@@ -49,6 +62,7 @@ function UsersTab() {
       setShow(false); load(); setToast({ message: 'User created', type: 'success' });
     } catch (e) { setToast({ message: e.message, type: 'error' }); }
   };
+
   const edit = async (id, f) => {
     try {
       const payload = { ...f, telegram_username: f.telegram_username || null };
@@ -56,30 +70,36 @@ function UsersTab() {
       setEditTarget(null); load(); setToast({ message: 'User updated', type: 'success' });
     } catch (e) { setToast({ message: e.message, type: 'error' }); }
   };
+
   const deactivate = async id => { try { await api(`/users/${id}`, { method: 'DELETE' }); load(); setToast({ message: 'Deactivated', type: 'info' }); } catch (e) { setToast({ message: e.message, type: 'error' }); }};
   const reactivate = async id => { try { await api(`/users/${id}/reactivate`, { method: 'POST' }); load(); setToast({ message: 'Reactivated', type: 'success' }); } catch (e) { setToast({ message: e.message, type: 'error' }); }};
+
   const hardDelete = async (id, name) => {
     if (!confirm(`Permanently delete ${name}? This cannot be undone.`)) return;
     try { await api(`/users/${id}/hard`, { method: 'DELETE' }); load(); setToast({ message: 'User permanently deleted', type: 'info' }); } catch (e) { setToast({ message: e.message, type: 'error' }); }
   };
+
   const resetPw = async pw => { try { await api(`/users/${resetTarget}/reset-password`, { method: 'POST', body: JSON.stringify({ new_password: pw }) }); setResetTarget(null); setToast({ message: 'Password reset', type: 'success' }); } catch (e) { setToast({ message: e.message, type: 'error' }); }};
   const resetOtp = async id => { if (!confirm('Reset 2FA for this user?')) return; try { await api(`/users/${id}/reset-otp`, { method: 'POST' }); load(); setToast({ message: '2FA reset', type: 'success' }); } catch (e) { setToast({ message: e.message, type: 'error' }); }};
+
   const linkTg = async id => {
     try {
       const r = await api(`/users/${id}/telegram-link-code`, { method: 'POST' });
       setLinkCodes(prev => ({ ...prev, [id]: r.code }));
       try { await navigator.clipboard.writeText(`/link ${r.code}`); } catch {}
-      setToast({ message: `Copied! Send to bot: /link ${r.code}`, type: 'success' });
+      setToast({ message: `Copied! Send to @${botUsername}: /link ${r.code}`, type: 'success' });
     } catch (e) { setToast({ message: e.message, type: 'error' }); }
   };
+
   const copyCode = async (id) => {
-    try { await navigator.clipboard.writeText(`/link ${linkCodes[id]}`); setToast({ message: `Copied! Send to bot: /link ${linkCodes[id]}`, type: 'success' }); } catch {}
+    try { await navigator.clipboard.writeText(`/link ${linkCodes[id]}`); setToast({ message: `Copied! Send to @${botUsername}: /link ${linkCodes[id]}`, type: 'success' }); } catch {}
   };
+
   const groupMap = {}; groups.forEach(g => { groupMap[g.id] = g; });
 
   return (
     <>
-      <div style={{ display: 'flex', justifyContent: 'flex-end' }}><Button size="sm" onClick={() => setShow(true)}>+ Add user</Button></div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end' }}><Button size="sm" icon="plus" onClick={() => setShow(true)}>Add User</Button></div>
       <Card style={{ padding: '4px' }}>
         {users.map((u, i) => (
           <div key={u.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 18px', gap: '12px', flexWrap: 'wrap', borderBottom: i < users.length - 1 ? '1px solid var(--border-light)' : 'none' }}>
@@ -91,12 +111,6 @@ function UsersTab() {
                   @{u.username} · gap:{u.min_shift_gap_days}d max:{u.max_shifts_per_week}/wk
                   {u.allowed_shift_types && ` · shifts: ${u.allowed_shift_types.join(',')}`}
                 </div>
-                {u.availability_pattern && (
-                  <div style={{ fontSize: '11px', color: 'var(--warning)', marginTop: '2px' }}>
-                    🔄 Cycle: {u.availability_pattern.cycle_days}d, works days {u.availability_pattern.work_days.join(',')}
-                    {u.availability_pattern.blocked_weekdays?.length > 0 && ` · blocked: ${u.availability_pattern.blocked_weekdays.map(d => ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][d]).join(',')}`}
-                  </div>
-                )}
                 {u.group_ids?.length > 0 && <div style={{ display: 'flex', gap: '4px', marginTop: '3px', flexWrap: 'wrap' }}>{u.group_ids.map(gid => groupMap[gid] && <Badge key={gid} color="blue">{groupMap[gid].name}</Badge>)}</div>}
               </div>
             </div>
@@ -104,51 +118,58 @@ function UsersTab() {
               <Badge color={u.role === 'admin' ? 'blue' : 'gray'}>{u.role}</Badge>
               {u.otp_enabled && <Badge color="green">OTP</Badge>}
               {u.telegram_chat_id
-                ? <Badge color="blue">TG ✓</Badge>
+                ? <Badge color="blue"><div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>TG <Icon name="check" size={12} /></div></Badge>
                 : linkCodes[u.id]
                   ? <span onClick={() => copyCode(u.id)} title="Click to copy" style={{ cursor: 'pointer' }}><Badge color="yellow"><Icon name="copy" size={12} /> /link {linkCodes[u.id]}</Badge></span>
                   : <Button size="sm" variant="ghost" onClick={() => linkTg(u.id)}>Link TG</Button>}
-              {u.is_active && <Button size="sm" variant="ghost" onClick={() => setEditTarget(u)}>Edit</Button>}
-              {u.is_active && <Button size="sm" variant="ghost" onClick={() => setResetTarget(u.id)}>Reset PW</Button>}
+              {u.is_active && <Button size="sm" variant="ghost" icon="edit" onClick={() => setEditTarget(u)}>Edit</Button>}
+              {u.is_active && <Button size="sm" variant="ghost" icon="key" onClick={() => setResetTarget(u.id)}>Reset PW</Button>}
               {u.is_active && u.otp_enabled && <Button size="sm" variant="ghost" onClick={() => resetOtp(u.id)}>Reset 2FA</Button>}
               {u.is_active && u.role !== 'admin' && <Button size="sm" variant="danger" onClick={() => deactivate(u.id)}>Deactivate</Button>}
               {!u.is_active && <Button size="sm" variant="ghost" onClick={() => reactivate(u.id)}>Reactivate</Button>}
-              {!u.is_active && <Button size="sm" variant="danger" onClick={() => hardDelete(u.id, u.display_name)}>Delete</Button>}
+              {!u.is_active && <Button size="sm" variant="danger" icon="trash" onClick={() => hardDelete(u.id, u.display_name)}>Delete</Button>}
             </div>
           </div>
         ))}
       </Card>
-      {show && <CreateUserModal onClose={() => setShow(false)} onCreate={create} groups={groups} />}
-      {editTarget && <EditUserModal user={editTarget} onClose={() => setEditTarget(null)} onSave={(f) => edit(editTarget.id, f)} groups={groups} />}
+      {show && <CreateUserModal onClose={() => setShow(false)} onCreate={create} groups={groups} configs={configs} />}
+      {editTarget && <EditUserModal user={editTarget} onClose={() => setEditTarget(null)} onSave={(f) => edit(editTarget.id, f)} groups={groups} configs={configs} />}
       {resetTarget && <ResetPasswordModal onClose={() => setResetTarget(null)} onReset={resetPw} />}
       {toast && <Toast {...toast} onClose={() => setToast(null)} />}
     </>
   );
 }
 
-const ALL_SHIFT_TYPES = [
-  { value: 'day', label: 'Day' },
-  { value: 'night', label: 'Night' },
-  { value: 'office', label: 'Office' },
-];
-
-function CreateUserModal({ onClose, onCreate, groups }) {
-  const [f, setF] = useState({ username:'', display_name:'', password:'', role:'engineer', telegram_username:'', min_shift_gap_days:2, max_shifts_per_week:3, group_ids:[] });
-  const [allowedTypes, setAllowedTypes] = useState(['day','night','office']);
+function CreateUserModal({ onClose, onCreate, groups, configs }) {
+  const activeShiftTypes = useMemo(() => configs.filter(c => c.is_active).map(c => ({ value: c.shift_type, label: c.label })), [configs]);
+  const [f, setF] = useState({ username:'', display_name:'', email: '', timezone: 'UTC', password:'', role:'engineer', telegram_username:'', min_shift_gap_days:2, max_shifts_per_week:3, group_ids:[] });
+  const [allowedTypes, setAllowedTypes] = useState(activeShiftTypes.map(t => t.value));
   const s = (k,v) => setF(p => ({...p,[k]:v}));
   const toggleGroup = id => s('group_ids', f.group_ids.includes(id) ? f.group_ids.filter(x=>x!==id) : [...f.group_ids, id]);
   const toggleType = v => setAllowedTypes(prev => prev.includes(v) ? prev.filter(x=>x!==v) : [...prev, v]);
+
   const handleCreate = () => {
-    // null = no restriction; [] = never assign; partial list = only those types
-    const types = allowedTypes.length === 3 ? null : allowedTypes;
+    const types = allowedTypes.length === activeShiftTypes.length ? null : allowedTypes;
     onCreate({ ...f, allowed_shift_types: types });
   };
+
+  const TIMEZONES = [
+    { value: 'UTC', label: 'UTC' },
+    { value: 'Europe/Berlin', label: 'Berlin' },
+    { value: 'Europe/Moscow', label: 'Moscow' },
+    { value: 'Asia/Dubai', label: 'Abu Dhabi' },
+  ];
+
   return (
     <Overlay onClose={onClose} title="Add User">
       <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-        <Input label="Username" value={f.username} onChange={e => s('username', e.target.value)} autoFocus />
-        <Input label="Display name" value={f.display_name} onChange={e => s('display_name', e.target.value)} />
-        <Input label="Password" type="password" value={f.password} onChange={e => s('password', e.target.value)} />
+        <Input label="Username *" value={f.username} onChange={e => s('username', e.target.value)} autoFocus />
+        <Input label="Display name *" value={f.display_name} onChange={e => s('display_name', e.target.value)} />
+        <Input label="Email" type="email" value={f.email} onChange={e => s('email', e.target.value)} />
+        <Select label="Timezone" value={f.timezone} onChange={e => s('timezone', e.target.value)}>
+          {TIMEZONES.map(tz => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
+        </Select>
+        <Input label="Password *" type="password" value={f.password} onChange={e => s('password', e.target.value)} />
         <Select label="Role" value={f.role} onChange={e => s('role', e.target.value)}><option value="engineer">Engineer</option><option value="admin">Admin</option></Select>
         <Input label="Telegram" value={f.telegram_username} onChange={e => s('telegram_username', e.target.value)} placeholder="@username" />
         <div style={{ display: 'flex', gap: '12px' }}>
@@ -156,38 +177,35 @@ function CreateUserModal({ onClose, onCreate, groups }) {
           <Input label="Max/wk" type="number" value={f.max_shifts_per_week} onChange={e => s('max_shifts_per_week', parseInt(e.target.value))} style={{ width: '100px' }} />
         </div>
         <div>
-          <label style={{ fontSize: '13px', fontWeight: 500, marginBottom: '6px', display: 'block' }}>
-            Allowed shift types <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>(all = no restriction · none = exclude from generator)</span>
-          </label>
-          <div style={{ display: 'flex', gap: '6px' }}>
-            {ALL_SHIFT_TYPES.map(st => (
+          <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '6px', display: 'block' }}>Allowed shift types</label>
+          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+            {activeShiftTypes.map(st => (
               <Button key={st.value} size="sm" variant={allowedTypes.includes(st.value) ? 'primary' : 'secondary'} onClick={() => toggleType(st.value)}>{st.label}</Button>
             ))}
           </div>
         </div>
-        {groups.length > 0 && <div>
-          <label style={{ fontSize: '13px', fontWeight: 500, marginBottom: '6px', display: 'block' }}>Groups</label>
-          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>{groups.map(g => <Button key={g.id} size="sm" variant={f.group_ids.includes(g.id) ? 'primary' : 'secondary'} onClick={() => toggleGroup(g.id)}>{g.name}</Button>)}</div>
-        </div>}
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button onClick={handleCreate} disabled={!f.username || !f.display_name || !f.password}>Create</Button>
+          <Button onClick={handleCreate} disabled={!f.username || !f.display_name || f.password.length < 8}>Create</Button>
         </div>
       </div>
     </Overlay>
   );
 }
 
-function EditUserModal({ user, onClose, onSave, groups }) {
+function EditUserModal({ user, onClose, onSave, groups, configs }) {
+  const activeShiftTypes = useMemo(() => configs.filter(c => c.is_active).map(c => ({ value: c.shift_type, label: c.label })), [configs]);
   const [f, setF] = useState({
     display_name: user.display_name,
+    email: user.email || '',
+    timezone: user.timezone || 'UTC',
     role: user.role,
     min_shift_gap_days: user.min_shift_gap_days,
     max_shifts_per_week: user.max_shifts_per_week,
     group_ids: user.group_ids || [],
     telegram_username: user.telegram_username || '',
   });
-  const [allowedTypes, setAllowedTypes] = useState(user.allowed_shift_types || ['day','night','office']);
+  const [allowedTypes, setAllowedTypes] = useState(user.allowed_shift_types || activeShiftTypes.map(t => t.value));
   const toggleType = v => setAllowedTypes(prev => prev.includes(v) ? prev.filter(x=>x!==v) : [...prev, v]);
   const [hasPattern, setHasPattern] = useState(!!user.availability_pattern);
   const [pattern, setPattern] = useState(user.availability_pattern || { cycle_days: 4, work_days: [2, 3, 4], blocked_weekdays: [] });
@@ -207,16 +225,26 @@ function EditUserModal({ user, onClose, onSave, groups }) {
       data.availability_pattern = null;
       data.availability_anchor_date = null;
     }
-    data.allowed_shift_types = allowedTypes.length === 3 ? null : allowedTypes;
+    data.allowed_shift_types = allowedTypes.length === activeShiftTypes.length ? null : allowedTypes;
     onSave(data);
   };
 
   const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const TIMEZONES = [
+    { value: 'UTC', label: 'UTC' },
+    { value: 'Europe/Berlin', label: 'Berlin' },
+    { value: 'Europe/Moscow', label: 'Moscow' },
+    { value: 'Asia/Dubai', label: 'Abu Dhabi' },
+  ];
 
   return (
     <Overlay onClose={onClose} title={`Edit ${user.display_name}`}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', maxHeight: '70vh', overflowY: 'auto' }}>
         <Input label="Display name" value={f.display_name} onChange={e => s('display_name', e.target.value)} />
+        <Input label="Email" type="email" value={f.email} onChange={e => s('email', e.target.value)} />
+        <Select label="Timezone" value={f.timezone} onChange={e => s('timezone', e.target.value)}>
+          {TIMEZONES.map(tz => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
+        </Select>
         <Select label="Role" value={f.role} onChange={e => s('role', e.target.value)}><option value="engineer">Engineer</option><option value="admin">Admin</option></Select>
         <Input label="Telegram" value={f.telegram_username} onChange={e => s('telegram_username', e.target.value)} />
         <div style={{ display: 'flex', gap: '12px' }}>
@@ -225,81 +253,43 @@ function EditUserModal({ user, onClose, onSave, groups }) {
         </div>
 
         {groups.length > 0 && <div>
-          <label style={{ fontSize: '13px', fontWeight: 500, marginBottom: '6px', display: 'block' }}>Groups</label>
+          <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '6px', display: 'block' }}>Groups</label>
           <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>{groups.map(g => <Button key={g.id} size="sm" variant={f.group_ids.includes(g.id) ? 'primary' : 'secondary'} onClick={() => toggleGroup(g.id)}>{g.name}</Button>)}</div>
         </div>}
 
-        {/* Allowed shift types */}
         <div>
-          <label style={{ fontSize: '13px', fontWeight: 500, marginBottom: '6px', display: 'block' }}>
-            Allowed shift types <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>(all = no restriction)</span>
-          </label>
-          <div style={{ display: 'flex', gap: '6px' }}>
-            {ALL_SHIFT_TYPES.map(st => (
+          <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '6px', display: 'block' }}>Allowed shift types</label>
+          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+            {activeShiftTypes.map(st => (
               <Button key={st.value} size="sm" variant={allowedTypes.includes(st.value) ? 'primary' : 'secondary'} onClick={() => toggleType(st.value)}>{st.label}</Button>
             ))}
           </div>
         </div>
 
-        {/* Availability Pattern */}
         <div style={{ padding: '16px', background: 'var(--surface-alt)', borderRadius: 'var(--radius-sm)' }}>
           <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', fontWeight: 600, cursor: 'pointer', marginBottom: hasPattern ? '14px' : 0 }}>
             <input type="checkbox" checked={hasPattern} onChange={e => setHasPattern(e.target.checked)} />
             Custom availability pattern
           </label>
-          {!hasPattern && (
-            <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
-              Not set — this engineer can be assigned any day without restriction. Enable only for engineers who have a <strong>fixed external schedule</strong> (e.g. another job with rotating shifts).
-            </p>
-          )}
-
           {hasPattern && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
-                For engineers with another job on a fixed rotation. Define the full cycle length and mark which days they're <em>available to you</em>.<br />
-                <strong>Example:</strong> Works 24h at hospital, then 3 days free → Cycle: 4 days, available on days 2, 3, 4 (day 1 = hospital shift). Set anchor = the date their next hospital shift starts.
-              </p>
-
-              <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                  <label style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-secondary)' }}>Cycle length (days)</label>
-                  <input type="number" value={pattern.cycle_days} onChange={e => setPattern(p => ({ ...p, cycle_days: parseInt(e.target.value) || 2 }))}
-                    min="2" max="30" style={{ padding: '9px 12px', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '14px', background: 'var(--surface)', color: 'var(--text)', width: '80px' }} />
-                </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end' }}>
+                <Input label="Cycle length (days)" type="number" value={pattern.cycle_days} onChange={e => setPattern(p => ({ ...p, cycle_days: parseInt(e.target.value) || 2 }))} style={{ width: '80px' }} />
                 <Input label="Cycle anchor date" type="date" value={anchor} onChange={e => setAnchor(e.target.value)} style={{ width: '160px' }} />
               </div>
-
               <div>
-                <label style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>
-                  Available on days (in cycle of {pattern.cycle_days})
-                </label>
-                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                <label className="t-eyebrow" style={{ display: 'block', marginBottom: 6 }}>Available on days</label>
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                   {Array.from({ length: pattern.cycle_days }, (_, i) => i + 1).map(d => (
-                    <button key={d} onClick={() => toggleWorkDay(d)} style={{
-                      width: '36px', height: '36px', borderRadius: '6px', fontSize: '13px', fontWeight: 600, cursor: 'pointer',
-                      border: pattern.work_days.includes(d) ? '2px solid var(--success)' : '1px solid var(--border)',
-                      background: pattern.work_days.includes(d) ? 'var(--success-light)' : 'var(--surface)',
-                      color: pattern.work_days.includes(d) ? 'var(--success)' : 'var(--text-muted)',
-                    }}>{d}</button>
+                    <button key={d} onClick={() => toggleWorkDay(d)} style={{ width: 32, height: 32, borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: pattern.work_days.includes(d) ? '2px solid var(--success)' : '1px solid var(--border)', background: pattern.work_days.includes(d) ? 'var(--success-light)' : 'var(--surface)', color: pattern.work_days.includes(d) ? 'var(--success)' : 'var(--text-muted)' }}>{d}</button>
                   ))}
                 </div>
-                <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                  Green = available for shifts. Click to toggle. Day 1 starts on anchor date.
-                </div>
               </div>
-
               <div>
-                <label style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>
-                  Blocked weekdays (never available)
-                </label>
-                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                <label className="t-eyebrow" style={{ display: 'block', marginBottom: 6 }}>Blocked weekdays</label>
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                   {WEEKDAYS.map((name, i) => (
-                    <button key={i} onClick={() => toggleBlockedDay(i)} style={{
-                      padding: '6px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: 500, cursor: 'pointer',
-                      border: pattern.blocked_weekdays.includes(i) ? '2px solid var(--danger)' : '1px solid var(--border)',
-                      background: pattern.blocked_weekdays.includes(i) ? 'var(--danger-light)' : 'var(--surface)',
-                      color: pattern.blocked_weekdays.includes(i) ? 'var(--danger)' : 'var(--text-muted)',
-                    }}>{name}</button>
+                    <button key={i} onClick={() => toggleBlockedDay(i)} style={{ padding: '4px 8px', borderRadius: 6, fontSize: 11, fontWeight: 500, cursor: 'pointer', border: pattern.blocked_weekdays.includes(i) ? '2px solid var(--danger)' : '1px solid var(--border)', background: pattern.blocked_weekdays.includes(i) ? 'var(--danger-light)' : 'var(--surface)', color: pattern.blocked_weekdays.includes(i) ? 'var(--danger)' : 'var(--text-muted)' }}>{name}</button>
                   ))}
                 </div>
               </div>
@@ -321,7 +311,7 @@ function ResetPasswordModal({ onClose, onReset }) {
   return (
     <Overlay onClose={onClose} title="Reset Password">
       <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-        <Input label="New password" type="password" value={pw} onChange={e => setPw(e.target.value)} autoFocus />
+        <Input label="New password (min 8 chars)" type="password" value={pw} onChange={e => setPw(e.target.value)} autoFocus />
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
           <Button onClick={() => onReset(pw)} disabled={pw.length < 8}>Reset</Button>
@@ -342,8 +332,8 @@ function GroupsTab() {
 
   return (
     <>
-      <div style={{ display: 'flex', justifyContent: 'flex-end' }}><Button size="sm" onClick={() => setShow(true)}>+ Add group</Button></div>
-      {groups.length === 0 ? <Card><EmptyState icon="👥" title="No groups" subtitle="Create a group to organize your team" /></Card> :
+      <div style={{ display: 'flex', justifyContent: 'flex-end' }}><Button size="sm" icon="plus" onClick={() => setShow(true)}>Add Group</Button></div>
+      {groups.length === 0 ? <Card><EmptyState icon={<Icon name="workspace" size={32} />} title="No groups" subtitle="Create a group to organize your team" /></Card> :
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           {groups.map(g => (
             <Card key={g.id} style={{ padding: '16px' }}>
@@ -353,7 +343,7 @@ function GroupsTab() {
                   <span style={{ fontWeight: 600 }}>{g.name}</span>
                   {g.description && <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>— {g.description}</span>}
                 </div>
-                <Button size="sm" variant="danger" onClick={() => del(g.id)}>Delete</Button>
+                <Button size="sm" variant="danger" icon="trash" onClick={() => del(g.id)}>Delete</Button>
               </div>
               <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                 {g.member_ids?.map(uid => userMap[uid] && <Badge key={uid} color="gray">{userMap[uid].display_name}</Badge>)}
@@ -377,7 +367,10 @@ function GroupForm({ onSubmit, onClose }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       <Input label="Name" value={name} onChange={e => setName(e.target.value)} autoFocus />
       <Input label="Description" value={desc} onChange={e => setDesc(e.target.value)} />
-      <Input label="Color" type="color" value={color} onChange={e => setColor(e.target.value)} style={{ width: '60px', height: '36px', padding: '2px' }} />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+        <label className="t-eyebrow">Color</label>
+        <input type="color" value={color} onChange={e => setColor(e.target.value)} style={{ width: '100%', height: '36px', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', background: 'none', cursor: 'pointer' }} />
+      </div>
       <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
         <Button variant="secondary" onClick={onClose}>Cancel</Button>
         <Button onClick={() => onSubmit({ name, description: desc || null, color })} disabled={!name}>Create</Button>
@@ -406,12 +399,8 @@ function ShiftConfigTab() {
 
   return (
     <>
-      <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '4px' }}>
-        Configure shift types, durations, and default times. Changes apply to newly generated schedules.
-      </p>
-      <div style={{ fontSize: '12px', padding: '8px 12px', background: 'var(--surface-alt)', borderRadius: 'var(--radius-sm)', marginBottom: '12px', color: 'var(--text-secondary)' }}>
-        Times are in <strong>{portalTz}</strong>. Users receive notifications converted to their own profile timezone.
-        To change, set <code>PORTAL_TIMEZONE</code> in your <code>.env</code>.
+      <div style={{ fontSize: '12px', padding: '12px', background: 'var(--surface-alt)', borderRadius: 'var(--radius)', marginBottom: '16px', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
+        Times are in <strong>{portalTz}</strong>. Users see converted times in their profile timezone.
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
         {configs.map(c => <ShiftConfigCard key={c.id} config={c} onUpdate={data => update(c.id, data)} />)}
@@ -426,32 +415,30 @@ function ShiftConfigCard({ config: c, onUpdate }) {
   const [duration, setDuration] = useState(c.duration_hours);
   const [startTime, setStartTime] = useState(c.default_start_time?.slice(0, 5) || '');
   const [endTime, setEndTime] = useState(c.default_end_time?.slice(0, 5) || '');
-  const [emoji, setEmoji] = useState(c.emoji);
   const [reqLoc, setReqLoc] = useState(c.requires_location);
-  const emojiOptions = ['☀️', '🌙', '🏢', '🌤', '⭐', '🔥', '💼', '🎯'];
 
   const save = () => onUpdate({
-    label, duration_hours: duration, emoji, requires_location: reqLoc,
+    label, duration_hours: duration, requires_location: reqLoc,
     default_start_time: startTime || null, default_end_time: endTime || null,
   });
 
   return (
     <Card style={{ padding: '20px' }}>
-      {/* Header row */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <span style={{ fontSize: '24px' }}>{emoji}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{ width: 40, height: 40, borderRadius: 8, background: c.color + '20', display: 'flex', alignItems: 'center', justifyContent: 'center', color: c.color }}>
+            <Icon name={c.shift_type === 'night' ? 'moon' : c.shift_type === 'office' ? 'workspace' : 'sun'} size={20} />
+          </div>
           <div>
-            <div style={{ fontWeight: 600, fontSize: '15px' }}>{label}</div>
+            <div style={{ fontWeight: 700, fontSize: '15px' }}>{label}</div>
             <div style={{ fontSize: '12px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-              {c.shift_type} · {duration}h · {startTime || '—'} – {endTime || '—'}
-              {reqLoc && ' · 📍 location'}
+              {c.shift_type.toUpperCase()} · {duration}h · {startTime || '—'} – {endTime || '—'}
             </div>
           </div>
         </div>
         <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
           <input type="color" value={c.color} onChange={e => onUpdate({ color: e.target.value })}
-            style={{ width: '32px', height: '32px', border: 'none', cursor: 'pointer', borderRadius: '4px' }} />
+            style={{ width: '32px', height: '32px', border: 'none', cursor: 'pointer', borderRadius: '4px', background: 'none' }} />
           <Button size="sm" variant={c.is_active ? 'secondary' : 'danger'}
             onClick={() => onUpdate({ is_active: !c.is_active })}>
             {c.is_active ? 'Active' : 'Disabled'}
@@ -459,35 +446,16 @@ function ShiftConfigCard({ config: c, onUpdate }) {
         </div>
       </div>
 
-      {/* Always-visible editor */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', padding: '16px', background: 'var(--surface-alt)', borderRadius: 'var(--radius-sm)' }}>
-        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-          <Input label="Label" value={label} onChange={e => setLabel(e.target.value)} style={{ flex: '1', minWidth: '150px' }} />
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-            <label style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-secondary)' }}>Duration (h)</label>
-            <input type="number" value={duration} onChange={e => setDuration(parseFloat(e.target.value))}
-              min="1" max="24" step="0.5"
-              style={{ padding: '9px 12px', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '14px', background: 'var(--surface)', color: 'var(--text)', width: '90px' }} />
-          </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12 }}>
+          <Input label="Label" value={label} onChange={e => setLabel(e.target.value)} />
+          <Input label="Duration (h)" type="number" value={duration} onChange={e => setDuration(parseFloat(e.target.value))} style={{ width: 80 }} />
         </div>
-        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-          <Input label="Start time" type="time" value={startTime} onChange={e => setStartTime(e.target.value)} style={{ width: '140px' }} />
-          <Input label="End time" type="time" value={endTime} onChange={e => setEndTime(e.target.value)} style={{ width: '140px' }} />
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <Input label="Start time" type="time" value={startTime} onChange={e => setStartTime(e.target.value)} />
+          <Input label="End time" type="time" value={endTime} onChange={e => setEndTime(e.target.value)} />
         </div>
-        <div>
-          <label style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>Emoji</label>
-          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-            {emojiOptions.map(e => (
-              <button key={e} onClick={() => setEmoji(e)} style={{
-                width: '36px', height: '36px', borderRadius: '6px', fontSize: '18px', cursor: 'pointer',
-                border: emoji === e ? '2px solid var(--accent)' : '1px solid var(--border)',
-                background: emoji === e ? 'var(--accent-light)' : 'var(--surface)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}>{e}</button>
-            ))}
-          </div>
-        </div>
-        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer' }}>
           <input type="checkbox" checked={reqLoc} onChange={e => setReqLoc(e.target.checked)} />
           Requires location (onsite / remote)
         </label>
@@ -522,78 +490,53 @@ function TelegramTab() {
     finally { setDiagLoading(false); }
   };
 
-  const testChat = async (chatId) => {
-    try {
-      await api('/admin/test-notification', { method: 'POST', body: JSON.stringify({
-        title: 'Test message',
-        message: 'This is a test from the portal admin panel.',
-        send_telegram: false,
-        telegram_chat_db_ids: [chatId],
-      })});
-      setToast({ message: 'Test message sent to chat', type: 'success' });
-    } catch (e) { setToast({ message: e.message, type: 'error' }); }
-  };
-
   const flags = ['notify_day_shift_start','notify_night_shift_start','notify_office_roster','notify_reminders','notify_general'];
   const flagLabels = { notify_day_shift_start: 'Day', notify_night_shift_start: 'Night', notify_office_roster: 'Office', notify_reminders: 'Reminders', notify_general: 'General' };
 
   return (
     <>
-      {/* Bot diagnostics */}
-      <div style={{ padding: '14px 16px', background: 'var(--surface-alt)', borderRadius: 'var(--radius-sm)', marginBottom: '12px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: diagResult ? '12px' : '0' }}>
+      <div style={{ padding: '16px', background: 'var(--surface-alt)', borderRadius: 'var(--radius)', marginBottom: '16px', border: '1px solid var(--border)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: diagResult ? '16px' : '0' }}>
           <div>
-            <div style={{ fontSize: '13px', fontWeight: 600 }}>Bot diagnostics</div>
-            <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Verifies token + sends a probe message to every chat and linked DM.</div>
+            <div style={{ fontSize: '14px', fontWeight: 700 }}>Bot Diagnostics</div>
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Verifies token and probe delivery.</div>
           </div>
-          <Button size="sm" variant="secondary" onClick={runDiagnostics} disabled={diagLoading} style={{ flexShrink: 0, marginLeft: '12px' }}>
-            {diagLoading ? 'Running…' : 'Run diagnostics'}
+          <Button size="sm" variant="secondary" onClick={runDiagnostics} disabled={diagLoading} icon="zap">
+            {diagLoading ? 'Running…' : 'Run Tests'}
           </Button>
         </div>
         {diagResult && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '10px' }}>
-            {/* Bot token */}
-            <div style={{ fontSize: '12px', padding: '6px 10px', borderRadius: 'var(--radius-sm)', background: diagResult.bot?.ok ? 'var(--success-light)' : 'var(--danger-light)', color: diagResult.bot?.ok ? 'var(--success)' : 'var(--danger)' }}>
-              {diagResult.bot?.ok
-                ? `✓ Bot token valid — @${diagResult.bot.username} (${diagResult.bot.name})`
-                : `✗ Bot token error: ${diagResult.bot?.error}`}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div style={{ fontSize: '12px', padding: '8px 12px', borderRadius: 'var(--radius-sm)', background: diagResult.bot?.ok ? 'var(--success-light)' : 'var(--danger-light)', color: diagResult.bot?.ok ? 'var(--success)' : 'var(--danger)', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Icon name={diagResult.bot?.ok ? 'check' : 'x'} size={14} />
+              {diagResult.bot?.ok ? `Bot valid: @${diagResult.bot.username}` : `Bot error: ${diagResult.bot?.error}`}
             </div>
-            {/* Group chats */}
             {diagResult.chats?.map((c, i) => (
-              <div key={i} style={{ fontSize: '12px', padding: '6px 10px', borderRadius: 'var(--radius-sm)', background: c.ok ? 'var(--success-light)' : 'var(--danger-light)', color: c.ok ? 'var(--success)' : 'var(--danger)' }}>
-                {c.ok ? `✓ ${c.name} (${c.chat_id}) — message delivered` : `✗ ${c.name} (${c.chat_id}) — delivery failed`}
+              <div key={i} style={{ fontSize: '12px', padding: '8px 12px', borderRadius: 'var(--radius-sm)', background: c.ok ? 'var(--success-light)' : 'var(--danger-light)', color: c.ok ? 'var(--success)' : 'var(--danger)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Icon name={c.ok ? 'check' : 'x'} size={14} />
+                {c.name}: {c.ok ? 'Delivered' : 'Failed'}
               </div>
             ))}
-            {/* Personal DMs */}
-            {diagResult.personal_dms?.map((u, i) => (
-              <div key={i} style={{ fontSize: '12px', padding: '6px 10px', borderRadius: 'var(--radius-sm)', background: u.ok ? 'var(--success-light)' : 'var(--danger-light)', color: u.ok ? 'var(--success)' : 'var(--danger)' }}>
-                {u.ok ? `✓ DM to ${u.display_name} — delivered` : `✗ DM to ${u.display_name} — failed`}
-              </div>
-            ))}
-            {diagResult.chats?.length === 0 && diagResult.personal_dms?.length === 0 && (
-              <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>No configured chats and no linked users to probe.</div>
-            )}
           </div>
         )}
       </div>
 
-      {/* Shift notification test */}
       <ShiftNotificationTest />
 
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '8px' }}>
-        <Button size="sm" onClick={() => setShow(true)}>+ Add chat</Button>
+        <Button size="sm" icon="plus" onClick={() => setShow(true)}>Add Chat</Button>
       </div>
 
       {chats.length === 0
-        ? <Card><EmptyState icon="💬" title="No Telegram chats" subtitle="Add group chats to receive notifications" /></Card>
+        ? <Card><EmptyState icon={<Icon name="message" size={32} />} title="No chats" subtitle="Add group chats for notifications" /></Card>
         : <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             {chats.map(c => (
               <Card key={c.id} style={{ padding: '16px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 600, marginBottom: '4px' }}>{c.name}</div>
-                    <div style={{ fontSize: '12px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginBottom: '10px' }}>
-                      ID: {c.chat_id} · {c.chat_type}{c.topic_id ? ` · topic: ${c.topic_id}` : ''}
+                    <div style={{ fontWeight: 700, marginBottom: '4px' }}>{c.name}</div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginBottom: '12px' }}>
+                      ID: {c.chat_id} · {c.chat_type.toUpperCase()}
                     </div>
                     <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                       {flags.map(f => (
@@ -603,10 +546,9 @@ function TelegramTab() {
                       ))}
                     </div>
                   </div>
-                  <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
-                    <Button size="sm" variant="secondary" onClick={() => testChat(c.id)} title="Send a test message to this chat">Test</Button>
-                    <Button size="sm" variant="ghost" onClick={() => setEditTarget(c)}>Edit</Button>
-                    <Button size="sm" variant="danger" onClick={() => del(c.id)}>Delete</Button>
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <Button size="sm" variant="ghost" icon="edit" onClick={() => setEditTarget(c)}>Edit</Button>
+                    <Button size="sm" variant="danger" icon="trash" onClick={() => del(c.id)}>Delete</Button>
                   </div>
                 </div>
               </Card>
@@ -636,37 +578,19 @@ function ChatModal({ chat, onClose, onSave }) {
     api('/admin/telegram-templates').then(setTemplates).catch(() => {});
   }, []);
 
-  const selStyle = { padding: '8px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', fontSize: '13px', background: 'var(--surface-alt)', color: 'var(--text)', width: '100%', boxSizing: 'border-box', fontFamily: 'inherit' };
-
   return (
-    <Overlay onClose={onClose} title={isEdit ? 'Edit Telegram Chat' : 'Add Telegram Chat'}>
+    <Overlay onClose={onClose} title={isEdit ? 'Edit Chat' : 'Add Chat'}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-        {templates.length > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <label className="t-eyebrow">From template</label>
-            <select style={selStyle} value="" onChange={e => {
-              const tpl = templates.find(tp => String(tp.id) === e.target.value);
-              if (tpl) { s('chat_id', tpl.chat_id); s('topic_id', tpl.topic_id ? String(tpl.topic_id) : ''); }
-            }}>
-              <option value="">— pick a template to fill fields —</option>
-              {templates.map(tp => (
-                <option key={tp.id} value={tp.id}>{tp.name}{tp.topic_id ? ` (topic ${tp.topic_id})` : ''}</option>
-              ))}
-            </select>
-          </div>
-        )}
-        <Input label="Chat / Channel ID" value={f.chat_id} onChange={e => s('chat_id', e.target.value)} placeholder="-1001234567890" />
-        <Input label="Name" value={f.name} onChange={e => s('name', e.target.value)} placeholder="Support Team Chat" />
+        <Input label="Chat / Channel ID" value={f.chat_id} onChange={e => s('chat_id', e.target.value)} placeholder="-100..." />
+        <Input label="Name" value={f.name} onChange={e => s('name', e.target.value)} />
         <Select label="Type" value={f.chat_type} onChange={e => s('chat_type', e.target.value)}>
           <option value="group">Group</option>
           <option value="channel">Channel</option>
         </Select>
-        <Input label="Thread / Topic ID (optional)" value={f.topic_id} onChange={e => s('topic_id', e.target.value)} placeholder="For forum topics" />
+        <Input label="Topic ID (optional)" value={f.topic_id} onChange={e => s('topic_id', e.target.value)} />
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button onClick={() => onSave({ ...f, topic_id: f.topic_id || null })} disabled={!f.chat_id || !f.name}>
-            {isEdit ? 'Save changes' : 'Add'}
-          </Button>
+          <Button onClick={() => onSave(f)} disabled={!f.chat_id || !f.name}>Save</Button>
         </div>
       </div>
     </Overlay>
@@ -679,319 +603,129 @@ function ShiftNotificationTest() {
   const [preview, setPreview] = useState(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [testingShift, setTestingShift] = useState(null);
-  const [testResult, setTestResult] = useState(null);
   const [toast, setToast] = useState(null);
 
   const loadPreview = async () => {
     setLoadingPreview(true);
-    try {
-      const data = await api('/admin/telegram-shift-preview');
-      setPreview(data);
-    } catch {}
-    finally { setLoadingPreview(false); }
+    try { setPreview(await api('/admin/telegram-shift-preview')); }
+    catch {} finally { setLoadingPreview(false); }
   };
 
   useEffect(() => { loadPreview(); }, []);
 
   const testShift = async (type) => {
     setTestingShift(type);
-    setTestResult(null);
     try {
-      const r = await api(`/admin/test-telegram-shift?shift_type=${type}`, { method: 'POST' });
-      setTestResult({ type, ...r });
-      setToast({ message: `${type} notification sent — check Telegram`, type: 'success' });
+      await api(`/admin/test-telegram-shift?shift_type=${type}`, { method: 'POST' });
+      setToast({ message: `${type} notification sent`, type: 'success' });
     } catch (e) { setToast({ message: e.message, type: 'error' }); }
     finally { setTestingShift(null); }
   };
 
-  const nameList = (names) =>
-    names?.length > 0
-      ? names.map(n => `  • ${n}`).join('\n')
-      : '  No one assigned';
-
   const previewMsg = (type) => {
-    if (!preview) return tr('loading');
-    if (type === 'day') {
-      return [
-        `☀️ Day Shift Starting`,
-        preview.today,
-        `━━━━━━━━━━━━━━━━━━━━`,
-        ``,
-        `👥 On duty now:`,
-        nameList(preview.day_today),
-        ``,
-        `🌙 Tonight's night shift:`,
-        nameList(preview.night_today),
-      ].join('\n');
-    }
-    return [
-      `🌙 Night Shift Starting`,
-      preview.today,
-      `━━━━━━━━━━━━━━━━━━━━`,
-      ``,
-      `👥 On duty now:`,
-      nameList(preview.night_today),
-      ``,
-      `☀️ Tomorrow's day shift (${preview.tomorrow}):`,
-      nameList(preview.day_tomorrow),
-    ].join('\n');
+    if (!preview) return 'Loading...';
+    const list = (names) => names?.length ? names.map(n => `  • ${n}`).join('\n') : '  None';
+    if (type === 'day') return `☀️ DAY SHIFT\n${preview.today}\nOn duty:\n${list(preview.day_today)}`;
+    return `🌙 NIGHT SHIFT\n${preview.today}\nOn duty:\n${list(preview.night_today)}`;
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: 16 }}>
       {toast && <Toast {...toast} onClose={() => setToast(null)} />}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div>
-          <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '2px' }}>Test shift notifications</div>
-          <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Fires the real notification now — sends to all configured chats + personal DMs.</div>
-        </div>
-        <Button size="sm" variant="ghost" onClick={loadPreview} disabled={loadingPreview}>
-          {loadingPreview ? '…' : '↻ Refresh'}
-        </Button>
-      </div>
-
-      <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 12 }}>
         {['day', 'night'].map(type => (
-          <div key={type} style={{ flex: '1', minWidth: '220px', padding: '14px', background: 'var(--surface-alt)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
-            <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px', color: 'var(--text-secondary)' }}>
-              {type === 'day' ? '☀️ DAY SHIFT' : '🌙 NIGHT SHIFT'} PREVIEW
+          <Card key={type} style={{ flex: 1, padding: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+              <Icon name={type === 'day' ? 'sun' : 'moon'} size={16} color={type === 'day' ? 'var(--warning)' : 'var(--accent)'} />
+              <span style={{ fontWeight: 700, fontSize: 13 }}>{type.toUpperCase()} TEST</span>
             </div>
-            <pre style={{
-              fontFamily: 'inherit', fontSize: '12px', color: 'var(--text)',
-              whiteSpace: 'pre-wrap', margin: '0 0 12px 0',
-              padding: '10px', background: 'var(--surface)', borderRadius: 'var(--radius-sm)',
-              border: '1px solid var(--border-light)', lineHeight: 1.5,
-            }}>
-              {previewMsg(type)}
-            </pre>
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-              <Button size="sm" disabled={testingShift === type} onClick={() => testShift(type)}
-                style={{ background: type === 'day' ? '#f59e0b' : '#6366f1', color: '#fff' }}>
-                {testingShift === type ? 'Sending…' : `Send ${type} notification`}
-              </Button>
-              {testResult?.type === type && (
-                <span style={{ fontSize: '12px', color: 'var(--success)' }}>
-                  ✓ {testResult.chats_sent} chat(s), {testResult.dms_sent} DM(s)
-                </span>
-              )}
-            </div>
-          </div>
+            <pre style={{ fontSize: 11, background: 'var(--surface-alt)', padding: 10, borderRadius: 6, whiteSpace: 'pre-wrap', marginBottom: 12, border: '1px solid var(--border-light)' }}>{previewMsg(type)}</pre>
+            <Button size="sm" disabled={testingShift === type} onClick={() => testShift(type)} block>Send Test</Button>
+          </Card>
         ))}
-      </div>
-
-      <div style={{ padding: '10px 14px', background: 'var(--surface-alt)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
-        <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px', color: 'var(--text-secondary)' }}>🏢 OFFICE ROSTER</div>
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          <Button size="sm" variant="secondary" disabled={testingShift === 'office'} onClick={() => testShift('office')}>
-            {testingShift === 'office' ? 'Sending…' : 'Send office roster'}
-          </Button>
-          {testResult?.type === 'office' && <span style={{ fontSize: '12px', color: 'var(--success)' }}>✓ Sent</span>}
-        </div>
       </div>
     </div>
   );
 }
 
 // ─── Logs Tab ────────────────────────────────────────────
-const ACTION_LABELS = {
-  login: { label: 'Login', color: 'blue' },
-  time_off_requested: { label: 'Time-off request', color: 'yellow' },
-  time_off_reviewed: { label: 'Time-off reviewed', color: 'green' },
-  schedule_generated: { label: 'Schedule generated', color: 'blue' },
-  schedule_published: { label: 'Schedule published', color: 'green' },
-  test_notification_sent: { label: 'Test notification', color: 'gray' },
-};
-
 function LogsTab() {
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState('');
 
   useEffect(() => {
-    api('/admin/audit-logs')
-      .then(d => { setLogs(d || []); setLoading(false); })
-      .catch(() => setLoading(false));
+    api('/admin/audit-logs').then(d => { setLogs(d || []); setLoading(false); }).catch(() => setLoading(false));
   }, []);
 
-  const displayed = filter
-    ? logs.filter(l => l.action === filter || l.username?.includes(filter))
-    : logs;
-
   return (
-    <>
-      <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-        <Select value={filter} onChange={e => setFilter(e.target.value)} style={{ width: '220px' }}>
-          <option value="">All actions</option>
-          {Object.entries(ACTION_LABELS).map(([k, v]) => (
-            <option key={k} value={k}>{v.label}</option>
-          ))}
-        </Select>
-        <Button size="sm" variant="ghost" onClick={() => setFilter('')}>Clear</Button>
-      </div>
-      <Card style={{ padding: '4px' }}>
-        {loading && <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>Loading…</div>}
-        {!loading && displayed.length === 0 && <EmptyState icon={<Icon name="copy" size={32} />} title="No log entries" subtitle="Actions will appear here as users interact with the portal" />}
-        {displayed.map((log, i) => {
-          const meta = ACTION_LABELS[log.action] || { label: log.action, color: 'gray' };
-          return (
-            <div key={log.id} style={{
-              display: 'flex', alignItems: 'flex-start', gap: '12px', padding: '10px 18px',
-              borderBottom: i < displayed.length - 1 ? '1px solid var(--border-light)' : 'none',
-            }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
-                  <Badge color={meta.color}>{meta.label}</Badge>
-                  <span style={{ fontSize: '13px', fontWeight: 600 }}>{log.username || '—'}</span>
-                </div>
-                {log.details && <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>{log.details}</div>}
-              </div>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap', flexShrink: 0 }}>
-                {new Date(log.created_at).toLocaleString()}
-              </div>
+    <Card style={{ padding: '4px' }}>
+      {loading && <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>Loading…</div>}
+      {logs.map((log, i) => (
+        <div key={log.id} style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', padding: '12px 18px', borderBottom: i < logs.length - 1 ? '1px solid var(--border-light)' : 'none' }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Badge color="blue">{log.action}</Badge>
+              <span style={{ fontSize: '13px', fontWeight: 600 }}>{log.username}</span>
             </div>
-          );
-        })}
-      </Card>
-    </>
+            {log.details && <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '3px' }}>{log.details}</div>}
+          </div>
+          <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{new Date(log.created_at).toLocaleString()}</div>
+        </div>
+      ))}
+    </Card>
   );
 }
 
 // ─── Telegram Templates Tab ──────────────────────────────
 function TelegramTemplatesTab() {
   const [templates, setTemplates] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [toast, setToast] = useState(null);
-  const [showForm, setShowForm] = useState(false);
-  const [editing, setEditing] = useState(null); // template object
+  const [show, setShow] = useState(false);
+  const [editing, setEditing] = useState(null);
 
-  const load = () => {
-    api('/admin/telegram-templates')
-      .then(d => setTemplates(d || []))
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  };
+  const load = () => api('/admin/telegram-templates').then(d => setTemplates(d || []));
   useEffect(() => { load(); }, []);
-
-  const showToast = (message, type) => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3500);
-  };
-
-  const handleSave = async (form) => {
-    try {
-      if (editing) {
-        await api(`/admin/telegram-templates/${editing.id}`, {
-          method: 'PATCH', body: JSON.stringify(form),
-        });
-        showToast('Template updated', 'success');
-      } else {
-        await api('/admin/telegram-templates', {
-          method: 'POST', body: JSON.stringify(form),
-        });
-        showToast('Template created', 'success');
-      }
-      setShowForm(false); setEditing(null); load();
-    } catch (e) { showToast(e.message, 'error'); }
-  };
-
-  const handleDelete = async (tpl) => {
-    if (!confirm(`Delete template "${tpl.name}"? Any agents using it will lose their alert.`)) return;
-    try {
-      await api(`/admin/telegram-templates/${tpl.id}`, { method: 'DELETE' });
-      showToast('Deleted', 'info'); load();
-    } catch (e) { showToast(e.message, 'error'); }
-  };
 
   return (
     <>
-      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div>
-          <div style={{ fontSize: '14px', fontWeight: 600 }}>Telegram Notification Templates</div>
-          <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
-            Named presets for Telegram chat destinations. Assign them to container agents for error alerts.
-          </div>
-        </div>
-        <Button size="sm" variant="primary" onClick={() => { setEditing(null); setShowForm(true); }}>
-          + Add Template
-        </Button>
-      </div>
-
-      <Card style={{ padding: '4px' }}>
-        {loading && <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>Loading…</div>}
-        {!loading && templates.length === 0 && (
-          <EmptyState icon="📨" title="No templates yet"
-            subtitle="Create a template to quickly assign Telegram destinations to modules" />
-        )}
-        {templates.map((tpl, i) => (
-          <div key={tpl.id} style={{
-            display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 18px',
-            borderBottom: i < templates.length - 1 ? '1px solid var(--border-light)' : 'none',
-          }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 600, fontSize: '14px' }}>{tpl.name}</div>
-              <div style={{ fontSize: '12px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: '2px' }}>
-                Chat ID: {tpl.chat_id}{tpl.topic_id ? ` · Topic: ${tpl.topic_id}` : ''}
+      <div style={{ display: 'flex', justifyContent: 'flex-end' }}><Button size="sm" icon="plus" onClick={() => { setEditing(null); setShow(true); }}>Add Template</Button></div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {templates.map(tpl => (
+          <Card key={tpl.id} style={{ padding: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ fontWeight: 700 }}>{tpl.name}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>Chat: {tpl.chat_id}</div>
               </div>
-              {tpl.description && (
-                <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>{tpl.description}</div>
-              )}
+              <div style={{ display: 'flex', gap: 6 }}>
+                <Button size="sm" variant="ghost" icon="edit" onClick={() => { setEditing(tpl); setShow(true); }} />
+                <Button size="sm" variant="danger" icon="trash" onClick={() => api(`/admin/telegram-templates/${tpl.id}`, { method: 'DELETE' }).then(load)} />
+              </div>
             </div>
-            <div style={{ display: 'flex', gap: '6px' }}>
-              <Button size="sm" variant="ghost" onClick={() => { setEditing(tpl); setShowForm(true); }}>✏️</Button>
-              <Button size="sm" variant="danger" onClick={() => handleDelete(tpl)}>🗑</Button>
-            </div>
-          </div>
+          </Card>
         ))}
-      </Card>
-
-      {showForm && (
-        <TelegramTemplateFormOverlay
-          initial={editing}
-          onClose={() => { setShowForm(false); setEditing(null); }}
-          onSave={handleSave}
-        />
-      )}
+      </div>
+      {show && <TelegramTemplateFormOverlay initial={editing} onClose={() => setShow(false)} onSave={() => { setShow(false); load(); }} />}
     </>
   );
 }
 
 function TelegramTemplateFormOverlay({ initial, onClose, onSave }) {
-  const [name, setName] = useState(initial?.name || '');
-  const [chatId, setChatId] = useState(initial?.chat_id || '');
-  const [topicId, setTopicId] = useState(initial?.topic_id?.toString() || '');
-  const [description, setDescription] = useState(initial?.description || '');
-  const [saving, setSaving] = useState(false);
-
-  const handleSave = async () => {
-    if (!name.trim() || !chatId.trim()) return;
-    setSaving(true);
-    const form = {
-      name: name.trim(),
-      chat_id: chatId.trim(),
-      topic_id: topicId ? parseInt(topicId) : null,
-      description: description.trim() || null,
-    };
-    await onSave(form);
-    setSaving(false);
+  const [f, setF] = useState({ name: initial?.name || '', chat_id: initial?.chat_id || '', topic_id: initial?.topic_id || '', description: initial?.description || '' });
+  const save = async () => {
+    const payload = { ...f, topic_id: f.topic_id ? parseInt(f.topic_id) : null };
+    if (initial) await api(`/admin/telegram-templates/${initial.id}`, { method: 'PATCH', body: JSON.stringify(payload) });
+    else await api('/admin/telegram-templates', { method: 'POST', body: JSON.stringify(payload) });
+    onSave();
   };
-
   return (
-    <Overlay title={initial ? 'Edit Template' : 'New Telegram Template'} onClose={onClose}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-        <Input label="Template Name *" value={name} onChange={e => setName(e.target.value)}
-          placeholder="e.g. ops-alerts-channel" />
-        <Input label="Chat ID *" value={chatId} onChange={e => setChatId(e.target.value)}
-          placeholder="e.g. -1001234567890" />
-        <Input label="Topic ID (optional, for forum groups)" value={topicId}
-          onChange={e => setTopicId(e.target.value)} placeholder="e.g. 42" type="number" />
-        <Input label="Description (optional)" value={description}
-          onChange={e => setDescription(e.target.value)} placeholder="What is this template for?" />
-        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '4px' }}>
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button variant="primary" onClick={handleSave} disabled={saving || !name.trim() || !chatId.trim()}>
-            {saving ? 'Saving…' : 'Save'}
-          </Button>
+    <Overlay title={initial ? 'Edit Template' : 'New Template'} onClose={onClose}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <Input label="Name" value={f.name} onChange={e => setF({ ...f, name: e.target.value })} />
+        <Input label="Chat ID" value={f.chat_id} onChange={e => setF({ ...f, chat_id: e.target.value })} />
+        <Input label="Topic ID" value={f.topic_id} onChange={e => setF({ ...f, topic_id: e.target.value })} />
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button onClick={save}>Save</Button>
         </div>
       </div>
     </Overlay>
