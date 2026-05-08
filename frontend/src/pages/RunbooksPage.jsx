@@ -5,21 +5,19 @@ import { Button, Input, Select, Card, Overlay, Toast, EmptyState, Badge } from '
 import { Icon } from '../components/Icons';
 
 const CATEGORY_ICONS = {
-  incident: 'siren',
-  access:   'key',
-  mail:     'mail',
-  devsec:   'shield',
-  sustain:  'leaf',
-  general:  'bookmark',
+  access:  'key',
+  infra:   'server',
+  yandex:  'zap',
+  website: 'workspace',
+  office:  'inbox',
 };
 
 const CATEGORY_LABELS = {
-  incident: 'Incident',
-  access:   'Access',
-  mail:     'Mail',
-  devsec:   'DevSec',
-  sustain:  'Sustain.',
-  general:  'General',
+  access:  'Access',
+  infra:   'Infra',
+  yandex:  'Yandex',
+  website: 'Website/CMS',
+  office:  'Office',
 };
 
 const LANG_OPTIONS = ['shell', 'sql', 'python', 'yaml', 'ini', 'json', 'bash', 'text'];
@@ -282,7 +280,7 @@ function StepEditor({ steps, onChange }) {
                   background: 'var(--surface)', color: 'var(--text)', outline: 'none',
                 }}
               />
-              <button onClick={() => removeStep(i)} style={{
+              <button type="button" onClick={() => removeStep(i)} style={{
                 background: 'none', border: 'none', cursor: 'pointer',
                 color: 'var(--error)', padding: 4,
               }}>
@@ -331,7 +329,7 @@ function StepEditor({ steps, onChange }) {
             )}
           </div>
         ))}
-        <button onClick={addStep} style={{
+        <button type="button" onClick={addStep} style={{
           display: 'flex', alignItems: 'center', gap: 6,
           padding: '8px 12px', fontSize: 13,
           border: '1px dashed var(--border)', borderRadius: 'var(--radius-sm)',
@@ -347,10 +345,10 @@ function StepEditor({ steps, onChange }) {
 
 /* ─── Runbook Form Modal ─────────────────────────────────────── */
 function RunbookModal({ initial, users, onSave, onClose }) {
-  const CATEGORIES = ['incident', 'access', 'mail', 'devsec', 'sustain', 'general'];
+  const CATEGORIES = ['access', 'infra', 'yandex', 'website', 'office'];
   const [form, setForm] = useState({
     title: initial?.title || '',
-    category: initial?.category || 'general',
+    category: initial?.category || 'access',
     when_to_use: initial?.when_to_use || '',
     tags: (initial?.tags || []).join(', '),
     owner_id: initial?.owner?.id || '',
@@ -399,7 +397,7 @@ function RunbookModal({ initial, users, onSave, onClose }) {
           <h2 style={{ margin: 0, fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 20 }}>
             {initial ? 'Edit runbook' : 'New runbook'}
           </h2>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}>
+          <button type="button" onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}>
             <Icon name="x" size={18} />
           </button>
         </div>
