@@ -671,6 +671,7 @@ async def _check_one_mailbox(mb: MailboxConfig, user_rules: list, builtin_map: d
                     sender=raw["sender"][:500],
                     category=category,
                     rule_id=matched_rule.id if matched_rule else None,
+                    body=raw["body"],
                     telegram_sent=sent,
                     telegram_target_used=tg_target_str if chat_id else None,
                     extracted_code=extra.get("code") if category == "adobe" else None,

@@ -480,6 +480,20 @@ function EmailDetail({ email, ruleMap, onStatusChange, onAddComment }) {
         </div>
       </section>
 
+      {/* Message Body */}
+      <section style={{ background: 'var(--surface-alt)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div className="t-eyebrow" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Icon name="mail" size={12} /> Message Body
+        </div>
+        <div style={{
+          fontSize: '13px', lineHeight: 1.6, whiteSpace: 'pre-wrap',
+          fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)',
+          maxHeight: '300px', overflowY: 'auto', paddingRight: '4px'
+        }}>
+          {email.body || '(no message body)'}
+        </div>
+      </section>
+
       <div style={{ height: 1, background: 'var(--border-light)' }} />
 
       {/* Internal Activity */}

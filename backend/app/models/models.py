@@ -378,6 +378,7 @@ class EmailLog(Base):
     sender = Column(String(500), nullable=True)
     category = Column(String(50), nullable=False)   # builtin_key or user rule name
     rule_id = Column(Integer, ForeignKey("mail_routing_rules.id", ondelete="SET NULL"), nullable=True)
+    body = Column(Text, nullable=True)
     telegram_sent = Column(Boolean, default=False, nullable=False)
     telegram_target_used = Column(String(200), nullable=True)
     extracted_code = Column(String(20), nullable=True)  # adobe codes only
