@@ -337,8 +337,6 @@ export default function SchedulePage({ user }) {
         </div>
       )}
 
-      <WorldClock />
-
       {showGenerate && <GenerateModal onClose={() => setShowGenerate(false)} onGenerate={handleGenerate} dates={weekDates} configs={configs} />}
       {showTimeOff && <TimeOffModal onClose={() => setShowTimeOff(false)} onSubmit={handleTimeOff} />}
       {showAddShift && <AddShiftModal onClose={() => setShowAddShift(false)} onSubmit={handleAddShift} users={users} configs={configs} />}
@@ -810,56 +808,5 @@ function TimeOffPanel({ timeOff, locale, tr, onRequest, onSelect }) {
         </div>
       )}
     </Card>
-  );
-}
-
-// ─── World Clock ─────────────────────────────────────────
-const CLOCKS = [
-  { label: 'Berlin',      tz: 'Europe/Berlin'       },
-  { label: 'Moscow',      tz: 'Europe/Moscow'       },
-  { label: 'Abu Dhabi',   tz: 'Asia/Dubai'          },
-  { label: 'Mexico City', tz: 'America/Mexico_City' },
-  { label: 'Bishkek',     tz: 'Asia/Bishkek'        },
-];
-
-export function WorldClock() {
-  const [now, setNow] = useState(new Date());
-  const timerRef = useRef(null);
-
-  useEffect(() => {
-    const msToNext = 1000 - (Date.now() % 1000);
-    const timeout = setTimeout(() => {
-      setNow(new Date());
-      timerRef.current = setInterval(() => setNow(new Date()), 1000);
-    }, msToNext);
-    return () => { clearTimeout(timeout); clearInterval(timerRef.current); };
-  }, []);
-
-  return (
-    <div style={{
-      display: 'flex', overflow: 'hidden',
-      borderRadius: 'var(--radius)', border: '1px solid var(--border)',
-      background: 'var(--surface)',
-    }}>
-      {CLOCKS.map((c, i) => {
-        const time = now.toLocaleTimeString('en-GB', { timeZone: c.tz, hour: '2-digit', minute: '2-digit' });
-        const h = parseInt(now.toLocaleString('en-GB', { timeZone: c.tz, hour: 'numeric', hour12: false }));
-        const isNight = h < 7 || h >= 20;
-        return (
-          <div key={c.tz} style={{
-            flex: 1, padding: '10px 12px', textAlign: 'center',
-            borderRight: i < CLOCKS.length - 1 ? '1px solid var(--border-light)' : 'none',
-            background: isNight ? 'var(--surface-alt)' : 'transparent',
-          }}>
-            <div className="t-eyebrow" style={{ marginBottom: '3px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
-              <Icon name={isNight ? 'moon' : 'sun'} size={13} /> {c.label}
-            </div>
-            <div style={{ fontSize: '16px', fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--text)', letterSpacing: '1px' }}>
-              {time}
-            </div>
-          </div>
-        );
-      })}
-    </div>
   );
 }
