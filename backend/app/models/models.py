@@ -2,8 +2,8 @@
 import uuid
 from datetime import datetime, timezone
 from sqlalchemy import (
-    Column, String, Boolean, DateTime, Integer, BigInteger, ForeignKey,
-    Text, Enum as SAEnum, Date, Time, UniqueConstraint, Table, Float, Uuid, Index, JSON,
+    Column, String, Boolean, DateTime, Integer, ForeignKey,
+    Text, Enum as SAEnum, Date, Time, UniqueConstraint, Table, Float, Uuid, Index,
 )
 from sqlalchemy.orm import relationship
 from app.core.database import Base
@@ -52,18 +52,6 @@ class TelegramChatType(str, enum.Enum):
     PERSONAL = "personal"
     GROUP = "group"
     CHANNEL = "channel"
-
-class ContainerCommandType(str, enum.Enum):
-    START   = "start"
-    STOP    = "stop"
-    RESTART = "restart"
-
-class ContainerCommandStatus(str, enum.Enum):
-    PENDING   = "pending"
-    EXECUTING = "executing"
-    DONE      = "done"
-    FAILED    = "failed"
-
 
 # ─── Association Tables ──────────────────────────────────
 
@@ -409,80 +397,3 @@ class TelegramTemplate(Base):
     updated_at  = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
-# ─── Container Dashboard ──────────────────────────────────
-
-class VPSAgent(Base):
-    __tablename__ = "vps_agents"
-
-    id                = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    name              = Column(String(100), unique=True, nullable=False)
-    description       = Column(Text, nullable=True)
-    api_key_hash      = Column(String(64), nullable=False)
-    last_seen         = Column(DateTime(timezone=True), nullable=True)
-    ip_address        = Column(String(45), nullable=True)
-    hostname          = Column(String(255), nullable=True)
-    is_enabled        = Column(Boolean, default=True, nullable=False)
-    created_at        = Column(DateTime(timezone=True), default=utcnow)
-    alert_template_id = Column(Uuid(as_uuid=True),
-                               ForeignKey("telegram_templates.id", ondelete="SET NULL"),
-                               nullable=True)
-
-    system_snapshot      = Column(Text, nullable=True)   # JSON: system metrics, logins, updates
-    disk_alert_threshold = Column(Integer, default=85, nullable=True)   # % — alert when disk >= this
-    cpu_alert_threshold  = Column(Integer, default=80, nullable=True)   # % — alert when sustained CPU >= this
-    alert_flags          = Column(JSON, nullable=True)                  # {disk,cpu,container_stopped,login,updates,offline}
-
-    alert_template = relationship("TelegramTemplate")
-    containers     = relationship("ContainerState", back_populates="agent",
-                                  cascade="all, delete-orphan")
-    commands       = relationship("ContainerCommand", back_populates="agent",
-                                  cascade="all, delete-orphan")
-
-
-class ContainerState(Base):
-    __tablename__ = "container_states"
-    __table_args__ = (UniqueConstraint("agent_id", "docker_id", name="uq_agent_docker"),)
-
-    id              = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    agent_id        = Column(Uuid(as_uuid=True), ForeignKey("vps_agents.id", ondelete="CASCADE"),
-                             nullable=False)
-    docker_id       = Column(String(64), nullable=False)
-    # Agent-reported (overwritten on every report)
-    name            = Column(String(255), nullable=False)
-    image           = Column(String(500), nullable=False)
-    status          = Column(String(50), nullable=False)
-    state_detail    = Column(Text, nullable=True)      # JSON
-    ports           = Column(Text, nullable=True)      # JSON
-    cpu_percent     = Column(Float, nullable=True)
-    mem_usage_bytes = Column(BigInteger, nullable=True)
-    mem_limit_bytes = Column(BigInteger, nullable=True)
-    last_logs       = Column(Text, nullable=True)      # JSON array of last 50 log lines
-    reported_at     = Column(DateTime(timezone=True), default=utcnow, nullable=False)
-    is_absent       = Column(Boolean, default=False, nullable=False)
-    # User-editable metadata (never overwritten by agent)
-    display_name    = Column(String(100), nullable=True)
-    description     = Column(Text, nullable=True)
-    hosted_on       = Column(String(150), nullable=True)
-
-    agent = relationship("VPSAgent", back_populates="containers")
-
-
-class ContainerCommand(Base):
-    __tablename__ = "container_commands"
-
-    id                = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    agent_id          = Column(Uuid(as_uuid=True), ForeignKey("vps_agents.id", ondelete="CASCADE"),
-                               nullable=False)
-    docker_id         = Column(String(64), nullable=False)
-    container_name    = Column(String(255), nullable=True)
-    command           = Column(_enum(ContainerCommandType), nullable=False)
-    status            = Column(_enum(ContainerCommandStatus),
-                               default=ContainerCommandStatus.PENDING, nullable=False)
-    issued_by_user_id = Column(Uuid(as_uuid=True),
-                               ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    issued_at         = Column(DateTime(timezone=True), default=utcnow, nullable=False)
-    executed_at       = Column(DateTime(timezone=True), nullable=True)
-    result_message    = Column(Text, nullable=True)
-
-    agent     = relationship("VPSAgent", back_populates="commands")
-    issued_by = relationship("User")

@@ -1,6 +1,5 @@
 """Main application entry point."""
 import logging
-import os
 from datetime import time as dtime
 from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, Request
@@ -24,13 +23,11 @@ from app.core.security import hash_password
 from app.core.scheduler import scheduler
 from app.api import auth, users, groups, schedule, reminders, notifications, admin_config
 from app.api import mail_reporter
-from app.api import containers
 from app.workers.reminder_worker import check_and_fire_reminders
 from app.workers.shift_notification_scheduler import schedule_pending_notifications
 from app.workers.shift_notification_worker import check_shift_notifications
 from app.services.telegram_service import poll_telegram_updates
 from app.services.mail_reporter_service import check_all_mailboxes
-from app.api.containers import check_vps_offline
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -162,6 +159,11 @@ async def _migrate_imap_passwords() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Idempotent safety net for local dev where Alembic isn't run.
+    # In Docker, `alembic upgrade head` runs before uvicorn (see docker-compose.yml),
+    # so this is effectively a no-op there.
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
     await seed_defaults()
     await seed_routing_rules()
     await _migrate_imap_passwords()
@@ -185,7 +187,6 @@ async def lifespan(app: FastAPI):
         id="mail_reporter_poll", max_instances=1, coalesce=True,
     )
 
-    # VPS offline detection — runs every 60 s, fires when last_seen > 5 min ago
     # Shift notification safety-net: fires if a precise 'date' job was missed
     # (e.g. server was down at exact start time). Dedup via ShiftNotificationLog.
     scheduler.add_job(
@@ -193,13 +194,8 @@ async def lifespan(app: FastAPI):
         id="shift_notification_fallback", max_instances=1, coalesce=True,
     )
 
-    scheduler.add_job(
-        check_vps_offline, "interval", seconds=60,
-        id="vps_offline_check", max_instances=1, coalesce=True,
-    )
-
     scheduler.start()
-    logger.info("Scheduler started: reminders (30s), shift notifications (pre-scheduled + 60s fallback), mail reporter (%ds), vps offline check (60s)", settings.MAIL_POLL_INTERVAL)
+    logger.info("Scheduler started: reminders (30s), shift notifications (pre-scheduled + 60s fallback), mail reporter (%ds)", settings.MAIL_POLL_INTERVAL)
 
     yield
     scheduler.shutdown()
@@ -292,7 +288,6 @@ app.include_router(reminders.router, prefix="/api")
 app.include_router(notifications.router, prefix="/api")
 app.include_router(admin_config.router, prefix="/api")
 app.include_router(mail_reporter.router, prefix="/api")
-app.include_router(containers.router, prefix="/api")
 
 
 @app.exception_handler(Exception)

@@ -23,14 +23,13 @@ A lightweight internal operations portal for first-line support teams. Provides 
 │  · Mail Reporter (IMAP → classify → Telegram) │
 │  · Notifications (in-app + Telegram)          │
 │  · Admin config  (shift types, Telegram chats)│
-│  · Containers    (VPS monitoring dashboard)   │
-└────────────┬──────────────────────┬──────────┘
-             │                      │ push metrics (15s)
-   ┌─────────▼──────────┐   ┌───────▼───────────────┐
-   │  PostgreSQL        │   │ Remote VPS nodes       │
-   │  (asyncpg)         │   │ Telegraf agent         │
-   │  Docker: db:5432   │   │ (outbound-only push)   │
-   └────────────────────┘   └───────────────────────┘
+└────────────┬──────────────────────────────────┘
+             │
+   ┌─────────▼──────────┐
+   │  PostgreSQL        │
+   │  (asyncpg)         │
+   │  Docker: db:5432   │
+   └────────────────────┘
           │
    ┌──────▼───────┐
    │ Telegram      │
@@ -175,16 +174,8 @@ npm run dev      # Vite dev server on :5173 — proxies /api to :8000
 - **Groups tab**: manage team groupings; assign members
 - **Shift config tab**: edit shift type labels, durations, times, emoji, colours, location requirement
 - **Telegram tab**: configure group chats and which notification types they receive
-- **Telegram Templates tab**: named presets for Telegram destinations (used by mail rules, VPS agents, reminders)
+- **Telegram Templates tab**: named presets for Telegram destinations (used by mail rules and reminders)
 - **Logs tab**: last 200 audit log entries (login, time-off, schedule generation/publish, etc.)
-
-### Containers / VPS Monitoring
-- Push-based monitoring — agents on remote VPS nodes push metrics every 15 seconds
-- Per-agent dashboard: CPU, RAM, disk, load average, uptime, pending OS updates, failed systemd services, recent SSH logins
-- Docker container grid per agent: status, CPU %, memory usage, last log lines
-- Telegram alerts per agent (individually toggleable): VPS offline/recovery, CPU spike, disk full, container stopped, SSH login, OS updates available
-- Alert thresholds and Telegram template configurable per agent
-- Portal is **read-only** — no remote container control
 
 ### Profile (self-service)
 - Change display name, name colour, avatar URL
@@ -202,33 +193,36 @@ POST   /api/auth/confirm-otp                 # Enable OTP
 POST   /api/auth/disable-otp                 # Disable OTP
 POST   /api/auth/refresh                     # Refresh tokens
 GET    /api/auth/me                          # Current user
+PATCH  /api/auth/me                          # Self-service profile update
 
 GET    /api/users/                           # List all users (any role)
 POST   /api/users/                           # Create user (admin)
-GET    /api/users/me/profile                 # Current user profile
-PATCH  /api/users/me/profile                 # Update own profile
 POST   /api/users/me/telegram-link-code      # Generate own Telegram link code
+POST   /api/users/me/telegram-unlink         # Unlink own Telegram account
 PATCH  /api/users/:id                        # Update user (admin)
 DELETE /api/users/:id                        # Deactivate user (admin)
+DELETE /api/users/:id/hard                   # Permanently delete user (admin)
+POST   /api/users/:id/reactivate             # Reactivate user (admin)
 POST   /api/users/:id/reset-password         # Reset password (admin)
 POST   /api/users/:id/telegram-link-code     # Generate link code for user (admin)
 POST   /api/users/:id/reset-otp              # Disable 2FA for user (admin)
 
 GET    /api/groups/                          # List groups
 POST   /api/groups/                          # Create group (admin)
-PATCH  /api/groups/:id                       # Update group (admin)
-PUT    /api/groups/:id/members               # Set group members (admin)
 DELETE /api/groups/:id                       # Delete group (admin)
 
 GET    /api/schedule/shift-configs           # Active shift type configs
 GET    /api/schedule/shifts                  # ?start_date=&end_date=
 POST   /api/schedule/shifts                  # Create shift (admin)
+PATCH  /api/schedule/shifts/:id              # Update shift (admin)
 DELETE /api/schedule/shifts/:id              # Delete shift (admin)
+DELETE /api/schedule/shifts/drafts           # Clear drafts in range (admin)
 POST   /api/schedule/generate                # Auto-generate schedule (admin)
 POST   /api/schedule/publish                 # Publish draft shifts (admin)
 GET    /api/schedule/time-off                # List time-off requests
 POST   /api/schedule/time-off                # Submit time-off request
 PATCH  /api/schedule/time-off/:id            # Approve/reject request (admin)
+DELETE /api/schedule/time-off/:id            # Withdraw / delete request
 
 GET    /api/reminders/                       # All reminders for current user
 GET    /api/reminders/active                 # Active reminders only
@@ -241,38 +235,38 @@ GET    /api/notifications/unread-count       # Unread count
 POST   /api/notifications/mark-read          # Mark all as read
 POST   /api/notifications/:id/read           # Mark one as read
 DELETE /api/notifications/                   # Clear all (current user)
-DELETE /api/notifications/admin/:user_id     # Clear for user (admin)
 
 GET    /api/admin/shift-configs              # List shift configs (admin)
-POST   /api/admin/shift-configs              # Create shift config (admin)
 PATCH  /api/admin/shift-configs/:id          # Update shift config (admin)
 GET    /api/admin/telegram-chats             # List configured chats (admin)
 POST   /api/admin/telegram-chats             # Add chat (admin)
 PATCH  /api/admin/telegram-chats/:id         # Update chat settings (admin)
 DELETE /api/admin/telegram-chats/:id         # Remove chat (admin)
-POST   /api/admin/test-notification          # Send test notification (admin)
+POST   /api/admin/test-telegram-shift        # Manually fire shift telegram (admin)
+GET    /api/admin/telegram-shift-preview     # Preview today's roster (admin)
+GET    /api/admin/telegram-diagnostics       # Bot connectivity check (admin)
 GET    /api/admin/audit-logs                 # Last 200 audit log entries (admin)
+GET    /api/admin/telegram-templates         # List templates (admin)
+POST   /api/admin/telegram-templates         # Create template (admin)
+PATCH  /api/admin/telegram-templates/:id     # Update template (admin)
+DELETE /api/admin/telegram-templates/:id     # Delete template (admin)
 
 GET    /api/mail-reporter/mailboxes          # List mailboxes (admin)
 POST   /api/mail-reporter/mailboxes          # Add mailbox (admin)
 PATCH  /api/mail-reporter/mailboxes/:id      # Update mailbox (admin)
 DELETE /api/mail-reporter/mailboxes/:id      # Remove mailbox (admin)
 POST   /api/mail-reporter/mailboxes/:id/test # Test IMAP connection (admin)
-GET    /api/mail-reporter/emails             # Email log (all authenticated users)
-PATCH  /api/mail-reporter/emails/:id         # Mark solved / add comment (all authenticated users)
+GET    /api/mail-reporter/emails             # Email log list (no body)
+GET    /api/mail-reporter/emails/:id         # Email detail (with body)
+PATCH  /api/mail-reporter/emails/:id         # Mark solved / set status (all users)
 DELETE /api/mail-reporter/emails             # Clear email logs (admin)
 POST   /api/mail-reporter/poll-now           # Trigger immediate mail check (admin)
 GET    /api/mail-reporter/rules              # List routing rules (admin)
 POST   /api/mail-reporter/rules              # Create custom rule (admin)
 PATCH  /api/mail-reporter/rules/:id          # Update rule (admin)
 DELETE /api/mail-reporter/rules/:id          # Delete custom rule (admin)
-
-GET    /api/containers/agents                # List VPS agents (admin)
-POST   /api/containers/agents                # Register agent (admin)
-GET    /api/containers/agents/:id            # Agent detail + containers
-PATCH  /api/containers/agents/:id           # Update agent config (admin)
-DELETE /api/containers/agents/:id           # Remove agent (admin)
-POST   /api/containers/:id/telegraf         # Ingest Telegraf metrics (agent API key auth)
+GET    /api/mail-reporter/emails/:id/comments # List comments
+POST   /api/mail-reporter/emails/:id/comments # Add comment
 
 GET    /api/health                           # Health check — includes DB connectivity
 GET    /api/config                           # Public config (Telegram bot username, portal timezone)
@@ -296,14 +290,12 @@ PostgreSQL in Docker (named volume `postgres_data`). Schema managed by Alembic �
 | `notifications` | In-app notification feed per user |
 | `activity_logs` | Audit trail — action + details; username denormalised so entries survive user deletion |
 | `telegram_chats` | Configured group chats/channels with per-notification-type enable flags |
-| `telegram_templates` | Named presets for Telegram destinations (chat + optional topic) — referenced by mail rules, VPS agents, reminders |
+| `telegram_templates` | Named presets for Telegram destinations (chat + optional topic) — referenced by mail rules and reminders |
 | `shift_notification_logs` | Deduplication log — one row per (date, shift_type) prevents duplicate shift notifications |
 | `mailbox_configs` | IMAP mailbox credentials (password encrypted at rest), poll settings, Telegram target, last-poll status |
 | `mail_routing_rules` | Categorisation rules (built-in + user-defined) — match conditions, display config, Telegram target override; `mailbox_id = NULL` means global |
-| `email_logs` | Processed email history — category, status (unchecked/solved/on_pause/blocked), Telegram delivery, extracted codes, comments |
+| `email_logs` | Processed email history — category, status (unchecked/solved/on_pause/blocked), Telegram delivery, extracted codes, body (capped at 64 KB) |
 | `email_comments` | Per-email thread of comments from team members |
-| `vps_agents` | Registered VPS monitoring agents — API key hash, last-seen, alert thresholds, per-type alert flags |
-| `container_states` | Latest Docker container snapshot per agent — status, CPU %, memory, last logs |
 
 ## Security
 
@@ -387,8 +379,7 @@ backend/
 │   │   ├── reminders.py            # Reminder CRUD for current user
 │   │   ├── notifications.py        # In-app notification feed
 │   │   ├── admin_config.py         # Shift configs, Telegram chats/templates, audit logs
-│   │   ├── mail_reporter.py        # Mailbox CRUD, email log, routing rules, manual poll trigger
-│   │   └── containers.py           # VPS agent registration, Telegraf ingest, dashboard read, alerts
+│   │   └── mail_reporter.py        # Mailbox CRUD, email log, routing rules, manual poll trigger
 │   ├── services/
 │   │   ├── schedule_service.py     # Greedy auto-generation algorithm with constraint satisfaction
 │   │   ├── telegram_service.py     # Shift start + office roster Telegram notifications

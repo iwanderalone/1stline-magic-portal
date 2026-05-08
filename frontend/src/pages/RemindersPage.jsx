@@ -9,6 +9,7 @@ export default function RemindersPage() {
   const [reminders, setReminders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
+  const [editing, setEditing] = useState(null);
   const [toast, setToast] = useState(null);
   const [filter, setFilter] = useState('active');
 
@@ -21,6 +22,10 @@ export default function RemindersPage() {
 
   const handleCreate = async (form) => {
     try { await api('/reminders/', { method: 'POST', body: JSON.stringify(form) }); setToast({ message: tr('create') + '!', type: 'success' }); setShowCreate(false); load(); }
+    catch (e) { setToast({ message: e.message, type: 'error' }); }
+  };
+  const handleEdit = async (form) => {
+    try { await api(`/reminders/${editing.id}`, { method: 'PATCH', body: JSON.stringify(form) }); setToast({ message: 'Saved', type: 'success' }); setEditing(null); load(); }
     catch (e) { setToast({ message: e.message, type: 'error' }); }
   };
   const handleCancel = async (id) => {
@@ -80,12 +85,18 @@ export default function RemindersPage() {
                   {new Date(r.remind_at).toLocaleString()}{r.fired_at && ` · fired ${new Date(r.fired_at).toLocaleString()}`}
                 </div>
               </div>
-              {r.status === 'active' && <Button size="sm" variant="danger" onClick={() => handleCancel(r.id)}>{tr('cancelReminder')}</Button>}
+              {r.status === 'active' && (
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <Button size="sm" variant="secondary" icon="edit" onClick={() => setEditing(r)} />
+                  <Button size="sm" variant="danger" onClick={() => handleCancel(r.id)}>{tr('cancelReminder')}</Button>
+                </div>
+              )}
             </div>
           ))}</div>
         )}
       </Card>
-      {showCreate && <CreateReminderModal onClose={() => setShowCreate(false)} onCreate={handleCreate} />}
+      {showCreate && <ReminderModal onClose={() => setShowCreate(false)} onSubmit={handleCreate} />}
+      {editing && <ReminderModal initial={editing} onClose={() => setEditing(null)} onSubmit={handleEdit} />}
       {toast && <Toast {...toast} onClose={() => setToast(null)} />}
     </div>
   );
@@ -104,14 +115,18 @@ const RECURRENCE_OPTIONS = [
   { label: 'Monthly',     value: 43200 },
 ];
 
-function CreateReminderModal({ onClose, onCreate }) {
+function ReminderModal({ initial, onClose, onSubmit }) {
   const { t: tr } = useLang();
-  const [title, setTitle] = useState('');
-  const [desc, setDesc] = useState('');
-  const [at, setAt] = useState('');
-  const [rec, setRec] = useState(false);
-  const [recMin, setRecMin] = useState(60);
-  const [tgTarget, setTgTarget] = useState('personal');
+  const isEdit = Boolean(initial);
+  const initialAt = initial?.remind_at
+    ? new Date(initial.remind_at).toISOString().slice(0, 16)
+    : '';
+  const [title, setTitle] = useState(initial?.title || '');
+  const [desc, setDesc] = useState(initial?.description || '');
+  const [at, setAt] = useState(initialAt);
+  const [rec, setRec] = useState(Boolean(initial?.is_recurring));
+  const [recMin, setRecMin] = useState(initial?.recurrence_minutes || 60);
+  const [tgTarget, setTgTarget] = useState(initial?.telegram_target || 'personal');
 
   const setQuick = m => {
     if (m) {
@@ -123,7 +138,7 @@ function CreateReminderModal({ onClose, onCreate }) {
   };
 
   return (
-    <Overlay onClose={onClose} title={tr('newReminderTitle')}>
+    <Overlay onClose={onClose} title={isEdit ? 'Edit reminder' : tr('newReminderTitle')}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
         <Input label={tr('title')} value={title} onChange={e => setTitle(e.target.value)} autoFocus placeholder="Check ticket #1234" />
         <Input label={tr('description')} value={desc} onChange={e => setDesc(e.target.value)} />
@@ -164,7 +179,7 @@ function CreateReminderModal({ onClose, onCreate }) {
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
           <Button variant="secondary" onClick={onClose}>{tr('cancel')}</Button>
           <Button
-            onClick={() => onCreate({
+            onClick={() => onSubmit({
               title,
               description: desc || null,
               remind_at: new Date(at).toISOString(),
@@ -175,7 +190,7 @@ function CreateReminderModal({ onClose, onCreate }) {
               telegram_target: tgTarget,
             })}
             disabled={!title || !at}
-          >{tr('create')}</Button>
+          >{isEdit ? 'Save' : tr('create')}</Button>
         </div>
       </div>
     </Overlay>
