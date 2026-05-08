@@ -407,24 +407,28 @@ backend/
 ```
 frontend/src/
 ├── main.jsx                  # React root, ThemeProvider, LangProvider
-├── App.jsx                   # Sidebar nav, notification bell polling (15s), page routing
-├── api.js                    # api(path, opts) — JWT from sessionStorage, auto-refresh on 401
+├── App.jsx                   # Sidebar nav, top bar (multi-TZ clocks, theme/lang), routing, notification polling
+├── api.js                    # api(path, opts) — JWT from localStorage, auto-refresh on 401
 ├── theme.js                  # Design tokens (light/dark) + getGlobalCSS()
 ├── components/
-│   ├── UI.jsx                # Shared primitives: Button, Input, Card, Badge, Modal, etc.
-│   ├── ThemeContext.jsx       # ThemeProvider + useTheme() hook (persists to localStorage)
-│   ├── LangContext.jsx        # Language/i18n context (EN/RU)
-│   └── NotificationsPanel.jsx # Bell dropdown with unread count
+│   ├── UI.jsx                # Shared primitives: Button, Input, Card, Badge, Avatar, Bar, Sparkline, Tag, StatusDot, Kbd, SLAGauge, Overlay, etc.
+│   ├── Icons.jsx             # Inline SVG icon set (no emoji in JSX)
+│   ├── EmailDetailModal.jsx  # Reusable email viewer (used by Home and Mail pages); includes MessageBody (collapsible)
+│   ├── ThemeContext.jsx      # ThemeProvider + useTheme() hook (persists to localStorage)
+│   ├── LangContext.jsx       # Language/i18n context (EN/RU)
+│   └── NotificationsPanel.jsx # Bell dropdown with unread count and per-item mark-read
 └── pages/
-    ├── LoginPage.jsx          # Login form + OTP step
-    ├── SchedulePage.jsx       # Weekly/monthly calendar
-    ├── TimeOffPage.jsx        # Time-off request submission and status tracking
-    ├── MailReporterPage.jsx   # IMAP email log, mailbox config, routing rules (admin)
-    ├── AdminPage.jsx          # Users, Groups, Shift config, Telegram, Logs tabs
-    └── ProfilePage.jsx        # Self-service profile, timezone, 2FA, Telegram settings
+    ├── HomePage.jsx          # Engineer dashboard: greeting, metrics, mail queue (clickable rows), shift context
+    ├── LoginPage.jsx         # Login form + OTP step
+    ├── SchedulePage.jsx      # Weekly/monthly calendar, shift assignment, time-off
+    ├── TimeOffPage.jsx       # Time-off request submission and status tracking
+    ├── MailReporterPage.jsx  # IMAP email log (list + detail with collapsible body), mailbox config, routing rules (admin)
+    ├── RemindersPage.jsx     # Reminder CRUD (create/edit/cancel; recurring; Telegram targets)
+    ├── AdminPage.jsx         # Users, Groups, Shift config, Telegram, Telegram Templates, Audit Logs tabs
+    └── ProfilePage.jsx       # Self-service profile, timezone, 2FA, Telegram link/unlink
 ```
 
-**Navigation (sidebar):** My Profile · Schedule · Mail · Time Off · Admin *(admin only)*
+**Navigation (sidebar):** Home · My Profile · Schedule · Mail · Time Off · Reminders · Admin *(admin only)*
 
-**Routing:** No React Router. `page` state in `App.jsx` synced with `window.location.hash`. On refresh, hash is read to restore the current page.
+**Routing:** No React Router. `page` state in `App.jsx` synced with `window.location.hash` (with a path-segment fallback for direct URL loads). All admin route gating is enforced in both the `useState` initializer and the `navigate()` function — both must be updated when adding new admin pages.
 current page.

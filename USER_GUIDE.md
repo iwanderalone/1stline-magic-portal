@@ -20,13 +20,15 @@ The sidebar contains:
 
 | Item | Description |
 |------|-------------|
+| 🏠 Home | Greeting, today's shift, mail queue, active reminders |
 | 👤 My Profile | Personal settings, timezone, Telegram linking, 2FA |
 | 📅 Schedule | Shift calendar (weekly/monthly view) |
 | 📧 Mail | Email monitoring and routing rules |
 | 🌴 Time Off | Submit and track time-off requests |
+| 🔔 Reminders | Personal reminders (in-app + Telegram) |
 | ⚙️ Admin | Team and system administration *(admin only)* |
 
-The bell icon 🔔 in the top bar shows your unread in-app notification count.
+The top bar shows multi-timezone clocks (Mexico City / Berlin / Moscow / Abu Dhabi), language toggle (EN / RU), theme toggle (light / dark), and a bell icon for unread in-app notifications.
 
 ---
 
@@ -51,9 +53,16 @@ The schedule page shows shifts for the current week or month.
 
 Times are in your admin's configured portal timezone. Telegram notifications you receive will show times converted to **your own profile timezone**.
 
-### World clock
+---
 
-A live clock bar above the calendar shows current time in multiple timezones. Columns with night hours (before 07:00 or after 20:00) are shaded.
+## Home
+
+The home page is the first thing you see after login. It surfaces:
+
+- **Greeting band** with today's date and your current/next shift.
+- **Stat cards** — open mail queue, active reminders, unread notifications, next on-shift engineer.
+- **Operational mail** — your most recent unresolved emails. **Click any row to open a detail modal** where you can read the message body, change its status, and post comments without leaving the home page.
+- **Shift context** — your current/upcoming shift and the next engineer on rotation.
 
 ---
 
@@ -97,11 +106,35 @@ Use the status filter to focus on open items.
 | On pause | Waiting on something (e.g. customer reply) |
 | Blocked | Requires escalation or external action |
 
-Change an email's status using the dropdown on its row. You can add a comment when changing status to document what was done or why it is blocked.
+Change an email's status from the segmented control at the top of the detail pane (**Unchecked / Paused / Blocked / Solved**) — clicking an option applies it instantly.
+
+### Message body
+
+Long messages collapse to the first ~12 lines with a **Show full message** button to expand. The body is plain-text rendered (HTML is stripped by the parser) and capped at 64 KB per email.
 
 ### Comments
 
 Each email has a comment thread visible to all authenticated users. Use comments to coordinate on an issue without leaving the portal.
+
+You can also access the email detail in modal form by clicking a row in the **Operational mail** card on the Home page — useful if you don't want to leave your shift dashboard.
+
+---
+
+## Reminders
+
+Personal reminders fire as in-app notifications and (optionally) as Telegram messages.
+
+### Creating a reminder
+
+1. Click **+ New reminder**.
+2. Enter a title and optional description.
+3. Pick a time using the quick-set buttons (15m / 30m / 1h / 2h / Tomorrow 9am) or the datetime field.
+4. Optionally enable **Recurring** and choose an interval (15 min, 30 min, 1h, 2h, 6h, 12h, daily, weekly, biweekly, monthly).
+5. Choose where to deliver: **None** (in-app only), **Personal chat**, **Group chats**, or **Both**.
+
+### Editing or cancelling
+
+Each active reminder has an edit button (pencil icon) to adjust title, time, recurrence, or delivery target, and a **Cancel** button to mark it cancelled. Fired and cancelled reminders are visible by switching the filter to **All**.
 
 ---
 
@@ -109,10 +142,10 @@ Each email has a comment thread visible to all authenticated users. Use comments
 
 The bell icon (🔔) in the top bar shows your unread notification count, updated every 15 seconds.
 
-Click it to open the notification panel. You can:
-- Mark individual notifications as read.
-- Mark all as read.
-- Clear all notifications.
+Click the bell to open the notification panel. From there you can:
+- **Click an unread notification to mark it read** (one-by-one).
+- **Mark all read** at once.
+- **Clear all** notifications.
 
 ---
 
@@ -139,6 +172,8 @@ Link your Telegram account to receive shift notifications.
 3. Click **Open @botname →** to open the bot in Telegram.
 4. Paste and send the command in the bot chat.
 5. The portal detects the link automatically within a few seconds — the status badge changes to **Linked**.
+
+**Unlinking:** Once linked, an **Unlink Telegram** button is shown — click it to disconnect your Telegram account from the portal (e.g. before linking a different account).
 
 **Notification toggles:**
 - **Shift notifications** — receive a DM when your shift starts today.
