@@ -35,7 +35,8 @@ async function tryRefresh() {
 
 export async function api(path, opts = {}, _retry = true) {
   const tokens = getTokens();
-  const headers = { 'Content-Type': 'application/json', ...opts.headers };
+  const isFormData = opts.body instanceof FormData;
+  const headers = isFormData ? {} : { 'Content-Type': 'application/json', ...opts.headers };
   if (tokens?.access_token) headers['Authorization'] = `Bearer ${tokens.access_token}`;
 
   let res;
