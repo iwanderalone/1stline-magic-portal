@@ -102,10 +102,15 @@ class ProfileUpdate(BaseModel):
     display_name: Optional[str] = Field(default=None, min_length=1, max_length=100)
     name_color: Optional[str] = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
     avatar_url: Optional[str] = None
+    email: Optional[str] = Field(default=None, max_length=255)
     timezone: Optional[str] = Field(default=None, max_length=50)
     telegram_username: Optional[str] = None
     telegram_notify_shifts: Optional[bool] = None
     telegram_notify_reminders: Optional[bool] = None
+
+class PasswordChangeRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(..., min_length=8)
 
 class PublicUserResponse(BaseOrmModel):
     """Safe subset of user data returned to non-admin users (e.g. embedded in shifts)."""
