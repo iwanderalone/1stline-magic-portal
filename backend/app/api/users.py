@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -16,7 +17,8 @@ from app.schemas.schemas import (
 )
 import secrets
 
-_AVATAR_DIR = Path("data/avatars")
+# Absolute path so it's CWD-agnostic regardless of how uvicorn is invoked.
+_AVATAR_DIR = Path(__file__).parent.parent.parent / "data" / "avatars"
 _AVATAR_ALLOWED_TYPES = {"image/png", "image/gif"}
 _AVATAR_MAX_BYTES = 2 * 1024 * 1024  # 2 MB
 
@@ -112,6 +114,16 @@ async def create_user(
 # before parameterised ones to prevent /me being swallowed by /{user_id}.
 # Profile read/update is served by /api/auth/me (auth.py).
 
+@router.get("/avatar/{user_id}")
+async def serve_avatar(user_id: str):
+    """Serve a user's uploaded avatar image (no auth required — URLs are non-guessable UUIDs)."""
+    for ext in ("png", "gif"):
+        path = _AVATAR_DIR / f"{user_id}.{ext}"
+        if path.exists():
+            return FileResponse(str(path), media_type=f"image/{ext}")
+    raise HTTPException(status_code=404, detail="Avatar not found")
+
+
 @router.post("/me/avatar", response_model=UserResponse)
 async def upload_avatar(
     file: UploadFile,
@@ -128,12 +140,11 @@ async def upload_avatar(
     _AVATAR_DIR.mkdir(parents=True, exist_ok=True)
     ext = "gif" if file.content_type == "image/gif" else "png"
 
-    # Replace any previous avatar for this user
     for old in _AVATAR_DIR.glob(f"{user.id}.*"):
         old.unlink(missing_ok=True)
 
     (_AVATAR_DIR / f"{user.id}.{ext}").write_bytes(contents)
-    user.avatar_url = f"/avatars/{user.id}.{ext}"
+    user.avatar_url = f"/api/users/avatar/{user.id}"
     await db.commit()
     await db.refresh(user)
     return UserResponse.model_validate(user)
