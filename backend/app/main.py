@@ -1,12 +1,10 @@
 """Main application entry point."""
 import logging
 from datetime import time as dtime
-from pathlib import Path
 from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from fastapi.staticfiles import StaticFiles
 from starlette.types import ASGIApp, Receive, Send, Scope
 from starlette.datastructures import MutableHeaders
 from starlette.responses import Response
@@ -136,6 +134,26 @@ async def seed_routing_rules():
     logger.info("Built-in routing rules seeded")
 
 
+async def _migrate_avatar_urls() -> None:
+    """Rewrite old /avatars/<uuid>.<ext> URLs to /api/users/avatar/<uuid> (one-time, idempotent)."""
+    from app.core.database import AsyncSessionFactory
+    from app.models.models import User
+    from sqlalchemy import select
+    import re
+
+    async with AsyncSessionFactory() as db:
+        result = await db.execute(select(User).where(User.avatar_url.like("/avatars/%")))
+        migrated = 0
+        for user in result.scalars().all():
+            m = re.match(r"^/avatars/([^.]+)\.", user.avatar_url)
+            if m:
+                user.avatar_url = f"/api/users/avatar/{m.group(1)}"
+                migrated += 1
+        if migrated:
+            await db.commit()
+            logger.info("Migrated %d avatar URLs to /api/users/avatar/<id>", migrated)
+
+
 async def _migrate_imap_passwords() -> None:
     """One-time migration: encrypt any remaining plaintext IMAP passwords."""
     from cryptography.fernet import InvalidToken
@@ -170,6 +188,7 @@ async def lifespan(app: FastAPI):
     await seed_defaults()
     await seed_routing_rules()
     await _migrate_imap_passwords()
+    await _migrate_avatar_urls()
 
     # Reminder worker
     scheduler.add_job(check_and_fire_reminders, "interval", seconds=30)
@@ -292,10 +311,6 @@ app.include_router(notifications.router, prefix="/api")
 app.include_router(admin_config.router, prefix="/api")
 app.include_router(mail_reporter.router, prefix="/api")
 app.include_router(runbooks.router, prefix="/api")
-
-_avatar_dir = Path("data/avatars")
-_avatar_dir.mkdir(parents=True, exist_ok=True)
-app.mount("/avatars", StaticFiles(directory=str(_avatar_dir)), name="avatars")
 
 
 @app.exception_handler(Exception)
