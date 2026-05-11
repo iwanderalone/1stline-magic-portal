@@ -11,6 +11,10 @@ export default defineConfig({
         target: process.env.API_URL || 'http://localhost:8000',
         changeOrigin: true,
       },
+      '/avatars': {
+        target: process.env.API_URL || 'http://localhost:8000',
+        changeOrigin: true,
+      },
     },
   },
 })

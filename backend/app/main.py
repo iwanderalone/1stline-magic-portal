@@ -1,10 +1,12 @@
 """Main application entry point."""
 import logging
 from datetime import time as dtime
+from pathlib import Path
 from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.types import ASGIApp, Receive, Send, Scope
 from starlette.datastructures import MutableHeaders
 from starlette.responses import Response
@@ -224,7 +226,7 @@ class LimitBodySizeMiddleware:
     chunked transfer-encoding without Content-Length are not caught here — that
     is an acceptable trade-off for an internal portal with trusted clients.
     """
-    MAX_BODY_BYTES = 1 * 1024 * 1024  # 1 MB
+    MAX_BODY_BYTES = 3 * 1024 * 1024  # 3 MB (accommodates 2 MB avatar uploads)
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
@@ -290,6 +292,10 @@ app.include_router(notifications.router, prefix="/api")
 app.include_router(admin_config.router, prefix="/api")
 app.include_router(mail_reporter.router, prefix="/api")
 app.include_router(runbooks.router, prefix="/api")
+
+_avatar_dir = Path("data/avatars")
+_avatar_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/avatars", StaticFiles(directory=str(_avatar_dir)), name="avatars")
 
 
 @app.exception_handler(Exception)
