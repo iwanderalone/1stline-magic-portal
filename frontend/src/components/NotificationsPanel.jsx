@@ -26,6 +26,12 @@ export default function NotificationsPanel({ onClose }) {
     setNotifs([]);
   };
 
+  const markOne = async (id) => {
+    setNotifs(n => n.map(x => x.id === id ? { ...x, is_read: true } : x));
+    try { await api(`/notifications/${id}/read`, { method: 'POST' }); }
+    catch { /* optimistic; reverted on next reload */ }
+  };
+
   return (
     <>
       <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.2)', zIndex: 999 }} onClick={onClose} />
@@ -50,11 +56,16 @@ export default function NotificationsPanel({ onClose }) {
             : notifs.length === 0
               ? <EmptyState icon="✨" title={tr('allClear')} />
               : notifs.map(n => (
-                <div key={n.id} style={{
-                  padding: '12px 14px', borderRadius: t.radiusSm, marginBottom: '4px',
-                  background: n.is_read ? 'transparent' : t.accentLight,
-                  borderLeft: n.is_read ? 'none' : `3px solid ${t.accent}`,
-                }}>
+                <div
+                  key={n.id}
+                  onClick={() => !n.is_read && markOne(n.id)}
+                  title={n.is_read ? '' : tr('markRead')}
+                  style={{
+                    padding: '12px 14px', borderRadius: t.radiusSm, marginBottom: '4px',
+                    background: n.is_read ? 'transparent' : t.accentLight,
+                    borderLeft: n.is_read ? 'none' : `3px solid ${t.accent}`,
+                    cursor: n.is_read ? 'default' : 'pointer',
+                  }}>
                   <div style={{ fontWeight: n.is_read ? 400 : 600, fontSize: '13px' }}>{n.title}</div>
                   <div style={{ fontSize: '12px', color: t.textSecondary, marginTop: '2px' }}>{n.message}</div>
                   <div style={{ fontSize: '11px', color: t.textMuted, marginTop: '4px', fontFamily: t.fontMono }}>

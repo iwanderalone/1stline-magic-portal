@@ -3,6 +3,7 @@ import { api } from '../api';
 import { useLang } from '../components/LangContext';
 import { Button, Card, Badge, Input, Overlay, Toast, EmptyState, Tag } from '../components/UI';
 import { Icon } from '../components/Icons';
+import { MessageBody } from '../components/EmailDetailModal';
 
 // --- Constants & Config ---
 
@@ -480,6 +481,14 @@ function EmailDetail({ email, ruleMap, onStatusChange, onAddComment }) {
         </div>
       </section>
 
+      {/* Message Body */}
+      <section style={{ background: 'var(--surface-alt)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div className="t-eyebrow" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Icon name="mail" size={12} /> Message Body
+        </div>
+        <MessageBody body={email.body} />
+      </section>
+
       <div style={{ height: 1, background: 'var(--border-light)' }} />
 
       {/* Internal Activity */}
@@ -599,11 +608,22 @@ export default function MailReporterPage({ user }) {
     return c;
   }, [emails]);
 
+  const pickEmail = async (email) => {
+    if (!email) { setSelectedEmail(null); return; }
+    setSelectedEmail(email);
+    try {
+      const full = await api(`/mail-reporter/emails/${email.id}`);
+      setSelectedEmail(prev => prev?.id === full.id ? full : prev);
+    } catch (e) { showToast(e.message, 'error'); }
+  };
+
   const handleStatusChange = async (email, status) => {
     try {
       const updated = await api(`/mail-reporter/emails/${email.id}`, { method: 'PATCH', body: JSON.stringify({ status }) });
       setEmails(prev => prev.map(e => e.id === updated.id ? updated : e));
-      if (selectedEmail?.id === email.id) setSelectedEmail(updated);
+      if (selectedEmail?.id === email.id) {
+        setSelectedEmail(prev => ({ ...updated, body: prev?.body }));
+      }
       showToast('Status updated');
     } catch (e) { showToast(e.message, 'error'); }
   };
@@ -649,7 +669,7 @@ export default function MailReporterPage({ user }) {
 
         {/* List */}
         <div style={{ width: 380, background: 'var(--bg)', overflowY: 'auto', borderRight: '1px solid var(--border-light)', display: 'flex', flexDirection: 'column' }}>
-          <EmailList emails={filteredEmails} activeId={selectedEmail?.id} onSelect={setSelectedEmail} loading={loading} ruleMap={ruleMap} />
+          <EmailList emails={filteredEmails} activeId={selectedEmail?.id} onSelect={pickEmail} loading={loading} ruleMap={ruleMap} />
         </div>
 
         {/* Detail */}

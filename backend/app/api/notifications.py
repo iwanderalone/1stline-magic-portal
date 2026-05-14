@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, func, delete
 from app.core.database import get_db
-from app.core.deps import get_current_user, require_admin
+from app.core.deps import get_current_user
 from app.models.models import User, Notification
 from app.schemas.schemas import NotificationResponse
 
@@ -79,15 +79,4 @@ async def clear_my_notifications(
 ):
     """Delete all notifications for the current user."""
     await db.execute(delete(Notification).where(Notification.user_id == user.id))
-    return {"cleared": True}
-
-
-@router.delete("/admin/{user_id}")
-async def clear_user_notifications(
-    user_id: UUID,
-    admin: User = Depends(require_admin),
-    db: AsyncSession = Depends(get_db),
-):
-    """Admin: delete all notifications for a specific user."""
-    await db.execute(delete(Notification).where(Notification.user_id == user_id))
     return {"cleared": True}

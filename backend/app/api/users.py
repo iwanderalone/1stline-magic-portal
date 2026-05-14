@@ -1,7 +1,9 @@
 """User management + profile endpoints."""
 import json
+from pathlib import Path
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -14,6 +16,11 @@ from app.schemas.schemas import (
     AdminResetPassword, ProfileUpdate, AvailabilityPattern,
 )
 import secrets
+
+# Absolute path so it's CWD-agnostic regardless of how uvicorn is invoked.
+_AVATAR_DIR = Path(__file__).parent.parent.parent / "data" / "avatars"
+_AVATAR_ALLOWED_TYPES = {"image/png", "image/gif"}
+_AVATAR_MAX_BYTES = 2 * 1024 * 1024  # 2 MB
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -105,31 +112,42 @@ async def create_user(
 # ─── Self-service (me) routes come BEFORE /{user_id} routes ─────────────────
 # FastAPI matches routes in registration order; static paths must be registered
 # before parameterised ones to prevent /me being swallowed by /{user_id}.
+# Profile read/update is served by /api/auth/me (auth.py).
 
-@router.get("/me/profile", response_model=UserResponse)
-async def get_profile(
-    user: User = Depends(get_current_user),
+@router.get("/avatar/{user_id}")
+async def serve_avatar(user_id: str):
+    """Serve a user's uploaded avatar image (no auth required — URLs are non-guessable UUIDs)."""
+    for ext in ("png", "gif"):
+        path = _AVATAR_DIR / f"{user_id}.{ext}"
+        if path.exists():
+            return FileResponse(str(path), media_type=f"image/{ext}")
+    raise HTTPException(status_code=404, detail="Avatar not found")
+
+
+@router.post("/me/avatar", response_model=UserResponse)
+async def upload_avatar(
+    file: UploadFile,
     db: AsyncSession = Depends(get_db),
-):
-    result = await db.execute(
-        select(User).options(selectinload(User.groups)).where(User.id == user.id)
-    )
-    return user_to_response(result.scalar_one())
-
-
-@router.patch("/me/profile", response_model=UserResponse)
-async def update_profile(
-    req: ProfileUpdate,
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
 ):
-    for field, value in req.model_dump(exclude_unset=True).items():
-        setattr(user, field, value)
-    await db.flush()
-    result = await db.execute(
-        select(User).options(selectinload(User.groups)).where(User.id == user.id)
-    )
-    return user_to_response(result.scalar_one())
+    """Upload a PNG or GIF avatar for the current user (max 2 MB)."""
+    if file.content_type not in _AVATAR_ALLOWED_TYPES:
+        raise HTTPException(status_code=400, detail="Only PNG and GIF files are accepted")
+    contents = await file.read()
+    if len(contents) > _AVATAR_MAX_BYTES:
+        raise HTTPException(status_code=400, detail="File too large — maximum size is 2 MB")
+
+    _AVATAR_DIR.mkdir(parents=True, exist_ok=True)
+    ext = "gif" if file.content_type == "image/gif" else "png"
+
+    for old in _AVATAR_DIR.glob(f"{user.id}.*"):
+        old.unlink(missing_ok=True)
+
+    (_AVATAR_DIR / f"{user.id}.{ext}").write_bytes(contents)
+    user.avatar_url = f"/api/users/avatar/{user.id}"
+    await db.commit()
+    await db.refresh(user)
+    return UserResponse.model_validate(user)
 
 
 @router.post("/me/telegram-link-code")
