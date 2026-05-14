@@ -231,7 +231,7 @@ async def review_time_off(
     if req.admin_comment:
         time_off.admin_comment = req.admin_comment
     await db.flush()
-    await db.refresh(time_off)
+    await db.refresh(time_off, ["user"])
     await log_action(db, admin, "time_off_reviewed",
         f"Request {request_id} → {req.status.value}" + (f" | {req.admin_comment}" if req.admin_comment else ""))
     return TimeOffResponse.model_validate(time_off)
