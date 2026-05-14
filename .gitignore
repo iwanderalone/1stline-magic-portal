@@ -35,9 +35,9 @@ data/*.db-wal
 data/*.db-shm
 data-dev/portal_prod.db
 
-# Agents — ignore local env files but keep config templates
-agents/**/.env
-agents/**/logs/
+# Design handoff bundles (reference material, not source)
+_design_handoff/
+*-handoff.zip
 
 # Logs
 *.log

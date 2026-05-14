@@ -137,8 +137,24 @@ export function Tag({ children, style }) {
 }
 
 /* ─── Avatar ───────────────────────────────────────────────── */
-/* name: string, color: hex/css color string */
-export function Avatar({ name, color, size = 28, ring }) {
+/* name: string, color: hex/css color string, src: image URL */
+export function Avatar({ name, color, size = 28, ring, src }) {
+  const bg = color || 'var(--accent)';
+  const ringStyle = ring ? { boxShadow: `0 0 0 2px var(--surface), 0 0 0 4px ${bg}` } : {};
+  if (src) {
+    return (
+      <img
+        src={src}
+        alt={name || ''}
+        title={name || ''}
+        style={{
+          width: size, height: size, borderRadius: 'var(--radius-sm)',
+          objectFit: 'cover', flexShrink: 0, display: 'block',
+          ...ringStyle,
+        }}
+      />
+    );
+  }
   if (!name) return (
     <div style={{
       width: size, height: size, borderRadius: 'var(--radius-sm)',
@@ -148,14 +164,13 @@ export function Avatar({ name, color, size = 28, ring }) {
     }}>?</div>
   );
   const initials = name.trim().split(/\s+/).map(s => s[0]).slice(0, 2).join('').toUpperCase();
-  const bg = color || 'var(--accent)';
   return (
     <div title={name} style={{
       width: size, height: size, borderRadius: 'var(--radius-sm)',
       background: bg, color: '#fff', flexShrink: 0,
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       fontSize: Math.max(10, size * 0.40), fontWeight: 600, letterSpacing: '-0.01em',
-      boxShadow: ring ? `0 0 0 2px var(--surface), 0 0 0 4px ${bg}` : 'none',
+      ...ringStyle,
     }}>{initials}</div>
   );
 }
