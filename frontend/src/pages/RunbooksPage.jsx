@@ -65,12 +65,12 @@ function CodeBlock({ code, lang }) {
       <pre style={{
         margin: 0,
         padding: '12px 16px',
-        fontSize: 12.5,
-        lineHeight: 1.6,
-        fontFamily: 'var(--font-mono)',
+        fontSize: lang === 'text' ? 13.5 : 12.5,
+        lineHeight: 1.7,
+        fontFamily: lang === 'text' ? 'var(--font-sans)' : 'var(--font-mono)',
         color: 'var(--text)',
-        overflowX: 'auto',
-        whiteSpace: 'pre',
+        whiteSpace: 'pre-wrap',
+        wordBreak: 'break-word',
       }}>{code}</pre>
     </div>
   );
