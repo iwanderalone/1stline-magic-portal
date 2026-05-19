@@ -143,8 +143,8 @@ export default function TicketsPage() {
       const params = new URLSearchParams({ limit: LIMIT, offset: off });
       if (type) params.set('event_type', type);
       const [evs, cnt] = await Promise.all([
-        api.get(`/tickets/events?${params}`),
-        api.get(`/tickets/events/count${type ? `?event_type=${type}` : ''}`),
+        api(`/tickets/events?${params}`),
+        api(`/tickets/events/count${type ? `?event_type=${type}` : ''}`),
       ]);
       setEvents(evs);
       setTotal(cnt.count);
