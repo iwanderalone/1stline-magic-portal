@@ -1,7 +1,8 @@
 """Zammad ticket events — webhook receiver and event log viewer."""
+import hashlib
+import hmac
 import json
 import logging
-from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
@@ -80,22 +81,30 @@ def _extract_fields(event_type: str, body: dict) -> dict:
         "and set the URL to include `?event=<type>`. "
         "Supported values: `ticket_opened`, `ticket_assigned`, `comment_added`, "
         "`ticket_closed`, `ticket_paused`.\n\n"
-        "Optional secret verification: set `ZAMMAD_WEBHOOK_SECRET` env var and pass the "
-        "same value in Zammad's webhook as the `X-Zammad-Secret` header."
+        "Optional HMAC verification: set `ZAMMAD_WEBHOOK_SECRET` env var to the same "
+        "value entered in Zammad's **HMAC SHA1 Signature Token** field. "
+        "Zammad sends `X-Hub-Signature: sha1=<hex>` and the endpoint will reject "
+        "requests with an invalid signature."
     ),
 )
 async def receive_webhook(
     request: Request,
     event: str = Query(..., description="Event type, e.g. ticket_opened"),
-    x_zammad_secret: Optional[str] = Header(default=None),
+    x_hub_signature: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ):
     settings = get_settings()
+    raw_body = await request.body()
 
     if settings.ZAMMAD_WEBHOOK_SECRET:
-        if x_zammad_secret != settings.ZAMMAD_WEBHOOK_SECRET:
-            logger.warning("[tickets] Webhook rejected — bad secret")
-            raise HTTPException(status_code=401, detail="Invalid webhook secret")
+        expected = "sha1=" + hmac.new(
+            settings.ZAMMAD_WEBHOOK_SECRET.encode(),
+            raw_body,
+            hashlib.sha1,
+        ).hexdigest()
+        if not x_hub_signature or not hmac.compare_digest(x_hub_signature, expected):
+            logger.warning("[tickets] Webhook rejected — invalid HMAC signature")
+            raise HTTPException(status_code=401, detail="Invalid webhook signature")
 
     if event not in VALID_EVENT_TYPES:
         raise HTTPException(
@@ -104,7 +113,6 @@ async def receive_webhook(
         )
 
     try:
-        raw_body = await request.body()
         body = json.loads(raw_body) if raw_body else {}
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON body")
