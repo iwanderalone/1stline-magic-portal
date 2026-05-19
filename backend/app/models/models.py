@@ -433,3 +433,28 @@ class RunbookStep(Base):
     runbook = relationship("Runbook", back_populates="steps")
 
 
+# ─── Zammad Ticket Events ──────────────────────────────────
+
+class ZammadEvent(Base):
+    __tablename__ = "zammad_events"
+    __table_args__ = (
+        Index("ix_zammad_events_received_at", "received_at"),
+        Index("ix_zammad_events_event_type", "event_type"),
+        Index("ix_zammad_events_ticket_id", "ticket_id"),
+    )
+
+    id             = Column(Integer, primary_key=True, autoincrement=True)
+    event_type     = Column(String(50), nullable=False)   # ticket_opened | ticket_assigned | comment_added | ticket_closed | ticket_paused
+    ticket_id      = Column(Integer, nullable=True, index=True)
+    ticket_number  = Column(String(20), nullable=True)
+    ticket_title   = Column(String(500), nullable=True)
+    ticket_state   = Column(String(50), nullable=True)
+    ticket_group   = Column(String(100), nullable=True)
+    ticket_priority= Column(String(50), nullable=True)
+    assignee       = Column(String(150), nullable=True)
+    customer       = Column(String(255), nullable=True)
+    article_body   = Column(Text, nullable=True)          # populated for comment_added
+    payload        = Column(Text, nullable=False)          # raw JSON from Zammad
+    received_at    = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
