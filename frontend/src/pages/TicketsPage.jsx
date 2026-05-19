@@ -216,8 +216,10 @@ export default function TicketsPage() {
         fontSize: 12,
         color: t.textMuted,
       }}>
-        <strong style={{ color: t.textSecondary }}>Zammad webhook URLs</strong>
-        {' — configure one trigger per event type:'}
+        <strong style={{ color: t.textSecondary }}>Zammad webhook setup</strong>
+        {' — create one webhook per event in Zammad Admin → Webhook, set the Endpoint and optionally a HMAC SHA1 Signature Token (set the same value as '}
+        <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>ZAMMAD_WEBHOOK_SECRET</code>
+        {' in your portal env):'}
         <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 2 }}>
           {ALL_TYPES.map(type => (
             <code key={type} style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>
