@@ -14,6 +14,7 @@ import TimeOffPage from './pages/TimeOffPage';
 import RemindersPage from './pages/RemindersPage';
 import HomePage from './pages/HomePage';
 import RunbooksPage from './pages/RunbooksPage';
+import TicketsPage from './pages/TicketsPage';
 import NotificationsPanel from './components/NotificationsPanel';
 
 function useBreakpoint() {
@@ -37,6 +38,7 @@ const NAV_ICONS = {
   profile:    'user',
   schedule:   'calendar',
   mail:       'mail',
+  tickets:    'ticket',
   runbooks:   'bookmark',
   timeoff:    'sun',
   reminders:  'bell',
@@ -257,6 +259,7 @@ export default function App() {
     { id: 'profile',   label: lang === 'ru' ? 'Профиль'  : 'My Profile' },
     { id: 'schedule',  label: tr('schedule') },
     { id: 'mail',      label: lang === 'ru' ? 'Почта'    : 'Mail' },
+    { id: 'tickets',   label: lang === 'ru' ? 'Тикеты'   : 'Tickets' },
     { id: 'runbooks',  label: lang === 'ru' ? 'Рунбуки'  : 'Runbooks' },
     { id: 'timeoff',   label: tr('timeOff') },
     { id: 'reminders', label: tr('reminders') },
@@ -435,6 +438,7 @@ export default function App() {
               {page === 'profile'    && <ProfilePage user={auth.user} onUserUpdate={onUserUpdate} />}
               {page === 'admin'      && isAdmin(auth.user) && <AdminPage />}
               {page === 'mail'       && <MailReporterPage user={auth.user} />}
+              {page === 'tickets'    && <TicketsPage user={auth.user} />}
               {page === 'runbooks'   && <RunbooksPage user={auth.user} />}
               {page === 'reminders'  && <RemindersPage user={auth.user} />}
             </div>
