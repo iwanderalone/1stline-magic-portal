@@ -2,7 +2,7 @@
 import json as _json
 from pydantic import BaseModel, ConfigDict, Field, model_validator, field_validator
 from datetime import date, time, datetime
-from typing import Optional, Any
+from typing import Optional, Any, Literal
 from uuid import UUID
 from app.models.models import (
     UserRole, ShiftType, WorkLocation, TimeOffStatus,
@@ -562,3 +562,44 @@ class RunbookResponse(BaseOrmModel):
         return v
 
 
+
+
+# ─── Zammad ──────────────────────────────────────────────
+
+ZammadEventType = Literal[
+    "ticket_opened", "ticket_assigned", "comment_added", "ticket_closed", "ticket_paused"
+]
+
+class ZammadWebhookPayload(BaseModel):
+    """
+    Zammad webhook body. Configure one webhook trigger per event in Zammad
+    and pass the event name as a query parameter:
+      POST /api/tickets/webhook?event=ticket_opened
+      POST /api/tickets/webhook?event=ticket_assigned
+      POST /api/tickets/webhook?event=comment_added
+      POST /api/tickets/webhook?event=ticket_closed
+      POST /api/tickets/webhook?event=ticket_paused
+
+    Zammad sends the full ticket object on every trigger. The `article`
+    field is populated only for comment events.
+    """
+    ticket: Optional[dict[str, Any]] = None
+    article: Optional[dict[str, Any]] = None
+
+    model_config = ConfigDict(extra="allow")
+
+
+class ZammadEventResponse(BaseOrmModel):
+    id: int
+    event_type: str
+    ticket_id: Optional[int]
+    ticket_number: Optional[str]
+    ticket_title: Optional[str]
+    ticket_state: Optional[str]
+    ticket_group: Optional[str]
+    ticket_priority: Optional[str]
+    assignee: Optional[str]
+    customer: Optional[str]
+    article_body: Optional[str]
+    payload: str
+    received_at: datetime
