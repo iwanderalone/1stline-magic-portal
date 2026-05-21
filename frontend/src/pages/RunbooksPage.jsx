@@ -147,23 +147,21 @@ function RunbookDetail({ runbook, isAdmin, onRun, onEdit, onDelete }) {
           {runbook.category}
         </span>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button onClick={onEdit} style={{
+            background: 'none', border: 'none', cursor: 'pointer',
+            color: 'var(--text-muted)', padding: 6, borderRadius: 6,
+            display: 'flex', alignItems: 'center',
+          }} title="Edit">
+            <Icon name="edit" size={16} />
+          </button>
           {isAdmin && (
-            <>
-              <button onClick={onEdit} style={{
-                background: 'none', border: 'none', cursor: 'pointer',
-                color: 'var(--text-muted)', padding: 6, borderRadius: 6,
-                display: 'flex', alignItems: 'center',
-              }} title="Edit">
-                <Icon name="edit" size={16} />
-              </button>
-              <button onClick={onDelete} style={{
-                background: 'none', border: 'none', cursor: 'pointer',
-                color: 'var(--error)', padding: 6, borderRadius: 6,
-                display: 'flex', alignItems: 'center',
-              }} title="Delete">
-                <Icon name="trash" size={16} />
-              </button>
-            </>
+            <button onClick={onDelete} style={{
+              background: 'none', border: 'none', cursor: 'pointer',
+              color: 'var(--error)', padding: 6, borderRadius: 6,
+              display: 'flex', alignItems: 'center',
+            }} title="Delete">
+              <Icon name="trash" size={16} />
+            </button>
           )}
           <Button
             variant="primary"
@@ -503,10 +501,8 @@ export default function RunbooksPage({ user }) {
   useEffect(() => { loadRunbooks(); }, [loadRunbooks]);
 
   useEffect(() => {
-    if (isAdmin) {
-      api('/users/').then(d => setUsers(d || [])).catch(() => {});
-    }
-  }, [isAdmin]);
+    api('/users/').then(d => setUsers(d || [])).catch(() => {});
+  }, []);
 
   const selectedRunbook = runbooks.find(r => r.id === selectedId) || null;
 
@@ -581,11 +577,9 @@ export default function RunbooksPage({ user }) {
               }}
             />
           </div>
-          {isAdmin && (
-            <Button variant="primary" size="sm" icon="plus" onClick={() => setShowCreate(true)}>
-              New runbook
-            </Button>
-          )}
+          <Button variant="primary" size="sm" icon="plus" onClick={() => setShowCreate(true)}>
+            New runbook
+          </Button>
         </div>
       </div>
 

@@ -8,6 +8,7 @@ from app.core.database import get_db
 from app.core.deps import get_current_user, require_admin
 from app.models.models import Runbook, RunbookStep, User
 from app.schemas.schemas import RunbookCreate, RunbookUpdate, RunbookResponse
+from app.services.audit import log_action
 
 router = APIRouter(prefix="/runbooks", tags=["runbooks"])
 
@@ -105,7 +106,7 @@ async def get_runbook(
 @router.post("/", response_model=RunbookResponse)
 async def create_runbook(
     req: RunbookCreate,
-    admin: User = Depends(require_admin),
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     from sqlalchemy.orm import selectinload
@@ -136,14 +137,16 @@ async def create_runbook(
         .options(selectinload(Runbook.steps), selectinload(Runbook.owner))
         .where(Runbook.id == rb.id)
     )
-    return RunbookResponse.model_validate(result.scalar_one())
+    created = result.scalar_one()
+    await log_action(db, user, "runbook_create", f"Created runbook: {created.slug} — {created.title}")
+    return RunbookResponse.model_validate(created)
 
 
 @router.put("/{runbook_id}", response_model=RunbookResponse)
 async def update_runbook(
     runbook_id: UUID,
     req: RunbookUpdate,
-    admin: User = Depends(require_admin),
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     from sqlalchemy.orm import selectinload
@@ -175,7 +178,9 @@ async def update_runbook(
         .options(selectinload(Runbook.steps), selectinload(Runbook.owner))
         .where(Runbook.id == runbook_id)
     )
-    return RunbookResponse.model_validate(result2.scalar_one())
+    updated = result2.scalar_one()
+    await log_action(db, user, "runbook_update", f"Updated runbook: {updated.slug} — {updated.title}")
+    return RunbookResponse.model_validate(updated)
 
 
 @router.delete("/{runbook_id}")
