@@ -463,14 +463,14 @@ function RunbookModal({ initial, users, onSave, onClose }) {
 }
 
 /* ─── Main Page ──────────────────────────────────────────────── */
-export default function RunbooksPage({ user }) {
+export default function RunbooksPage({ user, initialRunbookId }) {
   const isAdmin = user?.role === 'admin';
 
   const [runbooks, setRunbooks] = useState([]);
   const [categories, setCategories] = useState({ total: 0, categories: [] });
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [selectedId, setSelectedId] = useState(null);
+  const [selectedId, setSelectedId] = useState(initialRunbookId || null);
   const [activeCategory, setActiveCategory] = useState(null);
   const [search, setSearch] = useState('');
   const [showCreate, setShowCreate] = useState(false);
@@ -490,7 +490,8 @@ export default function RunbooksPage({ user }) {
       ]);
       setRunbooks(rbs || []);
       setCategories(cats || { total: 0, categories: [] });
-      if (!selectedId && rbs?.length > 0) setSelectedId(rbs[0].id);
+      // If an initialRunbookId was passed, select it; otherwise default to first
+      setSelectedId(prev => prev || (rbs?.length > 0 ? rbs[0].id : null));
     } catch (e) {
       console.error(e);
     } finally {
@@ -499,6 +500,15 @@ export default function RunbooksPage({ user }) {
   }, [activeCategory, search]);
 
   useEffect(() => { loadRunbooks(); }, [loadRunbooks]);
+
+  /* If initialRunbookId arrives after first render (palette navigation),
+     clear any active filters so the runbook is visible, then select it. */
+  useEffect(() => {
+    if (!initialRunbookId) return;
+    setActiveCategory(null);
+    setSearch('');
+    setSelectedId(initialRunbookId);
+  }, [initialRunbookId]);
 
   useEffect(() => {
     api('/users/').then(d => setUsers(d || [])).catch(() => {});
