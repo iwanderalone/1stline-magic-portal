@@ -11,26 +11,28 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { api } from '../api';
 import { Icon } from './Icons';
-
-const NAV_ITEMS = [
-  { id: 'home',      label: 'Home',       icon: 'grid',     hint: 'Dashboard & overview' },
-  { id: 'schedule',  label: 'Schedule',   icon: 'calendar', hint: 'Shifts & calendar' },
-  { id: 'mail',      label: 'Mail',       icon: 'mail',     hint: 'Email monitoring & routing' },
-  { id: 'tickets',   label: 'Tickets',    icon: 'ticket',   hint: 'Zammad ticket events' },
-  { id: 'runbooks',  label: 'Runbooks',   icon: 'bookmark', hint: 'Playbooks & procedures' },
-  { id: 'timeoff',   label: 'Time Off',   icon: 'sun',      hint: 'Leave requests & approvals' },
-  { id: 'reminders', label: 'Reminders',  icon: 'bell',     hint: 'Scheduled reminders' },
-  { id: 'profile',   label: 'My Profile', icon: 'user',     hint: 'Profile, 2FA, Telegram link' },
-  { id: 'admin',     label: 'Admin',      icon: 'shield',   hint: 'Users, config, audit logs', adminOnly: true },
-];
+import { useLang } from './LangContext';
 
 export default function CommandPalette({ open, onClose, navigate, user }) {
+  const { t: tr } = useLang();
   const [query, setQuery]       = useState('');
   const [runbooks, setRunbooks] = useState([]);
   const [activeIdx, setActiveIdx] = useState(0);
   const inputRef = useRef(null);
   const listRef  = useRef(null);
   const isAdmin  = user?.role === 'admin';
+
+  const NAV_ITEMS = [
+    { id: 'home',      label: tr('home'),        icon: 'grid',     hint: tr('cmdHintHome') },
+    { id: 'schedule',  label: tr('schedule'),    icon: 'calendar', hint: tr('cmdHintSchedule') },
+    { id: 'mail',      label: tr('mailReporter'), icon: 'mail',    hint: tr('cmdHintMail') },
+    { id: 'tickets',   label: 'Tickets',          icon: 'ticket',  hint: tr('cmdHintTickets') },
+    { id: 'runbooks',  label: tr('cmdRunbooksSection'), icon: 'bookmark', hint: tr('cmdHintRunbooks') },
+    { id: 'timeoff',   label: tr('timeOff'),      icon: 'sun',     hint: tr('cmdHintTimeoff') },
+    { id: 'reminders', label: tr('reminders'),    icon: 'bell',    hint: tr('cmdHintReminders') },
+    { id: 'profile',   label: tr('myProfile'),    icon: 'user',    hint: tr('cmdHintProfile') },
+    { id: 'admin',     label: tr('admin'),        icon: 'shield',  hint: tr('cmdHintAdmin'), adminOnly: true },
+  ];
 
   /* ── fetch runbooks & reset when palette opens ── */
   useEffect(() => {
@@ -149,7 +151,7 @@ export default function CommandPalette({ open, onClose, navigate, user }) {
             ref={inputRef}
             value={query}
             onChange={e => setQuery(e.target.value)}
-            placeholder="Jump to page or search runbooks…"
+            placeholder={tr('cmdPlaceholder')}
             style={{
               flex: 1, border: 'none', outline: 'none',
               background: 'transparent',
@@ -177,14 +179,14 @@ export default function CommandPalette({ open, onClose, navigate, user }) {
               padding: '28px 16px', textAlign: 'center',
               color: 'var(--text-muted)', fontSize: 13,
             }}>
-              No results for <strong>"{query}"</strong>
+              {tr('cmdNoResults')} <strong>"{query}"</strong>
             </div>
           )}
 
           {/* Pages section */}
           {pages.length > 0 && (
             <>
-              <SectionHeader label="Pages" />
+              <SectionHeader label={tr('cmdPages')} />
               {pages.map((item, i) => (
                 <ResultItem
                   key={item.id}
@@ -204,7 +206,7 @@ export default function CommandPalette({ open, onClose, navigate, user }) {
           {/* Runbooks section */}
           {hasRunbooks && (
             <>
-              <SectionHeader label="Runbooks" />
+              <SectionHeader label={tr('cmdRunbooksSection')} />
               {matchedRunbooks.map((rb, i) => {
                 const idx = pages.length + i;
                 return (
@@ -235,9 +237,9 @@ export default function CommandPalette({ open, onClose, navigate, user }) {
           flexShrink: 0,
         }}>
           {[
-            ['↑↓', 'navigate'],
-            ['↵', 'open'],
-            ['Esc', 'close'],
+            ['↑↓', tr('cmdNavigate')],
+            ['↵', tr('cmdOpen')],
+            ['Esc', tr('cmdClose')],
           ].map(([key, label]) => (
             <span key={key} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--text-muted)' }}>
               <kbd style={{
@@ -250,7 +252,7 @@ export default function CommandPalette({ open, onClose, navigate, user }) {
           ))}
           <span style={{ flex: 1 }} />
           <span style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-            {allResults.length} result{allResults.length !== 1 ? 's' : ''}
+            {allResults.length} {allResults.length === 1 ? tr('cmdResultSingular') : tr('cmdResultPlural')}
           </span>
         </div>
       </div>

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '../api';
 import { useTheme } from '../components/ThemeContext';
+import { useLang } from '../components/LangContext';
 import { Button, Input, Select, Card, Overlay, Toast, EmptyState, Badge } from '../components/UI';
 import { Icon } from '../components/Icons';
 
@@ -12,12 +13,12 @@ const CATEGORY_ICONS = {
   office:  'inbox',
 };
 
-const CATEGORY_LABELS = {
-  access:  'Access',
-  infra:   'Infra',
-  yandex:  'Yandex',
-  website: 'Website/CMS',
-  office:  'Office',
+const CATEGORY_LABEL_KEYS = {
+  access:  'rbCategoryAccess',
+  infra:   'rbCategoryInfra',
+  yandex:  'rbCategoryYandex',
+  website: 'rbCategoryWebsite',
+  office:  'rbCategoryOffice',
 };
 
 const LANG_OPTIONS = ['shell', 'sql', 'python', 'yaml', 'ini', 'json', 'bash', 'text'];
@@ -29,6 +30,7 @@ function EstimatedTime({ steps }) {
 
 /* ─── Code Block ─────────────────────────────────────────────── */
 function CodeBlock({ code, lang }) {
+  const { t: tr } = useLang();
   const [copied, setCopied] = useState(false);
   const copy = () => {
     navigator.clipboard.writeText(code).then(() => {
@@ -59,7 +61,7 @@ function CodeBlock({ code, lang }) {
           display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, padding: '2px 4px',
         }}>
           <Icon name={copied ? 'check' : 'copy'} size={12} />
-          {copied ? 'Copied' : 'Copy'}
+          {copied ? tr('rbCopied') : tr('rbCopy')}
         </button>
       </div>
       <pre style={{
@@ -112,6 +114,7 @@ function StepItem({ step, index }) {
 /* ─── Runbook Detail ─────────────────────────────────────────── */
 function RunbookDetail({ runbook, isAdmin, onRun, onEdit, onDelete }) {
   const { theme: t } = useTheme();
+  const { t: tr } = useLang();
   const [runDone, setRunDone] = useState(false);
 
   const handleRun = async () => {
@@ -170,7 +173,7 @@ function RunbookDetail({ runbook, isAdmin, onRun, onEdit, onDelete }) {
             onClick={handleRun}
             style={runDone ? { background: 'var(--success)', borderColor: 'var(--success)' } : {}}
           >
-            {runDone ? 'Logged' : 'Run'}
+            {runDone ? tr('rbLogged') : tr('rbRun')}
           </Button>
         </div>
       </div>
@@ -193,16 +196,16 @@ function RunbookDetail({ runbook, isAdmin, onRun, onEdit, onDelete }) {
         {runbook.owner && (
           <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
             <Icon name="user" size={13} />
-            Owned by <strong style={{ color: 'var(--text-secondary)', marginLeft: 4 }}>{runbook.owner.display_name}</strong>
+            {tr('rbOwnedBy')} <strong style={{ color: 'var(--text-secondary)', marginLeft: 4 }}>{runbook.owner.display_name}</strong>
           </span>
         )}
         <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
           <Icon name="clock" size={13} />
-          Updated {fmtDate(runbook.updated_at)}
+          {tr('rbUpdated')} {fmtDate(runbook.updated_at)}
         </span>
         <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
           <Icon name="zap" size={13} />
-          {runbook.run_count} {runbook.run_count === 1 ? 'run' : 'runs'}
+          {runbook.run_count} {runbook.run_count === 1 ? tr('rbRunSingle') : tr('rbRunPlural')}
         </span>
         {runbook.tags?.length > 0 && runbook.tags.map(tag => (
           <span key={tag} style={{
@@ -218,7 +221,7 @@ function RunbookDetail({ runbook, isAdmin, onRun, onEdit, onDelete }) {
       {/* When to use */}
       {runbook.when_to_use && (
         <section style={{ marginBottom: 28 }}>
-          <div className="t-eyebrow" style={{ marginBottom: 10 }}>When to use</div>
+          <div className="t-eyebrow" style={{ marginBottom: 10 }}>{tr('rbWhenToUse')}</div>
           <p style={{ fontSize: 14.5, color: 'var(--text-secondary)', lineHeight: 1.7, margin: 0 }}>
             {runbook.when_to_use}
           </p>
@@ -228,7 +231,7 @@ function RunbookDetail({ runbook, isAdmin, onRun, onEdit, onDelete }) {
       {/* Procedure */}
       {runbook.steps?.length > 0 && (
         <section>
-          <div className="t-eyebrow" style={{ marginBottom: 20 }}>Procedure</div>
+          <div className="t-eyebrow" style={{ marginBottom: 20 }}>{tr('rbProcedure')}</div>
           {runbook.steps.map((step, i) => (
             <StepItem key={step.id} step={step} index={i} />
           ))}
@@ -236,7 +239,7 @@ function RunbookDetail({ runbook, isAdmin, onRun, onEdit, onDelete }) {
       )}
 
       {runbook.steps?.length === 0 && !runbook.when_to_use && (
-        <EmptyState icon="bookmark" title="No content yet" subtitle="Edit this runbook to add steps." />
+        <EmptyState icon="bookmark" title={tr('rbNoContent')} subtitle={tr('rbNoContentDesc')} />
       )}
     </div>
   );
@@ -244,6 +247,7 @@ function RunbookDetail({ runbook, isAdmin, onRun, onEdit, onDelete }) {
 
 /* ─── Step Editor ────────────────────────────────────────────── */
 function StepEditor({ steps, onChange }) {
+  const { t: tr } = useLang();
   const addStep = () => onChange([...steps, { order: steps.length + 1, title: '', description: '', code_block: '', code_language: 'shell' }]);
   const removeStep = (i) => onChange(steps.filter((_, idx) => idx !== i).map((s, idx) => ({ ...s, order: idx + 1 })));
   const updateStep = (i, field, value) => {
@@ -254,7 +258,7 @@ function StepEditor({ steps, onChange }) {
 
   return (
     <div>
-      <label className="t-eyebrow" style={{ display: 'block', marginBottom: 8 }}>Steps</label>
+      <label className="t-eyebrow" style={{ display: 'block', marginBottom: 8 }}>{tr('rbStepsLabel')}</label>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         {steps.map((s, i) => (
           <div key={i} style={{
@@ -269,7 +273,7 @@ function StepEditor({ steps, onChange }) {
                 fontSize: 11, fontWeight: 700, flexShrink: 0,
               }}>{i + 1}</span>
               <input
-                placeholder="Step title"
+                placeholder={tr('rbStepTitlePlaceholder')}
                 value={s.title}
                 onChange={e => updateStep(i, 'title', e.target.value)}
                 style={{
@@ -286,7 +290,7 @@ function StepEditor({ steps, onChange }) {
               </button>
             </div>
             <textarea
-              placeholder="Description (optional)"
+              placeholder={tr('rbStepDescPlaceholder')}
               value={s.description || ''}
               onChange={e => updateStep(i, 'description', e.target.value)}
               rows={2}
@@ -299,7 +303,7 @@ function StepEditor({ steps, onChange }) {
               }}
             />
             <textarea
-              placeholder="Code block (optional)"
+              placeholder={tr('rbStepCodePlaceholder')}
               value={s.code_block || ''}
               onChange={e => updateStep(i, 'code_block', e.target.value)}
               rows={3}
@@ -334,7 +338,7 @@ function StepEditor({ steps, onChange }) {
           background: 'none', color: 'var(--text-muted)', cursor: 'pointer',
         }}>
           <Icon name="plus" size={14} />
-          Add step
+          {tr('rbAddStep')}
         </button>
       </div>
     </div>
@@ -343,6 +347,7 @@ function StepEditor({ steps, onChange }) {
 
 /* ─── Runbook Form Modal ─────────────────────────────────────── */
 function RunbookModal({ initial, users, onSave, onClose }) {
+  const { t: tr } = useLang();
   const CATEGORIES = ['access', 'infra', 'yandex', 'website', 'office'];
   const [form, setForm] = useState({
     title: initial?.title || '',
@@ -357,7 +362,7 @@ function RunbookModal({ initial, users, onSave, onClose }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!form.title.trim()) return setErr('Title is required');
+    if (!form.title.trim()) return setErr(tr('rbTitleRequired'));
     setSaving(true);
     setErr('');
     try {
@@ -393,7 +398,7 @@ function RunbookModal({ initial, users, onSave, onClose }) {
       }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
           <h2 style={{ margin: 0, fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 20 }}>
-            {initial ? 'Edit runbook' : 'New runbook'}
+            {initial ? tr('rbEditTitle') : tr('rbNewTitle')}
           </h2>
           <button type="button" onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}>
             <Icon name="x" size={18} />
@@ -401,7 +406,7 @@ function RunbookModal({ initial, users, onSave, onClose }) {
         </div>
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <Input
-            label="Title"
+            label={tr('title')}
             value={form.title}
             onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
             placeholder="e.g. PostgreSQL replication lag — triage and recovery"
@@ -409,29 +414,29 @@ function RunbookModal({ initial, users, onSave, onClose }) {
           />
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <Select
-              label="Category"
+              label={tr('rbCategoryLabel')}
               value={form.category}
               onChange={e => setForm(f => ({ ...f, category: e.target.value }))}
             >
               {CATEGORIES.map(c => (
-                <option key={c} value={c}>{CATEGORY_LABELS[c] || c}</option>
+                <option key={c} value={c}>{tr(CATEGORY_LABEL_KEYS[c]) || c}</option>
               ))}
             </Select>
             <Select
-              label="Owner"
+              label={tr('rbOwnerLabel')}
               value={form.owner_id}
               onChange={e => setForm(f => ({ ...f, owner_id: e.target.value }))}
             >
-              <option value="">— no owner —</option>
+              <option value="">{tr('rbNoOwner')}</option>
               {users.map(u => <option key={u.id} value={u.id}>{u.display_name}</option>)}
             </Select>
           </div>
           <div>
-            <label className="t-eyebrow" style={{ display: 'block', marginBottom: 5 }}>When to use</label>
+            <label className="t-eyebrow" style={{ display: 'block', marginBottom: 5 }}>{tr('rbWhenToUse')}</label>
             <textarea
               value={form.when_to_use}
               onChange={e => setForm(f => ({ ...f, when_to_use: e.target.value }))}
-              placeholder="Describe when this runbook should be used…"
+              placeholder={tr('rbWhenToUsePlaceholder')}
               rows={3}
               style={{
                 width: '100%', padding: '8px 11px', fontSize: 13,
@@ -443,7 +448,7 @@ function RunbookModal({ initial, users, onSave, onClose }) {
             />
           </div>
           <Input
-            label="Tags (comma-separated)"
+            label={tr('rbTagsLabel')}
             value={form.tags}
             onChange={e => setForm(f => ({ ...f, tags: e.target.value }))}
             placeholder="e.g. database, p1, postgres"
@@ -451,9 +456,9 @@ function RunbookModal({ initial, users, onSave, onClose }) {
           <StepEditor steps={form.steps} onChange={steps => setForm(f => ({ ...f, steps }))} />
           {err && <div style={{ fontSize: 13, color: 'var(--error)' }}>{err}</div>}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, paddingTop: 4 }}>
-            <Button variant="secondary" type="button" onClick={onClose}>Cancel</Button>
+            <Button variant="secondary" type="button" onClick={onClose}>{tr('cancel')}</Button>
             <Button variant="primary" type="submit" disabled={saving}>
-              {saving ? 'Saving…' : (initial ? 'Save changes' : 'Create runbook')}
+              {saving ? tr('rbSaving') : (initial ? tr('rbSaveChanges') : tr('rbCreateRunbook'))}
             </Button>
           </div>
         </form>
@@ -465,6 +470,7 @@ function RunbookModal({ initial, users, onSave, onClose }) {
 /* ─── Main Page ──────────────────────────────────────────────── */
 export default function RunbooksPage({ user, initialRunbookId }) {
   const isAdmin = user?.role === 'admin';
+  const { t: tr } = useLang();
 
   const [runbooks, setRunbooks] = useState([]);
   const [categories, setCategories] = useState({ total: 0, categories: [] });
@@ -527,23 +533,23 @@ export default function RunbooksPage({ user, initialRunbookId }) {
 
   const handleCreate = async (payload) => {
     await api('/runbooks/', { method: 'POST', body: JSON.stringify(payload) });
-    setToast({ message: 'Runbook created', type: 'success' });
+    setToast({ message: tr('rbCreatedToast'), type: 'success' });
     setShowCreate(false);
     await loadRunbooks();
   };
 
   const handleUpdate = async (payload) => {
     await api(`/runbooks/${editing.id}`, { method: 'PUT', body: JSON.stringify(payload) });
-    setToast({ message: 'Runbook saved', type: 'success' });
+    setToast({ message: tr('rbSavedToast'), type: 'success' });
     setEditing(null);
     await loadRunbooks();
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Delete this runbook?')) return;
+    if (!confirm(tr('rbDeleteConfirm'))) return;
     try {
       await api(`/runbooks/${id}`, { method: 'DELETE' });
-      setToast({ message: 'Deleted', type: 'info' });
+      setToast({ message: tr('rbDeletedToast'), type: 'info' });
       setSelectedId(null);
       await loadRunbooks();
     } catch (e) {
@@ -552,10 +558,10 @@ export default function RunbooksPage({ user, initialRunbookId }) {
   };
 
   const allCategories = [
-    { name: null, label: 'All runbooks', count: categories.total },
+    { name: null, label: tr('rbAllRunbooks'), count: categories.total },
     ...categories.categories.map(c => ({
       name: c.name,
-      label: CATEGORY_LABELS[c.name] || c.name,
+      label: CATEGORY_LABEL_KEYS[c.name] ? tr(CATEGORY_LABEL_KEYS[c.name]) : c.name,
       count: c.count,
     })),
   ];
@@ -579,7 +585,7 @@ export default function RunbooksPage({ user, initialRunbookId }) {
             <input
               value={search}
               onChange={e => setSearch(e.target.value)}
-              placeholder="Search…"
+              placeholder={tr('rbSearchPlaceholder')}
               style={{
                 padding: '7px 11px 7px 32px', fontSize: 13,
                 border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
@@ -588,7 +594,7 @@ export default function RunbooksPage({ user, initialRunbookId }) {
             />
           </div>
           <Button variant="primary" size="sm" icon="plus" onClick={() => setShowCreate(true)}>
-            New runbook
+            {tr('rbNewTitle')}
           </Button>
         </div>
       </div>
@@ -631,13 +637,13 @@ export default function RunbooksPage({ user, initialRunbookId }) {
           {/* Browse list */}
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, padding: '0 4px' }}>
-              <span className="t-eyebrow">Browse</span>
+              <span className="t-eyebrow">{tr('rbBrowse')}</span>
               <span className="t-eyebrow" style={{ color: 'var(--text-muted)' }}>{runbooks.length}</span>
             </div>
             {loading ? (
-              <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>Loading…</div>
+              <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>{tr('loading')}</div>
             ) : runbooks.length === 0 ? (
-              <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>No runbooks found</div>
+              <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>{tr('rbNotFound')}</div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                 {runbooks.map(rb => (
@@ -663,7 +669,7 @@ export default function RunbooksPage({ user, initialRunbookId }) {
                       {rb.title}
                     </div>
                     <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
-                      {rb.steps?.length || 0} step{rb.steps?.length !== 1 ? 's' : ''} · <EstimatedTime steps={rb.steps || []} />
+                      {rb.steps?.length || 0} {(rb.steps?.length || 0) === 1 ? tr('rbStepSingular') : tr('rbStepPlural')} · <EstimatedTime steps={rb.steps || []} />
                     </div>
                   </button>
                 ))}
@@ -686,8 +692,8 @@ export default function RunbooksPage({ user, initialRunbookId }) {
             <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <EmptyState
                 icon="bookmark"
-                title="Select a runbook"
-                subtitle="Choose a runbook from the list to view its steps."
+                title={tr('rbSelectTitle')}
+                subtitle={tr('rbSelectDesc')}
               />
             </div>
           )}
