@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { getTokens, clearTokens, api } from './api';
 import { getGlobalCSS } from './theme';
 import { useTheme } from './components/ThemeContext';
@@ -16,6 +16,7 @@ import HomePage from './pages/HomePage';
 import RunbooksPage from './pages/RunbooksPage';
 import TicketsPage from './pages/TicketsPage';
 import NotificationsPanel from './components/NotificationsPanel';
+import CommandPalette from './components/CommandPalette';
 
 function useBreakpoint() {
   const getBreakpoint = () => {
@@ -45,7 +46,7 @@ const NAV_ICONS = {
   admin:      'shield',
 };
 
-function TopBar({ isMobile, onMenu, mode, toggle, lang, toggleLang, unread, onNotif }) {
+function TopBar({ isMobile, onMenu, mode, toggle, lang, toggleLang, unread, onNotif, onPalette }) {
   const [now, setNow] = useState(new Date());
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 1000);
@@ -76,16 +77,20 @@ function TopBar({ isMobile, onMenu, mode, toggle, lang, toggleLang, unread, onNo
         </button>
       )}
 
-      {/* ⌘K command palette stub */}
-      <button style={{
-        display: 'flex', alignItems: 'center', gap: 8,
-        padding: '5px 10px',
-        background: 'var(--surface)',
-        border: '1px solid var(--border)',
-        borderRadius: 'var(--radius-sm)',
-        minWidth: isMobile ? 'auto' : 200, height: 30, cursor: 'pointer',
-        color: 'var(--text-muted)', fontSize: 12, fontFamily: 'inherit',
-      }}>
+      {/* ⌘K command palette trigger */}
+      <button
+        onClick={onPalette}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          padding: '5px 10px',
+          background: 'var(--surface)',
+          border: '1px solid var(--border)',
+          borderRadius: 'var(--radius-sm)',
+          minWidth: isMobile ? 'auto' : 200, height: 30, cursor: 'pointer',
+          color: 'var(--text-muted)', fontSize: 12, fontFamily: 'inherit',
+        }}
+        title="Jump to page (⌘K)"
+      >
         <Icon name="search" size={13} />
         {!isMobile && <span style={{ flex: 1, textAlign: 'left' }}>Jump to page…</span>}
         {!isMobile && <Kbd>⌘K</Kbd>}
@@ -196,13 +201,28 @@ export default function App() {
   const [showNotifs, setShowNotifs] = useState(false);
   const [unread, setUnread] = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [initialRunbookId, setInitialRunbookId] = useState(null);
 
-  const navigate = (p) => {
+  const navigate = useCallback((p, runbookId = null) => {
     if (p === 'admin' && !isAdmin(auth.user)) return;
+    setInitialRunbookId(runbookId);
     setPage(p);
     window.history.pushState(null, '', `/#${p}`);
     setSidebarOpen(false);
-  };
+  }, [auth.user]);
+
+  /* ⌘K / Ctrl+K global shortcut */
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setPaletteOpen(v => !v);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   useEffect(() => {
     if (page === 'admin' && !isAdmin(auth.user)) {
@@ -427,6 +447,7 @@ export default function App() {
             toggleLang={toggleLang}
             unread={unread}
             onNotif={() => setShowNotifs(v => !v)}
+            onPalette={() => setPaletteOpen(true)}
           />
 
           {/* Page content */}
@@ -439,7 +460,7 @@ export default function App() {
               {page === 'admin'      && isAdmin(auth.user) && <AdminPage />}
               {page === 'mail'       && <MailReporterPage user={auth.user} />}
               {page === 'tickets'    && <TicketsPage user={auth.user} />}
-              {page === 'runbooks'   && <RunbooksPage user={auth.user} />}
+              {page === 'runbooks'   && <RunbooksPage user={auth.user} initialRunbookId={initialRunbookId} />}
               {page === 'reminders'  && <RemindersPage user={auth.user} />}
             </div>
           </main>
@@ -447,6 +468,13 @@ export default function App() {
       </div>
 
       {showNotifs && <NotificationsPanel onClose={() => setShowNotifs(false)} />}
+
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        navigate={navigate}
+        user={auth.user}
+      />
     </>
   );
 }
