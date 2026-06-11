@@ -294,6 +294,30 @@ export function getGlobalCSS(t) {
     tbody tr { transition: background var(--dur-fast) ease; }
     tbody tr:hover { background: var(--surface-alt) !important; }
 
+    /* ── Schedule quick-add cells ──────────────────────────── */
+    .schedule-cell-add {
+      display: flex; align-items: center; justify-content: center;
+      width: 32px; height: 32px; border-radius: var(--radius-sm);
+      border: 1px dashed var(--border); background: transparent;
+      color: var(--text-muted); cursor: pointer;
+      transition: all var(--dur-fast) var(--ease-state);
+    }
+    .schedule-cell-add:hover {
+      border-color: var(--accent); border-style: solid;
+      color: var(--accent); background: var(--accent-light);
+    }
+    .schedule-cell-add-more {
+      display: flex; align-items: center; justify-content: center; gap: 5px;
+      width: 100%; padding: 5px 8px; border-radius: var(--radius-sm);
+      border: 1px dashed var(--border); background: transparent;
+      color: var(--text-muted); cursor: pointer; font-size: 11px; font-weight: 600;
+      transition: all var(--dur-fast) var(--ease-state); font-family: var(--font-sans);
+    }
+    .schedule-cell-add-more:hover {
+      border-color: var(--accent); border-style: solid;
+      color: var(--accent); background: var(--accent-light);
+    }
+
     /* ── Scrollbars ─────────────────────────────────────────── */
     *::-webkit-scrollbar { width: 8px; height: 8px; }
     *::-webkit-scrollbar-thumb {
