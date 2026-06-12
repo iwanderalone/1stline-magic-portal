@@ -264,6 +264,22 @@ class TimeOffReviewRequest(BaseModel):
     admin_comment: Optional[str] = None
 
 
+class UserBlockedDateCreate(BaseModel):
+    user_id: UUID
+    start_date: date
+    end_date: date
+    reason: Optional[str] = Field(default=None, max_length=255)
+
+
+class UserBlockedDateResponse(BaseOrmModel):
+    id: UUID
+    user_id: UUID
+    start_date: date
+    end_date: date
+    reason: Optional[str] = None
+    created_at: datetime
+
+
 # ─── Reminders ───────────────────────────────────────────
 
 class ReminderCreate(BaseModel):

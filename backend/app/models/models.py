@@ -129,6 +129,7 @@ class User(Base):
     groups = relationship("Group", secondary=user_groups, back_populates="members")
     shifts = relationship("Shift", back_populates="user", passive_deletes=True)
     time_off_requests = relationship("TimeOffRequest", back_populates="user", passive_deletes=True)
+    blocked_dates = relationship("UserBlockedDate", back_populates="user", passive_deletes=True)
     reminders = relationship("Reminder", back_populates="user", passive_deletes=True)
 
 
@@ -189,6 +190,23 @@ class TimeOffRequest(Base):
     updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
     user = relationship("User", back_populates="time_off_requests")
+
+
+class UserBlockedDate(Base):
+    """Admin-defined date ranges where an engineer cannot be assigned shifts (e.g. external commitments)."""
+    __tablename__ = "user_blocked_dates"
+    __table_args__ = (
+        Index("ix_user_blocked_dates_user_id", "user_id"),
+    )
+
+    id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(Uuid(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    start_date = Column(Date, nullable=False)
+    end_date = Column(Date, nullable=False)
+    reason = Column(String(255), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+
+    user = relationship("User", back_populates="blocked_dates")
 
 
 # ─── Reminders ───────────────────────────────────────────
