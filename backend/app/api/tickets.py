@@ -19,8 +19,48 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/tickets", tags=["tickets"])
 
 VALID_EVENT_TYPES = {
-    "ticket_opened", "ticket_assigned", "comment_added", "ticket_closed", "ticket_paused"
+    "ticket_opened",
+    "ticket_assigned",
+    "comment_added",
+    "ticket_closed",
+    "ticket_paused",
+    "ticket_status_changed",
+    "ticket_sync",
 }
+
+
+def detect_events(body: dict) -> list[str]:
+    """Infer Zammad event types from a raw webhook payload."""
+    ticket = body.get("ticket") or {}
+    article = body.get("article") or {}
+    preferences = article.get("preferences") or {}
+
+    if ticket.get("article_count") == 1:
+        return ["ticket_opened"]
+
+    detected: list[str] = []
+    article_body = article.get("body") or ""
+    sender_type = article.get("sender") or ""
+    if article_body.strip() and sender_type != "System" and article_body != "...":
+        detected.append("comment_added")
+
+    if "new_status" in preferences:
+        new_status = str(preferences.get("new_status") or "").lower()
+        if new_status in {"closed", "closed successful", "закрыт"}:
+            detected.append("ticket_closed")
+        elif any(word in new_status for word in ["pending", "paused", "приостановлен", "пауза", "hold"]):
+            detected.append("ticket_paused")
+        else:
+            detected.append("ticket_status_changed")
+
+    if (
+        "new_owner_id" in preferences
+        or "new_owner" in preferences
+        or preferences.get("comment_type") == "owner_change"
+    ):
+        detected.append("ticket_assigned")
+
+    return detected
 
 
 def _extract_fields(event_type: str, body: dict) -> dict:
@@ -80,7 +120,8 @@ def _extract_fields(event_type: str, body: dict) -> dict:
         "Receives Zammad webhook events. Configure one trigger per event type in Zammad "
         "and set the URL to include `?event=<type>`. "
         "Supported values: `ticket_opened`, `ticket_assigned`, `comment_added`, "
-        "`ticket_closed`, `ticket_paused`.\n\n"
+        "`ticket_closed`, `ticket_paused`, `ticket_status_changed`, `ticket_sync`. "
+        "If `event` is omitted, the backend auto-detects one or more event types.\n\n"
         "Optional HMAC verification: set `ZAMMAD_WEBHOOK_SECRET` env var to the same "
         "value entered in Zammad's **HMAC SHA1 Signature Token** field. "
         "Zammad sends `X-Hub-Signature: sha1=<hex>` and the endpoint will reject "
@@ -89,7 +130,7 @@ def _extract_fields(event_type: str, body: dict) -> dict:
 )
 async def receive_webhook(
     request: Request,
-    event: str = Query(..., description="Event type, e.g. ticket_opened"),
+    event: Optional[str] = Query(default=None, description="Event type, e.g. ticket_opened. Omit to auto-detect."),
     x_hub_signature: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ):
@@ -106,29 +147,33 @@ async def receive_webhook(
             logger.warning("[tickets] Webhook rejected — invalid HMAC signature")
             raise HTTPException(status_code=401, detail="Invalid webhook signature")
 
-    if event not in VALID_EVENT_TYPES:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Unknown event type '{event}'. Valid: {sorted(VALID_EVENT_TYPES)}",
-        )
-
     try:
         body = json.loads(raw_body) if raw_body else {}
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON body")
 
-    fields = _extract_fields(event, body)
-    ev = ZammadEvent(
-        event_type=event,
-        payload=raw_body.decode("utf-8", errors="replace"),
-        **fields,
-    )
-    db.add(ev)
+    events = [event] if event else detect_events(body)
+    if not events:
+        logger.info("[tickets] Ignored Zammad webhook without a supported event")
+        return
+
+    invalid = [ev for ev in events if ev not in VALID_EVENT_TYPES]
+    if invalid:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown event type(s) {invalid}. Valid: {sorted(VALID_EVENT_TYPES)}",
+        )
+
+    payload_text = raw_body.decode("utf-8", errors="replace")
+    for event_type in events:
+        fields = _extract_fields(event_type, body)
+        db.add(ZammadEvent(
+            event_type=event_type,
+            payload=payload_text,
+            **fields,
+        ))
     await db.commit()
-    logger.info(
-        "[tickets] %s — ticket #%s '%s'",
-        event, fields.get("ticket_number"), fields.get("ticket_title"),
-    )
+    logger.info("[tickets] stored %d Zammad event(s): %s", len(events), events)
 
 
 # ─── Event log ────────────────────────────────────────────
