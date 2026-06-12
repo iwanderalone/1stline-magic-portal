@@ -264,6 +264,22 @@ class TimeOffReviewRequest(BaseModel):
     admin_comment: Optional[str] = None
 
 
+class UserBlockedDateCreate(BaseModel):
+    user_id: UUID
+    start_date: date
+    end_date: date
+    reason: Optional[str] = Field(default=None, max_length=255)
+
+
+class UserBlockedDateResponse(BaseOrmModel):
+    id: UUID
+    user_id: UUID
+    start_date: date
+    end_date: date
+    reason: Optional[str] = None
+    created_at: datetime
+
+
 # ─── Reminders ───────────────────────────────────────────
 
 class ReminderCreate(BaseModel):
@@ -567,7 +583,13 @@ class RunbookResponse(BaseOrmModel):
 # ─── Zammad ──────────────────────────────────────────────
 
 ZammadEventType = Literal[
-    "ticket_opened", "ticket_assigned", "comment_added", "ticket_closed", "ticket_paused"
+    "ticket_opened",
+    "ticket_assigned",
+    "comment_added",
+    "ticket_closed",
+    "ticket_paused",
+    "ticket_status_changed",
+    "ticket_sync",
 ]
 
 class ZammadWebhookPayload(BaseModel):
@@ -579,6 +601,11 @@ class ZammadWebhookPayload(BaseModel):
       POST /api/tickets/webhook?event=comment_added
       POST /api/tickets/webhook?event=ticket_closed
       POST /api/tickets/webhook?event=ticket_paused
+      POST /api/tickets/webhook?event=ticket_status_changed
+      POST /api/tickets/webhook?event=ticket_sync
+
+    The event parameter may also be omitted; the backend will infer one
+    or more supported event types from the Zammad payload.
 
     Zammad sends the full ticket object on every trigger. The `article`
     field is populated only for comment events.
