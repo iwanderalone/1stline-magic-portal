@@ -3,11 +3,88 @@ import json
 from uuid import UUID
 from datetime import date, timedelta
 from collections import defaultdict
+from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
-from app.models.models import User, Shift, TimeOffRequest, ShiftType, ShiftConfig, TimeOffStatus, UserRole
+from app.models.models import User, Shift, TimeOffRequest, UserBlockedDate, ShiftType, ShiftConfig, TimeOffStatus, UserRole
 from typing import Optional
 import random
+
+# Shift types considered "daytime" — mutually compatible with each other but not with NIGHT.
+DAYTIME_SHIFT_TYPES = {ShiftType.DAY, ShiftType.OFFICE}
+
+
+async def get_blocked_dates(db, user_ids, start, end):
+    uuid_ids = [UUID(u) if isinstance(u, str) else u for u in user_ids]
+    result = await db.execute(
+        select(UserBlockedDate).where(
+            and_(
+                UserBlockedDate.user_id.in_(uuid_ids),
+                UserBlockedDate.start_date <= end,
+                UserBlockedDate.end_date >= start,
+            )
+        )
+    )
+    blocked_map = defaultdict(set)
+    for entry in result.scalars().all():
+        d = max(entry.start_date, start)
+        while d <= min(entry.end_date, end):
+            blocked_map[str(entry.user_id)].add(d)
+            d += timedelta(days=1)
+    return blocked_map
+
+
+async def validate_shift_assignment(
+    db: AsyncSession,
+    user_id,
+    shift_date: date,
+    shift_type: ShiftType,
+    exclude_shift_id=None,
+):
+    """Raise HTTPException(400) if assigning `shift_type` to `user_id` on `shift_date`
+    would violate day/night/office compatibility rules or a manual unavailability block."""
+    blocked = await db.execute(
+        select(UserBlockedDate).where(
+            and_(
+                UserBlockedDate.user_id == user_id,
+                UserBlockedDate.start_date <= shift_date,
+                UserBlockedDate.end_date >= shift_date,
+            )
+        )
+    )
+    block = blocked.scalars().first()
+    if block:
+        detail = f"Engineer is marked unavailable on {shift_date}"
+        if block.reason:
+            detail += f" ({block.reason})"
+        raise HTTPException(status_code=400, detail=detail)
+
+    query = select(Shift).where(
+        and_(
+            Shift.user_id == user_id,
+            Shift.date >= shift_date - timedelta(days=1),
+            Shift.date <= shift_date + timedelta(days=1),
+        )
+    )
+    if exclude_shift_id is not None:
+        query = query.where(Shift.id != exclude_shift_id)
+    result = await db.execute(query)
+    others = result.scalars().all()
+
+    same_day_types = {s.shift_type for s in others if s.date == shift_date}
+    prev_day_types = {s.shift_type for s in others if s.date == shift_date - timedelta(days=1)}
+    next_day_types = {s.shift_type for s in others if s.date == shift_date + timedelta(days=1)}
+
+    if shift_type == ShiftType.NIGHT:
+        if same_day_types & DAYTIME_SHIFT_TYPES:
+            raise HTTPException(status_code=400, detail="Engineer already has a day/office shift on this date — cannot also work a night shift")
+        if next_day_types & DAYTIME_SHIFT_TYPES:
+            raise HTTPException(status_code=400, detail="Engineer has a day/office shift the next day — needs rest after a night shift")
+    else:
+        if ShiftType.NIGHT in same_day_types:
+            raise HTTPException(status_code=400, detail="Engineer already has a night shift on this date")
+        if ShiftType.NIGHT in prev_day_types:
+            raise HTTPException(status_code=400, detail="Engineer worked a night shift the previous day — needs rest before a day/office shift")
 
 
 async def get_approved_time_off(db, user_ids, start, end):
@@ -97,6 +174,13 @@ async def generate_schedule(
     )
     existing_shifts = {(str(s.user_id), s.date, s.shift_type) for s in existing.scalars().all()}
     off_map = await get_approved_time_off(db, uid_list, start_date, end_date)
+    blocked_map = await get_blocked_dates(db, uid_list, start_date, end_date)
+
+    # Track shift types already assigned per (user, date) — covers both pre-existing
+    # shifts and new assignments made during this generation run.
+    assigned_types = defaultdict(set)
+    for uid, d, st in existing_shifts:
+        assigned_types[(uid, d)].add(st)
 
     # Seed last_shift_date / last_shift_type from existing shifts just before the range.
     # This prevents the generator from assigning e.g. a DAY shift the day after an
@@ -133,7 +217,21 @@ async def generate_schedule(
                     continue
                 if current in off_map.get(uid, set()):
                     continue
+                if current in blocked_map.get(uid, set()):
+                    continue
                 if not is_available_by_pattern(user, current):
+                    continue
+                # Day/night/office compatibility: night cannot coexist with day/office
+                # on the same date (and vice versa).
+                same_day_types = assigned_types.get((uid, current), set())
+                if stype == ShiftType.NIGHT:
+                    if same_day_types & DAYTIME_SHIFT_TYPES:
+                        continue
+                    # A night shift today rules out day/office tomorrow — don't
+                    # assign it if tomorrow already has one of those.
+                    if assigned_types.get((uid, current + timedelta(days=1)), set()) & DAYTIME_SHIFT_TYPES:
+                        continue
+                elif ShiftType.NIGHT in same_day_types:
                     continue
                 # allowed_shift_types: None = no restriction; [] = never assign; ["day"] = day only
                 if user.allowed_shift_types is not None:
@@ -147,9 +245,9 @@ async def generate_schedule(
                     gap = (current - last_shift_date[uid]).days
                     if gap < user.min_shift_gap_days:
                         continue
-                    # Never assign a DAY shift the day after a NIGHT shift —
-                    # night ends ~08:00, day starts ~08:00 → effectively 0h rest
-                    if gap == 1 and last_shift_type.get(uid) == ShiftType.NIGHT and stype == ShiftType.DAY:
+                    # Never assign a DAY/OFFICE shift the day after a NIGHT shift —
+                    # night ends ~08:00, day/office starts ~08:00 → effectively 0h rest
+                    if gap == 1 and last_shift_type.get(uid) == ShiftType.NIGHT and stype in DAYTIME_SHIFT_TYPES:
                         continue
                 week_num = current.isocalendar()[1]
                 if weekly_counts[uid][week_num] >= user.max_shifts_per_week:
@@ -178,6 +276,7 @@ async def generate_schedule(
             week_num = current.isocalendar()[1]
             weekly_counts[chosen][week_num] += 1
             existing_shifts.add((chosen, current, stype))
+            assigned_types[(chosen, current)].add(stype)
 
         current += timedelta(days=1)
 
