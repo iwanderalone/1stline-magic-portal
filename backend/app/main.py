@@ -30,6 +30,7 @@ from app.workers.shift_notification_scheduler import schedule_pending_notificati
 from app.workers.shift_notification_worker import check_shift_notifications
 from app.services.telegram_service import poll_telegram_updates
 from app.services.mail_reporter_service import check_all_mailboxes
+from app.services.zammad_sync_service import sync_active_zammad_tickets
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -190,6 +191,7 @@ async def lifespan(app: FastAPI):
     await seed_routing_rules()
     await _migrate_imap_passwords()
     await _migrate_avatar_urls()
+    await sync_active_zammad_tickets()
 
     # Reminder worker
     scheduler.add_job(check_and_fire_reminders, "interval", seconds=30)

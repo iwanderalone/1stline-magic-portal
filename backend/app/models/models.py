@@ -462,7 +462,7 @@ class ZammadEvent(Base):
     )
 
     id             = Column(Integer, primary_key=True, autoincrement=True)
-    event_type     = Column(String(50), nullable=False)   # ticket_opened | ticket_assigned | comment_added | ticket_closed | ticket_paused
+    event_type     = Column(String(50), nullable=False)   # ticket_opened | ticket_assigned | comment_added | ticket_closed | ticket_paused | ticket_status_changed | ticket_sync
     ticket_id      = Column(Integer, nullable=True, index=True)
     ticket_number  = Column(String(20), nullable=True)
     ticket_title   = Column(String(500), nullable=True)
@@ -474,5 +474,4 @@ class ZammadEvent(Base):
     article_body   = Column(Text, nullable=True)          # populated for comment_added
     payload        = Column(Text, nullable=False)          # raw JSON from Zammad
     received_at    = Column(DateTime(timezone=True), default=utcnow, nullable=False)
-
 
