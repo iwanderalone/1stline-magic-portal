@@ -9,13 +9,13 @@ from app.core.database import get_db
 from app.core.deps import get_current_user, require_admin, get_or_404
 from app.core.scheduler import scheduler
 from app.workers.shift_notification_scheduler import schedule_pending_notifications
-from app.models.models import User, Shift, TimeOffRequest, ShiftType, ShiftConfig, UserRole
+from app.models.models import User, Shift, TimeOffRequest, UserBlockedDate, ShiftType, ShiftConfig, UserRole
 from app.schemas.schemas import (
     ShiftCreate, ShiftUpdate, ShiftResponse, ScheduleGenerateRequest,
     TimeOffCreate, TimeOffResponse, TimeOffReviewRequest,
-    ShiftConfigResponse,
+    ShiftConfigResponse, UserBlockedDateCreate, UserBlockedDateResponse,
 )
-from app.services.schedule_service import generate_schedule
+from app.services.schedule_service import generate_schedule, validate_shift_assignment
 from app.services.audit import log_action
 
 router = APIRouter(prefix="/schedule", tags=["schedule"])
@@ -68,6 +68,7 @@ async def create_shift(
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
+    await validate_shift_assignment(db, req.user_id, req.date, req.shift_type)
     shift = Shift(**req.model_dump())
     # Auto-fill times from config
     if not shift.start_time or not shift.end_time:
@@ -113,6 +114,8 @@ async def update_shift(
     db: AsyncSession = Depends(get_db),
 ):
     shift = await get_or_404(db, Shift, shift_id)
+    if req.shift_type is not None and req.shift_type != shift.shift_type:
+        await validate_shift_assignment(db, shift.user_id, shift.date, req.shift_type, exclude_shift_id=shift.id)
     for field, value in req.model_dump(exclude_unset=True).items():
         setattr(shift, field, value)
     await db.flush()
@@ -247,4 +250,49 @@ async def delete_time_off(
     if user.role != UserRole.ADMIN and time_off.user_id != user.id:
         raise HTTPException(status_code=403, detail="Not allowed")
     await db.delete(time_off)
+    return {"deleted": True}
+
+
+# ─── Blocked Dates (manual unavailability) ──────────────
+
+@router.get("/blocked-dates", response_model=list[UserBlockedDateResponse])
+async def list_blocked_dates(
+    user_id: UUID | None = Query(None),
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    query = select(UserBlockedDate)
+    if user_id:
+        query = query.where(UserBlockedDate.user_id == user_id)
+    query = query.order_by(UserBlockedDate.start_date)
+    result = await db.execute(query)
+    return [UserBlockedDateResponse.model_validate(b) for b in result.scalars().all()]
+
+
+@router.post("/blocked-dates", response_model=UserBlockedDateResponse)
+async def create_blocked_date(
+    req: UserBlockedDateCreate,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    if req.end_date < req.start_date:
+        raise HTTPException(status_code=400, detail="End date must be after start date")
+    entry = UserBlockedDate(**req.model_dump())
+    db.add(entry)
+    await db.flush()
+    await log_action(db, admin, "blocked_date_added",
+        f"user {entry.user_id}: {entry.start_date} → {entry.end_date}" + (f" ({entry.reason})" if entry.reason else ""))
+    return UserBlockedDateResponse.model_validate(entry)
+
+
+@router.delete("/blocked-dates/{entry_id}")
+async def delete_blocked_date(
+    entry_id: UUID,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    entry = await get_or_404(db, UserBlockedDate, entry_id)
+    await db.delete(entry)
+    await log_action(db, admin, "blocked_date_removed",
+        f"user {entry.user_id}: {entry.start_date} → {entry.end_date}")
     return {"deleted": True}

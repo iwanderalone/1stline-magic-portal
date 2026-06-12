@@ -347,12 +347,63 @@ function EditUserModal({ user, onClose, onSave, groups, configs }) {
             </div>
           )}
         </div>
+        <BlockedDatesSection userId={user.id} />
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
           <Button onClick={handleSave}>Save</Button>
         </div>
       </div>
     </Overlay>
+  );
+}
+
+function BlockedDatesSection({ userId }) {
+  const { t: tr } = useLang();
+  const [entries, setEntries] = useState([]);
+  const [start, setStart] = useState('');
+  const [end, setEnd] = useState('');
+  const [reason, setReason] = useState('');
+  const [toast, setToast] = useState(null);
+
+  const load = () => api(`/schedule/blocked-dates?user_id=${userId}`).then(r => setEntries(r || []));
+  useEffect(() => { load(); }, [userId]);
+
+  const add = async () => {
+    try {
+      await api('/schedule/blocked-dates', { method: 'POST', body: JSON.stringify({ user_id: userId, start_date: start, end_date: end, reason: reason || null }) });
+      setStart(''); setEnd(''); setReason(''); load();
+    } catch (e) { setToast({ message: e.message, type: 'error' }); }
+  };
+
+  const remove = async id => {
+    try { await api(`/schedule/blocked-dates/${id}`, { method: 'DELETE' }); load(); }
+    catch (e) { setToast({ message: e.message, type: 'error' }); }
+  };
+
+  return (
+    <div style={{ padding: '16px', background: 'var(--surface-alt)', borderRadius: 'var(--radius-sm)' }}>
+      <label style={{ fontSize: '14px', fontWeight: 600, display: 'block', marginBottom: '4px' }}>{tr('adminBlockedDates')}</label>
+      <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 12px' }}>{tr('adminBlockedDatesDesc')}</p>
+      {entries.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '12px' }}>
+          {entries.map(e => (
+            <div key={e.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '6px 10px', background: 'var(--surface)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-light)' }}>
+              <span style={{ fontSize: '13px', fontFamily: 'var(--font-mono)' }}>{e.start_date} → {e.end_date}</span>
+              {e.reason && <span style={{ fontSize: '12px', color: 'var(--text-muted)', flex: 1 }}>{e.reason}</span>}
+              <Button size="sm" variant="ghost" icon="trash" onClick={() => remove(e.id)} style={{ marginLeft: 'auto' }} />
+            </div>
+          ))}
+        </div>
+      )}
+      {entries.length === 0 && <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 12px' }}>{tr('adminBlockedDatesEmpty')}</p>}
+      <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+        <Input label={tr('start')} type="date" value={start} onChange={e => setStart(e.target.value)} style={{ flex: '1 1 120px' }} />
+        <Input label={tr('end')} type="date" value={end} onChange={e => setEnd(e.target.value)} style={{ flex: '1 1 120px' }} />
+        <Input label={tr('adminBlockedDatesReason')} value={reason} onChange={e => setReason(e.target.value)} style={{ flex: '2 1 160px' }} />
+        <Button size="sm" onClick={add} disabled={!start || !end}>{tr('adminBlockedDatesAdd')}</Button>
+      </div>
+      {toast && <Toast {...toast} onClose={() => setToast(null)} />}
+    </div>
   );
 }
 
