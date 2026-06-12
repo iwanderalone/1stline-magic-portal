@@ -15,6 +15,29 @@ logger = logging.getLogger(__name__)
 ACTIVE_TICKETS_QUERY = 'state.name:(new OR open OR in_progress OR "pending reminder")'
 
 
+def _extract_ticket_list(data: object) -> list[dict]:
+    """Normalize Zammad search responses across API shapes."""
+    if isinstance(data, list):
+        return [ticket for ticket in data if isinstance(ticket, dict)]
+
+    if not isinstance(data, dict):
+        return []
+
+    assets = data.get("assets") or {}
+    if isinstance(assets, dict):
+        ticket_assets = assets.get("Ticket")
+        if isinstance(ticket_assets, dict):
+            return [ticket for ticket in ticket_assets.values() if isinstance(ticket, dict)]
+        if isinstance(ticket_assets, list):
+            return [ticket for ticket in ticket_assets if isinstance(ticket, dict)]
+
+    tickets = data.get("tickets") or data.get("records") or []
+    if isinstance(tickets, list):
+        return [ticket for ticket in tickets if isinstance(ticket, dict)]
+
+    return []
+
+
 async def sync_active_zammad_tickets() -> None:
     """Fetch active Zammad tickets and store them as ticket_sync events."""
     settings = get_settings()
@@ -39,16 +62,13 @@ async def sync_active_zammad_tickets() -> None:
         logger.warning("[tickets] Zammad startup sync failed: %s", exc)
         return
 
-    data = response.json()
-    ticket_assets = data.get("assets", {}).get("Ticket", {})
-    if not isinstance(ticket_assets, dict):
+    tickets = _extract_ticket_list(response.json())
+    if not tickets:
         logger.warning("[tickets] Zammad startup sync returned an unexpected payload")
         return
 
     async with AsyncSessionFactory() as db:
-        for ticket in ticket_assets.values():
-            if not isinstance(ticket, dict):
-                continue
+        for ticket in tickets:
             payload = {"ticket": ticket, "source": "startup_sync"}
             fields = _extract_fields("ticket_sync", payload)
             db.add(ZammadEvent(
@@ -58,4 +78,4 @@ async def sync_active_zammad_tickets() -> None:
             ))
         await db.commit()
 
-    logger.info("[tickets] Zammad startup sync stored %d active ticket(s)", len(ticket_assets))
+    logger.info("[tickets] Zammad startup sync stored %d active ticket(s)", len(tickets))
