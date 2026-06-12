@@ -1,6 +1,7 @@
 from sqlalchemy import select
 
 from app.models.models import ZammadEvent
+from app.services.zammad_sync_service import _extract_ticket_list
 
 
 def ticket_payload(**overrides):
@@ -70,3 +71,10 @@ async def test_webhook_rejects_unknown_event(client):
     )
 
     assert resp.status_code == 422
+
+
+def test_sync_ticket_list_accepts_zammad_response_shapes():
+    assert _extract_ticket_list([{"id": 1}, "bad"]) == [{"id": 1}]
+    assert _extract_ticket_list({"assets": {"Ticket": {"1": {"id": 1}}}}) == [{"id": 1}]
+    assert _extract_ticket_list({"tickets": [{"id": 2}]}) == [{"id": 2}]
+    assert _extract_ticket_list({"unexpected": True}) == []
