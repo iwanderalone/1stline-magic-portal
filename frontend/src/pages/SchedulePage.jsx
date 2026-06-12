@@ -68,7 +68,7 @@ export default function SchedulePage({ user }) {
   const [offset, setOffset] = useState(0);
   const [showGenerate, setShowGenerate] = useState(false);
   const [showTimeOff, setShowTimeOff] = useState(false);
-  const [showAddShift, setShowAddShift] = useState(false);
+  const [addShiftPrefill, setAddShiftPrefill] = useState(null);
   const [selectedShift, setSelectedShift] = useState(null);
   const [selectedTimeOff, setSelectedTimeOff] = useState(null);
   const [toast, setToast] = useState(null);
@@ -144,7 +144,7 @@ export default function SchedulePage({ user }) {
   const handleAddShift = async (data) => {
     try {
       await api('/schedule/shifts', { method: 'POST', body: JSON.stringify(data) });
-      setToast({ message: tr('scheduleShiftAdded'), type: 'success' }); setShowAddShift(false); loadData();
+      setToast({ message: tr('scheduleShiftAdded'), type: 'success' }); setAddShiftPrefill(null); loadData();
     } catch (e) { setToast({ message: e.message, type: 'error' }); }
   };
 
@@ -223,8 +223,18 @@ export default function SchedulePage({ user }) {
       </div>
     ));
 
-    if (dayShifts.length === 0 && offItems.length === 0)
+    if (dayShifts.length === 0 && offItems.length === 0) {
+      if (isAdmin) {
+        return (
+          <button type="button" className="schedule-cell-add-more" style={{ padding: '2px 4px', fontSize: '10px' }}
+            title={tr('addShiftManually')}
+            onClick={() => setAddShiftPrefill({ date: dayStr })}>
+            <Icon name="plus" size={11} />
+          </button>
+        );
+      }
       return <div style={{ fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center' }}>—</div>;
+    }
 
     return [...offItems, ...dayShifts.map(s => {
       const cfg = configMap[s.shift_type];
@@ -268,7 +278,7 @@ export default function SchedulePage({ user }) {
           <Button variant="secondary" size="sm" onClick={() => setOffset(0)}>{tr('today')}</Button>
           <Button variant="secondary" size="sm" icon="chevronRight" onClick={() => setOffset(o => o + 1)} />
           <Button variant="secondary" size="sm" icon="sun" onClick={() => setShowTimeOff(true)}>{tr('timeOff')}</Button>
-          {isAdmin && <Button variant="secondary" size="sm" icon="plus" onClick={() => setShowAddShift(true)}>{tr('addShift')}</Button>}
+          {isAdmin && <Button variant="secondary" size="sm" icon="plus" onClick={() => setAddShiftPrefill({})}>{tr('addShift')}</Button>}
           {isAdmin && <Button size="sm" icon="zap" onClick={() => setShowGenerate(true)}>{tr('generate')}</Button>}
           {isAdmin && <Button variant="secondary" size="sm" icon="check" onClick={handlePublish}>{tr('publish')}</Button>}
           {isAdmin && <Button variant="danger" size="sm" icon="trash" onClick={handleClearDrafts}>{tr('scheduleClearDrafts')}</Button>}
@@ -298,6 +308,7 @@ export default function SchedulePage({ user }) {
               locale={locale}
               tr={tr}
               onShiftClick={setSelectedShift}
+              onCellAdd={(date, shiftType) => setAddShiftPrefill({ date, shift_type: shiftType })}
               fmtTime={fmtTime}
             />
           ) : (
@@ -339,7 +350,7 @@ export default function SchedulePage({ user }) {
 
       {showGenerate && <GenerateModal onClose={() => setShowGenerate(false)} onGenerate={handleGenerate} dates={weekDates} configs={configs} />}
       {showTimeOff && <TimeOffModal onClose={() => setShowTimeOff(false)} onSubmit={handleTimeOff} />}
-      {showAddShift && <AddShiftModal onClose={() => setShowAddShift(false)} onSubmit={handleAddShift} users={users} configs={configs} />}
+      {addShiftPrefill && <AddShiftModal onClose={() => setAddShiftPrefill(null)} onSubmit={handleAddShift} users={users} configs={configs} prefill={addShiftPrefill} />}
       {selectedShift && isAdmin && (
         <ShiftDetailModal
           shift={selectedShift}
@@ -394,12 +405,12 @@ function GenerateModal({ onClose, onGenerate, dates, configs }) {
   );
 }
 
-function AddShiftModal({ onClose, onSubmit, users, configs }) {
+function AddShiftModal({ onClose, onSubmit, users, configs, prefill = {} }) {
   const { t: tr } = useLang();
   const [userId, setUserId] = useState('');
-  const [date, setDate] = useState('');
+  const [date, setDate] = useState(prefill.date || '');
   const activeConfigs = configs.filter(c => c.is_active);
-  const [shiftType, setShiftType] = useState(activeConfigs[0]?.shift_type || '');
+  const [shiftType, setShiftType] = useState(prefill.shift_type || activeConfigs[0]?.shift_type || '');
   const [location, setLocation] = useState('');
   const cfg = configs.find(c => c.shift_type === shiftType);
   useEffect(() => {
@@ -561,7 +572,7 @@ function TimeOffDetailModal({ entry, isAdmin, onClose, onReview, onDelete }) {
   );
 }
 
-function WeeklyScheduleBoard({ weekDates, shiftTypes, shifts, timeOff, isAdmin, locale, tr, onShiftClick, fmtTime }) {
+function WeeklyScheduleBoard({ weekDates, shiftTypes, shifts, timeOff, isAdmin, locale, tr, onShiftClick, onCellAdd, fmtTime }) {
   const todayKey = fmt(new Date());
   return (
     <div style={{ minWidth: 960 }}>
@@ -644,7 +655,20 @@ function WeeklyScheduleBoard({ weekDates, shiftTypes, shifts, timeOff, isAdmin, 
                     onClick={() => isAdmin && onShiftClick(shift)}
                   />
                 )) : (
-                  <div style={{ margin: 'auto', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>—</div>
+                  isAdmin ? (
+                    <button type="button" className="schedule-cell-add" title={tr('addShiftManually')}
+                      style={{ margin: 'auto' }}
+                      onClick={() => onCellAdd(dayKey, cfg.shift_type)}>
+                      <Icon name="plus" size={15} />
+                    </button>
+                  ) : (
+                    <div style={{ margin: 'auto', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>—</div>
+                  )
+                )}
+                {isAdmin && dayShifts.length > 0 && (
+                  <button type="button" className="schedule-cell-add-more" onClick={() => onCellAdd(dayKey, cfg.shift_type)}>
+                    <Icon name="plus" size={11} /> {tr('add')}
+                  </button>
                 )}
                 {dayShifts.some(s => timeOff.some(r => r.status === 'approved' && String(r.user_id) === String(s.user_id) && r.start_date <= s.date && r.end_date >= s.date)) && (
                   <div style={{ marginTop: 'auto', color: 'var(--warning)', fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700 }}>

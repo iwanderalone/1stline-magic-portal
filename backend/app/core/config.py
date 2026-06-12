@@ -84,8 +84,10 @@ class Settings(BaseSettings):
     CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
 
     # Zammad
-    ZAMMAD_WEBHOOK_SECRET: str = ""   # optional — if set, validates X-Zammad-Secret header
-    ZAMMAD_URL: str = ""              # e.g. https://tickets.example.com — used to build ticket links
+    ZAMMAD_WEBHOOK_SECRET: str = ""   # optional — if set, validates X-Hub-Signature
+    ZAMMAD_URL: str = ""              # e.g. https://tickets.example.com — used for startup sync and ticket links
+    ZAMMAD_API_TOKEN: str = ""        # optional — enables startup sync when paired with ZAMMAD_URL
+    ZAMMAD_SYNC_ON_STARTUP: bool = True
 
     # Mail Reporter
     MAIL_IMAP_SERVER: str = "imap.yandex.com"

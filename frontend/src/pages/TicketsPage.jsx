@@ -10,6 +10,8 @@ const EVENT_META = {
   comment_added:   { label: 'Comment',  color: 'gray'   },
   ticket_closed:   { label: 'Closed',   color: 'green'  },
   ticket_paused:   { label: 'Paused',   color: 'orange' },
+  ticket_status_changed: { label: 'Status', color: 'blue' },
+  ticket_sync:     { label: 'Sync',     color: 'gray'   },
 };
 
 const ALL_TYPES = Object.keys(EVENT_META);
@@ -226,6 +228,9 @@ export default function TicketsPage() {
               POST /api/tickets/webhook?event={type}
             </code>
           ))}
+          <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>
+            POST /api/tickets/webhook
+          </code>
         </div>
       </div>
 
