@@ -27,6 +27,7 @@ from app.core.config import get_settings
 from app.core.database import AsyncSessionFactory
 from app.core.encryption import decrypt
 from app.models.models import MailboxConfig, EmailLog, MailRoutingRule
+from app.services.backup_alert_parser import BackupSummary, parse_backup_alert
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +73,16 @@ BUILTIN_RULES = [
         "hashtag": "#onboarding #offboarding",
         "mention_users": "@wanderalone @itsupport_viory",
         "include_body": True,
+        "priority": 100,
+    },
+    {
+        "builtin_key": "backup_alerts",
+        "name": "Backup Alerts",
+        "label": "🗄️ Backup Alerts",
+        "color": "#10b981",
+        "hashtag": "#backup",
+        "mention_users": "",
+        "include_body": False,
         "priority": 100,
     },
     {
@@ -307,6 +318,10 @@ def classify_email(sender: str, subject: str, body: str,
     full_text = f"{subject} {body}"
     all_text = f"{subject} {sender} {body} {raw_text}".lower()
 
+    if "vzdump backup status" in subject.lower():
+        backup_body = raw_text or body
+        return "backup_alerts", {"summary": parse_backup_alert(subject, sender, backup_body)}
+
     is_adobe = (
         "adobe" in subject.lower()
         or "adobe" in sender.lower()
@@ -408,6 +423,56 @@ def format_message(category: str, extra: dict, sender: str, recipient: str,
             f"Mailbox: {safe_mailbox}\n"
             f"🕐 {local_time}"
         )
+
+    if category == "backup_alerts":
+        summary = extra.get("summary")
+        if not isinstance(summary, BackupSummary):
+            summary = parse_backup_alert(subject, sender, body)
+
+        label = display.get("label", "🗄️ Backup Alerts") if display else "🗄️ Backup Alerts"
+        hashtag = display.get("hashtag", "#backup") if display else "#backup"
+        mentions = (display.get("mention_users") or "").strip() if display else ""
+        mention_line = f"{mentions}\n" if mentions else ""
+
+        icon = "✅" if summary.status == "successful" else "❌" if summary.status == "failed" else "⚠️"
+        failed = [
+            entry for entry in summary.entries
+            if entry.status.lower() not in {"ok", "success", "successful"}
+        ]
+        ok_count = len(summary.entries) - len(failed)
+
+        lines = [
+            f"{label} <b>{escape_html(hashtag)}</b>",
+            mention_line.rstrip(),
+            "━━━━━━━━━━━━━━━━━━━━",
+            f"{icon} <b>Proxmox backup {escape_html(summary.status)}</b>",
+            f"<b>Host:</b> {escape_html(summary.host)}",
+            f"<b>VMs:</b> {ok_count}/{len(summary.entries)} ok",
+            f"<b>Total:</b> {escape_html(summary.total_size or 'n/a')} in {escape_html(summary.total_time or 'n/a')}",
+            f"🕐 {local_time}",
+            "",
+        ]
+        lines = [line for line in lines if line]
+
+        for entry in summary.entries:
+            marker = "✓" if entry.status.lower() in {"ok", "success", "successful"} else "✗"
+            lines.append(
+                f"{marker} <code>{escape_html(entry.vmid)}</code> "
+                f"{escape_html(entry.name)} — {escape_html(entry.duration)}, {escape_html(entry.size)}"
+            )
+
+        if failed:
+            lines.extend(["", "<b>Needs attention:</b>"])
+            for entry in failed:
+                lines.append(
+                    f"{escape_html(entry.vmid)} {escape_html(entry.name)}: "
+                    f"{escape_html(entry.status)}"
+                )
+
+        if not summary.entries:
+            lines.extend(["", "<i>No VM details found in backup email.</i>"])
+
+        return "\n".join(lines)
 
     # Generic template driven by display config
     if display:
