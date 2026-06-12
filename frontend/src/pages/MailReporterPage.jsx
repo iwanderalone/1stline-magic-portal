@@ -180,6 +180,7 @@ function RuleModal({ rule, onClose, onSave, mailboxes = [] }) {
   const isEdit = !!rule?.id;
   const isBuiltin = rule?.is_builtin ?? false;
   const isGeneral = rule?.builtin_key === 'general';
+  const isBackupAlerts = rule?.builtin_key === 'backup_alerts';
   const matchLocked = isBuiltin && isGeneral;
 
   const parsedTg = parseTelegramTarget(rule?.telegram_target);
@@ -254,6 +255,19 @@ function RuleModal({ rule, onClose, onSave, mailboxes = [] }) {
           <Input label="Hashtag" value={form.hashtag} onChange={set('hashtag')} placeholder="#adobe" />
           <Input label="Mentions" value={form.mention_users} onChange={set('mention_users')} placeholder="@user" />
         </div>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={form.include_body}
+            disabled={isBackupAlerts}
+            onChange={e => setForm(f => ({ ...f, include_body: e.target.checked }))}
+          />
+          <span>
+            {isBackupAlerts
+              ? 'Backup alerts always send a compact parsed summary'
+              : 'Include original email body in Telegram message'}
+          </span>
+        </label>
         <TelegramTargetFields chatId={tgChatId} threadId={tgThreadId} onChatId={setTgChatId} onThreadId={setTgThreadId} templates={templates} />
         {!matchLocked && (
           <>
