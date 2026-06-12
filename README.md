@@ -21,6 +21,7 @@ A lightweight internal operations portal for first-line support teams. Provides 
 │  · Schedule      (shifts + auto-generation)  │
 │  · Time Off      (requests + approval)        │
 │  · Mail Reporter (IMAP → classify → Telegram) │
+│  · Tickets       (Zammad webhooks + sync)     │
 │  · Notifications (in-app + Telegram)          │
 │  · Admin config  (shift types, Telegram chats)│
 └────────────┬──────────────────────────────────┘
@@ -127,6 +128,13 @@ npm run dev      # Vite dev server on :5173 — proxies /api to :8000
 - Optional TOTP two-factor auth (Google Authenticator, Authy)
 - JWT: 30-minute access token + 7-day refresh token
 - OTP setup/disable via self-service profile page
+
+### Tickets / Zammad
+- Receives Zammad webhooks at `POST /api/tickets/webhook`
+- Supports explicit `?event=` values and auto-detection when `event` is omitted
+- Stores `ticket_opened`, `ticket_assigned`, `comment_added`, `ticket_closed`, `ticket_paused`, `ticket_status_changed`, and `ticket_sync`
+- Validates `X-Hub-Signature` when `ZAMMAD_WEBHOOK_SECRET` is set
+- Imports active Zammad tickets on backend startup when `ZAMMAD_URL` and `ZAMMAD_API_TOKEN` are configured
 
 ### Schedule
 - Weekly and monthly calendar views
@@ -268,6 +276,12 @@ DELETE /api/mail-reporter/rules/:id          # Delete custom rule (admin)
 GET    /api/mail-reporter/emails/:id/comments # List comments
 POST   /api/mail-reporter/emails/:id/comments # Add comment
 
+POST   /api/tickets/webhook                 # Zammad webhook receiver, auto-detects event(s)
+POST   /api/tickets/webhook?event=:type     # Zammad webhook receiver with explicit event type
+GET    /api/tickets/events                  # Recent Zammad ticket events
+GET    /api/tickets/events/count            # Count Zammad ticket events
+GET    /api/tickets/events/:id              # Single Zammad event with raw payload
+
 GET    /api/health                           # Health check — includes DB connectivity
 GET    /api/config                           # Public config (Telegram bot username, portal timezone)
 ```
@@ -296,6 +310,7 @@ PostgreSQL in Docker (named volume `postgres_data`). Schema managed by Alembic �
 | `mail_routing_rules` | Categorisation rules (built-in + user-defined) — match conditions, display config, Telegram target override; `mailbox_id = NULL` means global |
 | `email_logs` | Processed email history — category, status (unchecked/solved/on_pause/blocked), Telegram delivery, extracted codes, body (capped at 64 KB) |
 | `email_comments` | Per-email thread of comments from team members |
+| `zammad_events` | Zammad webhook and startup-sync event log with extracted ticket fields and raw payload |
 
 ## Security
 
