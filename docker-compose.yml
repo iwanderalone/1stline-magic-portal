@@ -34,6 +34,10 @@ services:
       TELEGRAM_BOT_USERNAME: "${TELEGRAM_BOT_USERNAME:-}"
       CORS_ORIGINS: "${CORS_ORIGINS:-http://localhost:3000,http://localhost:5173}"
       PORTAL_TIMEZONE: "${PORTAL_TIMEZONE:-UTC}"
+      ZAMMAD_WEBHOOK_SECRET: "${ZAMMAD_WEBHOOK_SECRET:-}"
+      ZAMMAD_URL: "${ZAMMAD_URL:-}"
+      ZAMMAD_API_TOKEN: "${ZAMMAD_API_TOKEN:-}"
+      ZAMMAD_SYNC_ON_STARTUP: "${ZAMMAD_SYNC_ON_STARTUP:-true}"
       LOG_DIR: /app/data/logs
     volumes:
       - ./data:/app/data
