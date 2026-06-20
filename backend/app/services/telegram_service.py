@@ -1,5 +1,6 @@
 """Telegram bot service — personal + group chat notifications."""
 import logging
+from collections import defaultdict
 from datetime import date, datetime, timezone, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlalchemy import select, and_
@@ -237,6 +238,43 @@ async def notify_office_roster():
                     f"Office DM failed → {u.display_name} (chat_id={u.telegram_chat_id!r}). "
                     "User may not have started the bot yet."
                 )
+
+
+async def notify_schedule_published(shift_data: list[dict], start_date: date, end_date: date):
+    """Send a schedule summary to chats with notify_general=True after shifts are published."""
+    if not shift_data:
+        return
+
+    SHIFT_EMOJI = {ShiftType.DAY: "☀️", ShiftType.NIGHT: "🌙", ShiftType.OFFICE: "🏢"}
+    SHIFT_ORDER = {ShiftType.DAY: 0, ShiftType.NIGHT: 1, ShiftType.OFFICE: 2}
+
+    by_date: dict = defaultdict(list)
+    for s in shift_data:
+        by_date[s["date"]].append(s)
+
+    lines = [
+        "📅 <b>Schedule Published</b>",
+        f"<i>{start_date.strftime('%-d %b')} – {end_date.strftime('%-d %b %Y')}</i>",
+        "━━━━━━━━━━━━━━━━━━━━",
+    ]
+    for d in sorted(by_date):
+        lines.append("")
+        lines.append(f"<b>{d.strftime('%a, %-d %b')}</b>")
+        day_shifts = sorted(by_date[d], key=lambda s: SHIFT_ORDER.get(s["shift_type"], 9))
+        for s in day_shifts:
+            emoji = SHIFT_EMOJI.get(s["shift_type"], "•")
+            lines.append(f"  {emoji} {s['shift_type'].value.capitalize()} — {s['display_name']}")
+
+    message = "\n".join(lines)
+
+    async with AsyncSessionFactory() as db:
+        chats = await db.execute(
+            select(TelegramChat).where(
+                and_(TelegramChat.is_active == True, TelegramChat.notify_general == True)
+            )
+        )
+        for chat in chats.scalars().all():
+            await send_telegram_message(chat.chat_id, message, chat.topic_id)
 
 
 # ─── Bot update polling ──────────────────────────────────

@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 from sqlalchemy.orm import selectinload
 from datetime import date
+from collections import defaultdict
 from app.core.database import get_db
 from app.core.deps import get_current_user, require_admin, get_or_404
 from app.core.scheduler import scheduler
@@ -17,6 +18,7 @@ from app.schemas.schemas import (
 )
 from app.services.schedule_service import generate_schedule, validate_shift_assignment
 from app.services.audit import log_action
+from app.services.telegram_service import notify_schedule_published
 
 router = APIRouter(prefix="/schedule", tags=["schedule"])
 
@@ -84,6 +86,8 @@ async def create_shift(
     db.add(shift)
     await db.flush()
     await db.refresh(shift, ["user"])
+    await log_action(db, admin, "shift_created",
+        f"{shift.user.display_name} — {shift.shift_type.value} on {shift.date}")
     return ShiftResponse.model_validate(shift)
 
 
@@ -114,12 +118,22 @@ async def update_shift(
     db: AsyncSession = Depends(get_db),
 ):
     shift = await get_or_404(db, Shift, shift_id)
+    await db.refresh(shift, ["user"])
     if req.shift_type is not None and req.shift_type != shift.shift_type:
         await validate_shift_assignment(db, shift.user_id, shift.date, req.shift_type, exclude_shift_id=shift.id)
+    changes = []
     for field, value in req.model_dump(exclude_unset=True).items():
+        old = getattr(shift, field)
+        if old != value:
+            old_str = old.value if hasattr(old, "value") else str(old)
+            new_str = value.value if hasattr(value, "value") else str(value)
+            changes.append(f"{field}: {old_str} → {new_str}")
         setattr(shift, field, value)
     await db.flush()
     await db.refresh(shift, ["user"])
+    if changes:
+        await log_action(db, admin, "shift_updated",
+            f"{shift.user.display_name} on {shift.date}: {', '.join(changes)}")
     return ShiftResponse.model_validate(shift)
 
 
@@ -130,6 +144,9 @@ async def delete_shift(
     db: AsyncSession = Depends(get_db),
 ):
     shift = await get_or_404(db, Shift, shift_id)
+    await db.refresh(shift, ["user"])
+    await log_action(db, admin, "shift_deleted",
+        f"{shift.user.display_name} — {shift.shift_type.value} on {shift.date}")
     await db.delete(shift)
     return {"deleted": True}
 
@@ -161,8 +178,13 @@ async def auto_generate(
     for s in shifts:
         await db.refresh(s, ["user"])
 
+    counts: dict = defaultdict(int)
+    for s in shifts:
+        if s.user:
+            counts[s.user.display_name] += 1
+    breakdown = ", ".join(f"{name}×{n}" for name, n in sorted(counts.items()))
     await log_action(db, admin, "schedule_generated",
-        f"{len(shifts)} shifts from {req.start_date} to {req.end_date}")
+        f"{len(shifts)} shifts from {req.start_date} to {req.end_date}" + (f" | {breakdown}" if breakdown else ""))
     return [ShiftResponse.model_validate(s) for s in shifts]
 
 
@@ -175,18 +197,30 @@ async def publish_schedule(
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
-        select(Shift).where(
-            and_(Shift.date >= start_date, Shift.date <= end_date, Shift.is_published == False)
-        )
+        select(Shift)
+        .options(selectinload(Shift.user))
+        .where(and_(Shift.date >= start_date, Shift.date <= end_date, Shift.is_published == False))
     )
     shifts = result.scalars().all()
     for s in shifts:
         s.is_published = True
     await db.flush()
-    await log_action(db, admin, "schedule_published",
-        f"{len(shifts)} shifts from {start_date} to {end_date}")
-    # Schedule notifications after commit (BackgroundTasks run post-response)
+
+    shift_lines = sorted(
+        [f"{s.date} {s.shift_type.value} — {s.user.display_name}" for s in shifts if s.user],
+        key=lambda x: x
+    )
+    detail = f"{len(shifts)} shifts from {start_date} to {end_date}"
+    if shift_lines:
+        detail += "\n" + "\n".join(shift_lines)
+    await log_action(db, admin, "schedule_published", detail)
+
+    shift_data = [
+        {"date": s.date, "shift_type": s.shift_type, "display_name": s.user.display_name if s.user else "?"}
+        for s in shifts
+    ]
     background_tasks.add_task(schedule_pending_notifications, scheduler)
+    background_tasks.add_task(notify_schedule_published, shift_data, start_date, end_date)
     return {"published": len(shifts)}
 
 
