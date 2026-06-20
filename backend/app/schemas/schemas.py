@@ -225,6 +225,7 @@ class ShiftResponse(BaseOrmModel):
     location: Optional[WorkLocation]
     notes: Optional[str]
     is_published: bool
+    pending_delete: bool = False
     user: Optional[PublicUserResponse] = None
 
 class ShiftUpdate(BaseModel):
@@ -234,6 +235,7 @@ class ShiftUpdate(BaseModel):
     end_time: Optional[time] = None
     notes: Optional[str] = None
     is_published: Optional[bool] = None
+    pending_delete: Optional[bool] = None
 
 class ScheduleGenerateRequest(BaseModel):
     start_date: date

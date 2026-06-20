@@ -52,8 +52,8 @@ async def list_shifts(
 
     filters = [Shift.date >= start_date, Shift.date <= end_date]
     if user.role != UserRole.ADMIN:
-        # Engineers only see published shifts
         filters.append(Shift.is_published == True)
+        filters.append(Shift.pending_delete == False)
 
     result = await db.execute(
         select(Shift)
@@ -145,9 +145,15 @@ async def delete_shift(
 ):
     shift = await get_or_404(db, Shift, shift_id)
     await db.refresh(shift, ["user"])
-    await log_action(db, admin, "shift_deleted",
-        f"{shift.user.display_name} — {shift.shift_type.value} on {shift.date}")
-    await db.delete(shift)
+    if not shift.is_published:
+        # Draft never published — hard delete immediately, no need to stage
+        await log_action(db, admin, "shift_deleted",
+            f"{shift.user.display_name} — {shift.shift_type.value} on {shift.date} (draft discarded)")
+        await db.delete(shift)
+    else:
+        shift.pending_delete = True
+        await log_action(db, admin, "shift_staged_for_removal",
+            f"{shift.user.display_name} — {shift.shift_type.value} on {shift.date} (will be removed on next publish)")
     return {"deleted": True}
 
 
@@ -196,32 +202,49 @@ async def publish_schedule(
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
+    # Shifts to publish (new drafts)
+    added_result = await db.execute(
         select(Shift)
         .options(selectinload(Shift.user))
-        .where(and_(Shift.date >= start_date, Shift.date <= end_date, Shift.is_published == False))
+        .where(and_(Shift.date >= start_date, Shift.date <= end_date,
+                    Shift.is_published == False, Shift.pending_delete == False))
     )
-    shifts = result.scalars().all()
-    for s in shifts:
+    added = added_result.scalars().all()
+    for s in added:
         s.is_published = True
+
+    # Shifts staged for removal
+    removed_result = await db.execute(
+        select(Shift)
+        .options(selectinload(Shift.user))
+        .where(and_(Shift.date >= start_date, Shift.date <= end_date, Shift.pending_delete == True))
+    )
+    removed = removed_result.scalars().all()
+    for s in removed:
+        await db.delete(s)
+
     await db.flush()
 
-    shift_lines = sorted(
-        [f"{s.date} {s.shift_type.value} — {s.user.display_name}" for s in shifts if s.user],
-        key=lambda x: x
-    )
-    detail = f"{len(shifts)} shifts from {start_date} to {end_date}"
-    if shift_lines:
-        detail += "\n" + "\n".join(shift_lines)
-    await log_action(db, admin, "schedule_published", detail)
+    added_lines = sorted([f"{s.date} {s.shift_type.value} — {s.user.display_name}" for s in added if s.user])
+    removed_lines = sorted([f"{s.date} {s.shift_type.value} — {s.user.display_name}" for s in removed if s.user])
+    detail_parts = [f"{len(added)} added, {len(removed)} removed ({start_date} to {end_date})"]
+    if added_lines:
+        detail_parts.append("Added:\n" + "\n".join(added_lines))
+    if removed_lines:
+        detail_parts.append("Removed:\n" + "\n".join(removed_lines))
+    await log_action(db, admin, "schedule_published", "\n".join(detail_parts))
 
-    shift_data = [
-        {"date": s.date, "shift_type": s.shift_type, "display_name": s.user.display_name if s.user else "?"}
-        for s in shifts
+    added_data = [
+        {"date": s.date, "shift_type": s.shift_type, "display_name": s.user.display_name if s.user else "?", "change": "added"}
+        for s in added
+    ]
+    removed_data = [
+        {"date": s.date, "shift_type": s.shift_type, "display_name": s.user.display_name if s.user else "?", "change": "removed"}
+        for s in removed
     ]
     background_tasks.add_task(schedule_pending_notifications, scheduler)
-    background_tasks.add_task(notify_schedule_published, shift_data, start_date, end_date)
-    return {"published": len(shifts)}
+    background_tasks.add_task(notify_schedule_published, added_data + removed_data, start_date, end_date)
+    return {"published": len(added), "removed": len(removed)}
 
 
 # ─── Time Off ────────────────────────────────────────────
