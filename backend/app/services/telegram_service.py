@@ -241,29 +241,38 @@ async def notify_office_roster():
 
 
 async def notify_schedule_published(shift_data: list[dict], start_date: date, end_date: date):
-    """Send a schedule summary to chats with notify_general=True after shifts are published."""
+    """Send a schedule change summary to chats with notify_general=True after publish."""
     if not shift_data:
         return
 
     SHIFT_EMOJI = {ShiftType.DAY: "☀️", ShiftType.NIGHT: "🌙", ShiftType.OFFICE: "🏢"}
     SHIFT_ORDER = {ShiftType.DAY: 0, ShiftType.NIGHT: 1, ShiftType.OFFICE: 2}
 
-    by_date: dict = defaultdict(list)
-    for s in shift_data:
-        by_date[s["date"]].append(s)
+    added = [s for s in shift_data if s.get("change") == "added"]
+    removed = [s for s in shift_data if s.get("change") == "removed"]
 
     lines = [
         "📅 <b>Schedule Published</b>",
         f"<i>{start_date.strftime('%-d %b')} – {end_date.strftime('%-d %b %Y')}</i>",
         "━━━━━━━━━━━━━━━━━━━━",
     ]
-    for d in sorted(by_date):
-        lines.append("")
-        lines.append(f"<b>{d.strftime('%a, %-d %b')}</b>")
-        day_shifts = sorted(by_date[d], key=lambda s: SHIFT_ORDER.get(s["shift_type"], 9))
-        for s in day_shifts:
-            emoji = SHIFT_EMOJI.get(s["shift_type"], "•")
-            lines.append(f"  {emoji} {s['shift_type'].value.capitalize()} — {s['display_name']}")
+
+    def render_group(shifts: list[dict]) -> list[str]:
+        by_date: dict = defaultdict(list)
+        for s in shifts:
+            by_date[s["date"]].append(s)
+        result = []
+        for d in sorted(by_date):
+            result.append(f"<b>{d.strftime('%a, %-d %b')}</b>")
+            for s in sorted(by_date[d], key=lambda x: SHIFT_ORDER.get(x["shift_type"], 9)):
+                emoji = SHIFT_EMOJI.get(s["shift_type"], "•")
+                result.append(f"  {emoji} {s['shift_type'].value.capitalize()} — {s['display_name']}")
+        return result
+
+    if added:
+        lines += ["", f"➕ <b>Added ({len(added)})</b>"] + render_group(added)
+    if removed:
+        lines += ["", f"➖ <b>Removed ({len(removed)})</b>"] + render_group(removed)
 
     message = "\n".join(lines)
 

@@ -170,6 +170,7 @@ class Shift(Base):
     location = Column(_enum(WorkLocation), nullable=True)
     notes = Column(Text, nullable=True)
     is_published = Column(Boolean, default=False)
+    pending_delete = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime(timezone=True), default=utcnow)
 
     user = relationship("User", back_populates="shifts")
