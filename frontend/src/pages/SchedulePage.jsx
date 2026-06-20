@@ -125,7 +125,8 @@ export default function SchedulePage({ user }) {
   };
 
   const handleClearDrafts = async () => {
-    const draftCount = shifts.filter(s => !s.is_published).length;
+    const draftCount = shifts.filter(s => !s.is_published && !s.pending_delete).length;
+  const pendingRemoveCount = shifts.filter(s => s.pending_delete).length;
     if (draftCount === 0) { setToast({ message: tr('scheduleNoDrafts'), type: 'info' }); return; }
     if (!confirm(text(tr('scheduleDeleteDraftsConfirm'), { count: draftCount }))) return;
     try {
@@ -137,7 +138,10 @@ export default function SchedulePage({ user }) {
   const handlePublish = async () => {
     try {
       const r = await api(`/schedule/publish?start_date=${fmt(rangeStart)}&end_date=${fmt(rangeEnd)}`, { method: 'POST' });
-      setToast({ message: `Published ${r.published} shifts`, type: 'success' }); loadData();
+      const parts = [];
+      if (r.published) parts.push(`${r.published} published`);
+      if (r.removed) parts.push(`${r.removed} removed`);
+      setToast({ message: parts.length ? parts.join(', ') : 'Nothing to publish', type: 'success' }); loadData();
     } catch (e) { setToast({ message: e.message, type: 'error' }); }
   };
 
@@ -150,6 +154,11 @@ export default function SchedulePage({ user }) {
 
   const handleDeleteShift = async (id) => {
     try { await api(`/schedule/shifts/${id}`, { method: 'DELETE' }); setSelectedShift(null); loadData(); }
+    catch (e) { setToast({ message: e.message, type: 'error' }); }
+  };
+
+  const handleUndoDelete = async (id) => {
+    try { await api(`/schedule/shifts/${id}`, { method: 'PATCH', body: JSON.stringify({ pending_delete: false }) }); setSelectedShift(null); loadData(); }
     catch (e) { setToast({ message: e.message, type: 'error' }); }
   };
 
@@ -179,7 +188,7 @@ export default function SchedulePage({ user }) {
   const headerLabel = view === 'weekly'
     ? `${weekDates[0].toLocaleDateString(locale, { month: 'short', day: 'numeric' })} – ${weekDates[6].toLocaleDateString(locale, { month: 'short', day: 'numeric', year: 'numeric' })}`
     : new Date(monthData.year, monthData.month).toLocaleDateString(locale, { month: 'long', year: 'numeric' });
-  const published = shifts.length > 0 && shifts.every(s => s.is_published);
+  const published = shifts.length > 0 && shifts.every(s => s.is_published && !s.pending_delete);
   const activeShiftTypes = configs.filter(c => c.is_active);
 
   const leaveConflicts = shifts.filter(s => timeOff.some(r =>
@@ -238,8 +247,9 @@ export default function SchedulePage({ user }) {
 
     return [...offItems, ...dayShifts.map(s => {
       const cfg = configMap[s.shift_type];
-      const bgColor = cfg ? `${cfg.color}18` : 'var(--surface-alt)';
-      const textColor = cfg ? cfg.color : 'var(--text-secondary)';
+      const isPendingDelete = s.pending_delete;
+      const bgColor = isPendingDelete ? 'var(--danger-light)' : (cfg ? `${cfg.color}18` : 'var(--surface-alt)');
+      const textColor = isPendingDelete ? 'var(--danger)' : (cfg ? cfg.color : 'var(--text-secondary)');
       const label = cfg ? cfg.label : s.shift_type;
       const uName = s.user?.display_name || 'Unassigned';
 
@@ -249,14 +259,16 @@ export default function SchedulePage({ user }) {
             padding: compact ? '1px 4px' : '5px 8px', borderRadius: '5px', fontSize: compact ? '10px' : '11px',
             background: bgColor, border: `1px solid ${textColor}30`,
             color: textColor, lineHeight: 1.3, cursor: 'pointer',
-            display: 'flex', flexDirection: 'column', gap: '1px', opacity: s.is_published ? 1 : 0.65,
-            borderStyle: s.is_published ? 'solid' : 'dashed',
+            display: 'flex', flexDirection: 'column', gap: '1px',
+            opacity: isPendingDelete ? 0.6 : (s.is_published ? 1 : 0.65),
+            borderStyle: isPendingDelete ? 'solid' : (s.is_published ? 'solid' : 'dashed'),
           }}>
           <div style={{ fontWeight: 700, fontSize: compact ? '9px' : '10px', textTransform: 'uppercase', letterSpacing: '0.02em', display: 'flex', justifyContent: 'space-between' }}>
-            <span>{label}</span>
-            {!s.is_published && <span>DRAFT</span>}
+            <span style={{ textDecoration: isPendingDelete ? 'line-through' : 'none' }}>{label}</span>
+            {isPendingDelete && <span>🗑</span>}
+            {!s.is_published && !isPendingDelete && <span>DRAFT</span>}
           </div>
-          <div style={{ fontWeight: 600, color: 'var(--text)' }}>{compact ? uName.split(' ')[0] : uName}</div>
+          <div style={{ fontWeight: 600, color: isPendingDelete ? 'var(--danger)' : 'var(--text)', textDecoration: isPendingDelete ? 'line-through' : 'none' }}>{compact ? uName.split(' ')[0] : uName}</div>
           {s.start_time && !compact && <div style={{ fontSize: '9px', opacity: 0.8 }}>{fmtTime(s.start_time, s.date)} – {fmtTime(s.end_time, s.date)}</div>}
         </div>
       );
@@ -357,7 +369,11 @@ export default function SchedulePage({ user }) {
           configs={configs}
           onClose={() => setSelectedShift(null)}
           onSave={data => handleEditShift(selectedShift.id, data)}
-          onDelete={() => confirm(tr('scheduleDeleteShiftConfirm')) && handleDeleteShift(selectedShift.id)}
+          onDelete={() => {
+            if (selectedShift.pending_delete) { handleUndoDelete(selectedShift.id); return; }
+            const msg = selectedShift.is_published ? tr('scheduleStageForRemovalConfirm') : tr('scheduleDeleteShiftConfirm');
+            confirm(msg) && handleDeleteShift(selectedShift.id);
+          }}
         />
       )}
       {selectedTimeOff && (
@@ -493,8 +509,16 @@ function ShiftDetailModal({ shift, configs, onClose, onSave, onDelete }) {
             <div style={{ fontWeight: 600 }}>{shift.user?.display_name || '—'}</div>
             <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{shift.date} · {shift.start_time?.slice(0,5) || '—'}–{shift.end_time?.slice(0,5) || '—'}</div>
           </div>
-          <Badge color={isPublished ? 'green' : 'yellow'} style={{ marginLeft: 'auto' }}>{isPublished ? tr('schedulePublished') : tr('scheduleDraft')}</Badge>
+          <Badge color={shift.pending_delete ? 'red' : (isPublished ? 'green' : 'yellow')} style={{ marginLeft: 'auto' }}>
+            {shift.pending_delete ? tr('scheduleStagedForRemoval') : (isPublished ? tr('schedulePublished') : tr('scheduleDraft'))}
+          </Badge>
         </div>
+
+        {shift.pending_delete && (
+          <div style={{ padding: '10px 14px', background: 'var(--danger-light)', border: '1px solid color-mix(in srgb, var(--danger) 30%, transparent)', borderRadius: 'var(--radius-sm)', color: 'var(--danger)', fontSize: 13 }}>
+            🗑 {tr('scheduleStagedForRemoval')} — will be deleted on next Publish
+          </div>
+        )}
 
         <Select label={tr('shiftType')} value={shiftType} onChange={e => setShiftType(e.target.value)}>
           {configs.filter(c => c.is_active).map(c => (
@@ -518,7 +542,9 @@ function ShiftDetailModal({ shift, configs, onClose, onSave, onDelete }) {
         </label>
 
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', marginTop: '4px' }}>
-          <Button variant="danger" onClick={onDelete}>{tr('delete')}</Button>
+          <Button variant={shift.pending_delete ? 'secondary' : 'danger'} onClick={onDelete}>
+            {shift.pending_delete ? tr('scheduleUndoRemoval') : tr('delete')}
+          </Button>
           <div style={{ display: 'flex', gap: '8px' }}>
             <Button variant="secondary" onClick={onClose}>{tr('cancel')}</Button>
             <Button onClick={() => onSave({ shift_type: shiftType, location: location || null, notes: notes || null, is_published: isPublished })}>{tr('save')}</Button>
@@ -687,8 +713,9 @@ function WeeklyScheduleBoard({ weekDates, shiftTypes, shifts, timeOff, isAdmin, 
 
 function ShiftPill({ shift, config, timeOff, isAdmin, tr, onClick }) {
   const userName = shift.user?.display_name || '—';
-  const color = shift.user?.name_color || config?.color || 'var(--accent)';
-  const onLeave = timeOff.some(r =>
+  const isPendingDelete = shift.pending_delete;
+  const color = isPendingDelete ? 'var(--danger)' : (shift.user?.name_color || config?.color || 'var(--accent)');
+  const onLeave = !isPendingDelete && timeOff.some(r =>
     r.status === 'approved' &&
     String(r.user_id) === String(shift.user_id) &&
     r.start_date <= shift.date && r.end_date >= shift.date
@@ -698,12 +725,12 @@ function ShiftPill({ shift, config, timeOff, isAdmin, tr, onClick }) {
       type="button"
       onClick={onClick}
       disabled={!isAdmin}
-      title={onLeave ? tr('scheduleShortStaffed') : userName}
+      title={isPendingDelete ? tr('scheduleStagedForRemoval') : (onLeave ? tr('scheduleShortStaffed') : userName)}
       style={{
-        border: '1px solid var(--border-light)',
-        borderLeft: `4px solid ${onLeave ? 'var(--danger)' : color}`,
+        border: `1px solid ${isPendingDelete ? 'color-mix(in srgb, var(--danger) 30%, transparent)' : 'var(--border-light)'}`,
+        borderLeft: `4px solid ${isPendingDelete ? 'var(--danger)' : (onLeave ? 'var(--danger)' : color)}`,
         borderRadius: 'var(--radius-sm)',
-        background: onLeave ? 'var(--danger-light)' : `color-mix(in srgb, ${color} 14%, var(--surface-alt))`,
+        background: isPendingDelete ? 'var(--danger-light)' : (onLeave ? 'var(--danger-light)' : `color-mix(in srgb, ${color} 14%, var(--surface-alt))`),
         color: 'var(--text)',
         padding: '9px 10px',
         display: 'flex',
@@ -711,7 +738,7 @@ function ShiftPill({ shift, config, timeOff, isAdmin, tr, onClick }) {
         gap: 9,
         cursor: isAdmin ? 'pointer' : 'default',
         textAlign: 'left',
-        opacity: shift.is_published ? 1 : 0.65,
+        opacity: isPendingDelete ? 0.6 : (shift.is_published ? 1 : 0.65),
       }}
     >
       <span style={{
@@ -727,11 +754,14 @@ function ShiftPill({ shift, config, timeOff, isAdmin, tr, onClick }) {
         fontWeight: 700,
         flexShrink: 0,
       }}>
-        {userName.split(/\s+/).map(s => s[0]).slice(0, 2).join('').toUpperCase()}
+        {isPendingDelete ? '🗑' : userName.split(/\s+/).map(s => s[0]).slice(0, 2).join('').toUpperCase()}
       </span>
       <span style={{ minWidth: 0 }}>
-        <span style={{ display: 'block', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{userName}</span>
-        {shift.location && <span style={{ display: 'block', color: 'var(--text-muted)', fontSize: 11 }}>{shift.location}</span>}
+        <span style={{ display: 'block', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: isPendingDelete ? 'line-through' : 'none', color: isPendingDelete ? 'var(--danger)' : 'inherit' }}>{userName}</span>
+        {isPendingDelete
+          ? <span style={{ display: 'block', color: 'var(--danger)', fontSize: 11, fontWeight: 600 }}>{tr('scheduleStagedForRemoval')}</span>
+          : shift.location && <span style={{ display: 'block', color: 'var(--text-muted)', fontSize: 11 }}>{shift.location}</span>
+        }
       </span>
     </button>
   );
