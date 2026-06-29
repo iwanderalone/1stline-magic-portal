@@ -232,6 +232,43 @@ async def upsert_ticket(
         ))
 
 
+async def _is_redundant_event(db: AsyncSession, event_type: str, body: dict, existing: Optional[ZammadTicket]) -> bool:
+    """True when an event carries no new information and should not be logged.
+
+    Zammad triggers (and the customer's own automation rules) fan out and
+    re-fire, so the same webhook can arrive several times. The ticket upsert is
+    idempotent, but the event timeline should only record real changes.
+    """
+    ticket = body.get("ticket") or {}
+
+    if event_type == "ticket_opened":
+        # We already track this ticket → not a real "opened".
+        return existing is not None
+
+    if event_type == "comment_added":
+        comment = _extract_comment(body)
+        if not comment:
+            return True  # system note / empty body, not a real comment
+        art_id = comment.get("article_id")
+        if art_id is not None:
+            dup = await db.execute(select(ZammadComment.id).where(ZammadComment.article_id == art_id))
+            return dup.scalar_one_or_none() is not None
+        return False
+
+    if event_type in ("ticket_status_changed", "ticket_closed", "ticket_paused"):
+        if existing is None or "state" not in ticket:
+            return False
+        new_state = _assoc_name(ticket.get("state"))
+        return new_state is not None and new_state == existing.state
+
+    if event_type == "ticket_assigned":
+        if existing is None or "owner" not in ticket:
+            return False
+        return _person_name(ticket.get("owner")) == existing.assignee
+
+    return False
+
+
 # ─── Webhook receiver ─────────────────────────────────────
 
 @router.post(
@@ -287,16 +324,23 @@ async def receive_webhook(
         )
 
     payload_text = raw_body.decode("utf-8", errors="replace")
+    ticket_id = (body.get("ticket") or {}).get("id")
+    existing = await db.get(ZammadTicket, ticket_id) if ticket_id else None
+
+    # Capture prior state before the upsert so change-detection compares against it.
+    stored: list[str] = []
     for event_type in events:
+        if await _is_redundant_event(db, event_type, body, existing):
+            continue
         fields = _extract_fields(event_type, body)
-        db.add(ZammadEvent(
-            event_type=event_type,
-            payload=payload_text,
-            **fields,
-        ))
-        await upsert_ticket(db, event_type, body)
+        db.add(ZammadEvent(event_type=event_type, payload=payload_text, **fields))
+        stored.append(event_type)
+
+    # Always refresh current ticket state + capture any new comment (idempotent).
+    if ticket_id:
+        await upsert_ticket(db, stored[-1] if stored else events[-1], body)
     await db.commit()
-    logger.info("[tickets] stored %d Zammad event(s): %s", len(events), events)
+    logger.info("[tickets] stored %d/%d Zammad event(s): %s", len(stored), len(events), stored or "(all redundant)")
 
 
 # ─── Event log ────────────────────────────────────────────
