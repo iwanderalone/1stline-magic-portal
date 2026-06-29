@@ -185,18 +185,25 @@ async def upsert_ticket(
         existing = ZammadTicket(id=tid, created_at=now)
         db.add(existing)
 
-    # Only overwrite with non-empty values so a sparse webhook never blanks a field.
+    # Keep non-empty identity fields (never blank a number/title).
     def _set(attr, value):
         if value not in (None, ""):
             setattr(existing, attr, value)
 
+    # Associations are authoritative when Zammad includes the key: honor the
+    # value even when it clears the field (e.g. a ticket becoming unassigned).
+    # When the key is absent (a sparse payload), keep the existing value.
+    def _set_assoc(attr, key, value):
+        if key in ticket:
+            setattr(existing, attr, value)
+
     _set("number", fields["ticket_number"])
     _set("title", fields["ticket_title"])
-    _set("state", fields["ticket_state"])
-    _set("group_name", fields["ticket_group"])
-    _set("priority", fields["ticket_priority"])
-    _set("assignee", fields["assignee"])
-    _set("customer", fields["customer"])
+    _set_assoc("state", "state", fields["ticket_state"])
+    _set_assoc("group_name", "group", fields["ticket_group"])
+    _set_assoc("priority", "priority", fields["ticket_priority"])
+    _set_assoc("assignee", "owner", fields["assignee"])
+    _set_assoc("customer", "customer", fields["customer"])
     if ticket.get("article_count") is not None:
         existing.article_count = ticket.get("article_count")
     _set("zammad_created_at", _parse_dt(ticket.get("created_at")))
