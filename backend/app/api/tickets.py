@@ -136,7 +136,7 @@ def state_bucket(state: Optional[str]) -> str:
     s = (state or "").lower()
     if any(w in s for w in ("closed", "merged", "removed", "resolved")):
         return "closed"
-    if any(w in s for w in ("pending", "waiting", "hold", "paused")):
+    if any(w in s for w in ("pending", "waiting", "hold", "pause")):
         return "paused"
     return "open"
 
