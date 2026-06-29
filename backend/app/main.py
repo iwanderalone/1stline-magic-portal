@@ -219,6 +219,15 @@ async def lifespan(app: FastAPI):
         id="shift_notification_fallback", max_instances=1, coalesce=True,
     )
 
+    # Zammad ticket board: periodic re-sync so the board stays fresh even if a
+    # webhook is missed or the server was down. Idempotent upsert.
+    if settings.ZAMMAD_URL and settings.ZAMMAD_API_TOKEN:
+        scheduler.add_job(
+            sync_active_zammad_tickets, "interval", minutes=10,
+            kwargs={"force": True},
+            id="zammad_sync", max_instances=1, coalesce=True,
+        )
+
     scheduler.start()
     logger.info("Scheduler started: reminders (30s), shift notifications (pre-scheduled + 60s fallback), mail reporter (%ds)", settings.MAIL_POLL_INTERVAL)
 

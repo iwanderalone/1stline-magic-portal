@@ -3,17 +3,21 @@ import hashlib
 import hmac
 import json
 import logging
+from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
-from sqlalchemy import select, desc, func
+from sqlalchemy import select, desc, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.deps import get_current_user
-from app.models.models import ZammadEvent, User
-from app.schemas.schemas import ZammadWebhookPayload, ZammadEventResponse
+from app.models.models import ZammadEvent, ZammadTicket, ZammadComment, User, utcnow
+from app.schemas.schemas import (
+    ZammadWebhookPayload, ZammadEventResponse,
+    ZammadTicketResponse, ZammadTicketDetail, ZammadCommentResponse,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/tickets", tags=["tickets"])
@@ -63,34 +67,44 @@ def detect_events(body: dict) -> list[str]:
     return detected
 
 
+def _person_name(value) -> Optional[str]:
+    """Human-readable name from a Zammad person field (dict, string, or None)."""
+    if isinstance(value, dict):
+        fn = value.get("firstname", "")
+        ln = value.get("lastname", "")
+        return f"{fn} {ln}".strip() or value.get("login") or value.get("email") or None
+    if isinstance(value, str):
+        return value.strip() or None
+    return None
+
+
+def _assoc_name(value) -> Optional[str]:
+    """Name from a Zammad association field (dict with .name, string, or None).
+
+    Handles all three shapes Zammad emits:
+      - webhook payloads: nested object {"name": "open"}
+      - search API with expand=true: plain string "open"
+      - lean records: the field is absent (only state_id etc.) → None
+    """
+    if isinstance(value, dict):
+        return value.get("name") or None
+    if isinstance(value, str):
+        return value.strip() or None
+    return None
+
+
+def _customer_name(value) -> Optional[str]:
+    if isinstance(value, dict):
+        return value.get("email") or value.get("login") or _person_name(value)
+    if isinstance(value, str):
+        return value.strip() or None
+    return None
+
+
 def _extract_fields(event_type: str, body: dict) -> dict:
-    """Pull the fields we store from the raw Zammad payload."""
+    """Pull the fields we store from a Zammad payload (event-log row)."""
     ticket = body.get("ticket") or {}
     article = body.get("article") or {}
-
-    state_obj = ticket.get("state") or {}
-    ticket_state = state_obj.get("name") if isinstance(state_obj, dict) else str(state_obj)
-
-    owner_obj = ticket.get("owner") or {}
-    if isinstance(owner_obj, dict):
-        fn = owner_obj.get("firstname", "")
-        ln = owner_obj.get("lastname", "")
-        login = owner_obj.get("login", "")
-        assignee = f"{fn} {ln}".strip() or login or None
-    else:
-        assignee = str(owner_obj) if owner_obj else None
-
-    customer_obj = ticket.get("customer") or {}
-    if isinstance(customer_obj, dict):
-        customer = customer_obj.get("email") or customer_obj.get("login") or None
-    else:
-        customer = str(customer_obj) if customer_obj else None
-
-    group_obj = ticket.get("group") or {}
-    ticket_group = group_obj.get("name") if isinstance(group_obj, dict) else str(group_obj) if group_obj else None
-
-    prio_obj = ticket.get("priority") or {}
-    ticket_priority = prio_obj.get("name") if isinstance(prio_obj, dict) else str(prio_obj) if prio_obj else None
 
     article_body: Optional[str] = None
     if event_type == "comment_added" and article:
@@ -101,13 +115,112 @@ def _extract_fields(event_type: str, body: dict) -> dict:
         "ticket_id": ticket.get("id"),
         "ticket_number": str(ticket.get("number")) if ticket.get("number") else None,
         "ticket_title": (ticket.get("title") or "")[:500] or None,
-        "ticket_state": ticket_state,
-        "ticket_group": ticket_group,
-        "ticket_priority": ticket_priority,
-        "assignee": assignee,
-        "customer": customer,
+        "ticket_state": _assoc_name(ticket.get("state")),
+        "ticket_group": _assoc_name(ticket.get("group")),
+        "ticket_priority": _assoc_name(ticket.get("priority")),
+        "assignee": _person_name(ticket.get("owner")),
+        "customer": _customer_name(ticket.get("customer")),
         "article_body": article_body,
     }
+
+
+# ─── Ticket-centric upsert (current state + comment thread) ──────────────
+
+# Map Zammad state names to coarse buckets for the board.
+def state_bucket(state: Optional[str]) -> str:
+    s = (state or "").lower()
+    if any(w in s for w in ("closed", "merged", "removed", "resolved")):
+        return "closed"
+    if any(w in s for w in ("pending", "waiting", "hold", "paused")):
+        return "paused"
+    return "open"
+
+
+def _parse_dt(value) -> Optional[datetime]:
+    if not value or not isinstance(value, str):
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _extract_comment(body: dict) -> Optional[dict]:
+    """Build a comment record from an article, or None if it isn't a real comment."""
+    article = body.get("article") or {}
+    text = (article.get("body") or "").strip()
+    sender = article.get("sender") or ""
+    if not text or text == "..." or sender == "System":
+        return None
+    return {
+        "article_id": article.get("id"),
+        "author": article.get("from") or _person_name(article.get("created_by")) or sender or None,
+        "sender": sender or None,
+        "body": text[:8000],
+        "internal": bool(article.get("internal")),
+        "zammad_created_at": _parse_dt(article.get("created_at")),
+    }
+
+
+async def upsert_ticket(
+    db: AsyncSession,
+    event_type: str,
+    body: dict,
+    received_at: Optional[datetime] = None,
+) -> None:
+    """Upsert the current-state ZammadTicket row and any new comment."""
+    ticket = body.get("ticket") or {}
+    tid = ticket.get("id")
+    if not tid:
+        return
+
+    fields = _extract_fields(event_type, body)
+    comment = _extract_comment(body)
+    now = received_at or utcnow()
+
+    existing = await db.get(ZammadTicket, tid)
+    if existing is None:
+        existing = ZammadTicket(id=tid, created_at=now)
+        db.add(existing)
+
+    # Only overwrite with non-empty values so a sparse webhook never blanks a field.
+    def _set(attr, value):
+        if value not in (None, ""):
+            setattr(existing, attr, value)
+
+    _set("number", fields["ticket_number"])
+    _set("title", fields["ticket_title"])
+    _set("state", fields["ticket_state"])
+    _set("group_name", fields["ticket_group"])
+    _set("priority", fields["ticket_priority"])
+    _set("assignee", fields["assignee"])
+    _set("customer", fields["customer"])
+    if ticket.get("article_count") is not None:
+        existing.article_count = ticket.get("article_count")
+    _set("zammad_created_at", _parse_dt(ticket.get("created_at")))
+    _set("zammad_updated_at", _parse_dt(ticket.get("updated_at")))
+    existing.last_event_type = event_type
+    existing.last_event_at = now
+
+    if comment:
+        existing.last_comment = comment["body"][:2000]
+        # Dedup by Zammad article id when present; otherwise allow the insert.
+        art_id = comment.get("article_id")
+        if art_id is not None:
+            dup = await db.execute(
+                select(ZammadComment.id).where(ZammadComment.article_id == art_id)
+            )
+            if dup.scalar_one_or_none() is not None:
+                return
+        db.add(ZammadComment(
+            ticket_id=tid,
+            article_id=comment["article_id"],
+            author=comment["author"],
+            sender=comment["sender"],
+            body=comment["body"],
+            internal=comment["internal"],
+            zammad_created_at=comment["zammad_created_at"],
+        ))
 
 
 # ─── Webhook receiver ─────────────────────────────────────
@@ -172,6 +285,7 @@ async def receive_webhook(
             payload=payload_text,
             **fields,
         ))
+        await upsert_ticket(db, event_type, body)
     await db.commit()
     logger.info("[tickets] stored %d Zammad event(s): %s", len(events), events)
 
@@ -231,3 +345,113 @@ async def get_event(
     if not ev:
         raise HTTPException(status_code=404, detail="Event not found")
     return ev
+
+
+# ─── Ticket board (current state, ticket-centric) ─────────
+
+def _ticket_url(ticket_id: int) -> Optional[str]:
+    base = get_settings().ZAMMAD_URL.rstrip("/")
+    return f"{base}/#ticket/zoom/{ticket_id}" if base else None
+
+
+def _ticket_payload(t: ZammadTicket) -> dict:
+    return {
+        "id": t.id,
+        "number": t.number,
+        "title": t.title,
+        "state": t.state,
+        "bucket": state_bucket(t.state),
+        "group_name": t.group_name,
+        "priority": t.priority,
+        "assignee": t.assignee,
+        "customer": t.customer,
+        "article_count": t.article_count,
+        "last_comment": t.last_comment,
+        "last_event_type": t.last_event_type,
+        "last_event_at": t.last_event_at,
+        "zammad_created_at": t.zammad_created_at,
+        "zammad_updated_at": t.zammad_updated_at,
+        "url": _ticket_url(t.id),
+    }
+
+
+@router.get(
+    "/board",
+    response_model=list[ZammadTicketResponse],
+    summary="List tickets (current state)",
+    description="Ticket-centric board. Filter by status bucket (open/paused/closed) and search by number, title, assignee or customer.",
+)
+async def list_tickets(
+    bucket: Optional[str] = Query(default=None, description="open | paused | closed"),
+    search: Optional[str] = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    q = select(ZammadTicket).order_by(desc(ZammadTicket.last_event_at))
+    if search:
+        like = f"%{search.strip()}%"
+        q = q.where(or_(
+            ZammadTicket.number.ilike(like),
+            ZammadTicket.title.ilike(like),
+            ZammadTicket.assignee.ilike(like),
+            ZammadTicket.customer.ilike(like),
+        ))
+    result = await db.execute(q)
+    tickets = result.scalars().all()
+    # Bucket is derived from the state string, so filter in Python.
+    if bucket in {"open", "paused", "closed"}:
+        tickets = [t for t in tickets if state_bucket(t.state) == bucket]
+    return [_ticket_payload(t) for t in tickets[offset:offset + limit]]
+
+
+@router.get(
+    "/board/counts",
+    summary="Ticket counts per status bucket",
+)
+async def ticket_counts(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    result = await db.execute(select(ZammadTicket.state))
+    counts = {"all": 0, "open": 0, "paused": 0, "closed": 0}
+    for (state,) in result.all():
+        counts["all"] += 1
+        counts[state_bucket(state)] += 1
+    return counts
+
+
+@router.get(
+    "/board/{ticket_id}",
+    response_model=ZammadTicketDetail,
+    summary="Ticket detail with comment thread and recent events",
+)
+async def ticket_detail(
+    ticket_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    t = await db.get(ZammadTicket, ticket_id)
+    if not t:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+
+    comments_res = await db.execute(
+        select(ZammadComment)
+        .where(ZammadComment.ticket_id == ticket_id)
+        .order_by(ZammadComment.zammad_created_at.nullslast(), ZammadComment.id)
+    )
+    events_res = await db.execute(
+        select(ZammadEvent)
+        .where(ZammadEvent.ticket_id == ticket_id)
+        .order_by(desc(ZammadEvent.received_at))
+        .limit(50)
+    )
+    payload = _ticket_payload(t)
+    payload["comments"] = [
+        ZammadCommentResponse.model_validate(c) for c in comments_res.scalars().all()
+    ]
+    payload["events"] = [
+        ZammadEventResponse.model_validate(e) for e in events_res.scalars().all()
+    ]
+    return payload

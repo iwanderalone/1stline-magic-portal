@@ -476,3 +476,51 @@ class ZammadEvent(Base):
     payload        = Column(Text, nullable=False)          # raw JSON from Zammad
     received_at    = Column(DateTime(timezone=True), default=utcnow, nullable=False)
 
+
+# ─── Zammad Tickets (current state, derived from events + sync) ─────────────
+# ZammadEvent is the append-only audit timeline; ZammadTicket is the current
+# state of each ticket (one row per Zammad ticket id, upserted on every event
+# and on every periodic sync). ZammadComment is the deduped comment thread.
+
+class ZammadTicket(Base):
+    __tablename__ = "zammad_tickets"
+    __table_args__ = (
+        Index("ix_zammad_tickets_state", "state"),
+        Index("ix_zammad_tickets_last_event_at", "last_event_at"),
+    )
+
+    id                = Column(Integer, primary_key=True, autoincrement=False)  # Zammad ticket id
+    number            = Column(String(20), nullable=True)
+    title             = Column(String(500), nullable=True)
+    state             = Column(String(50), nullable=True)
+    group_name        = Column(String(100), nullable=True)
+    priority          = Column(String(50), nullable=True)
+    assignee          = Column(String(150), nullable=True)
+    customer          = Column(String(255), nullable=True)
+    article_count     = Column(Integer, nullable=True)
+    last_comment      = Column(Text, nullable=True)
+    last_event_type   = Column(String(50), nullable=True)
+    zammad_created_at = Column(DateTime(timezone=True), nullable=True)
+    zammad_updated_at = Column(DateTime(timezone=True), nullable=True)
+    last_event_at     = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    created_at        = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at        = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class ZammadComment(Base):
+    __tablename__ = "zammad_comments"
+    __table_args__ = (
+        UniqueConstraint("article_id", name="uq_zammad_comments_article_id"),
+        Index("ix_zammad_comments_ticket_id", "ticket_id"),
+    )
+
+    id                = Column(Integer, primary_key=True, autoincrement=True)
+    article_id        = Column(Integer, nullable=True)   # Zammad article id — dedup key
+    ticket_id         = Column(Integer, nullable=False, index=True)
+    author            = Column(String(255), nullable=True)
+    sender            = Column(String(50), nullable=True)   # Customer | Agent | System
+    body              = Column(Text, nullable=True)
+    internal          = Column(Boolean, default=False)
+    zammad_created_at = Column(DateTime(timezone=True), nullable=True)
+    created_at        = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+
