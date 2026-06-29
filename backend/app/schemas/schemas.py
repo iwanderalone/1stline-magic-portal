@@ -632,3 +632,40 @@ class ZammadEventResponse(BaseOrmModel):
     article_body: Optional[str]
     payload: str
     received_at: datetime
+
+
+class ZammadCommentResponse(BaseOrmModel):
+    id: int
+    article_id: Optional[int]
+    ticket_id: int
+    author: Optional[str]
+    sender: Optional[str]
+    body: Optional[str]
+    internal: Optional[bool]
+    zammad_created_at: Optional[datetime]
+    created_at: datetime
+
+
+class ZammadTicketResponse(BaseModel):
+    """Current-state ticket for the board view."""
+    id: int
+    number: Optional[str]
+    title: Optional[str]
+    state: Optional[str]
+    bucket: str
+    group_name: Optional[str]
+    priority: Optional[str]
+    assignee: Optional[str]
+    customer: Optional[str]
+    article_count: Optional[int]
+    last_comment: Optional[str]
+    last_event_type: Optional[str]
+    last_event_at: Optional[datetime]
+    zammad_created_at: Optional[datetime]
+    zammad_updated_at: Optional[datetime]
+    url: Optional[str]
+
+
+class ZammadTicketDetail(ZammadTicketResponse):
+    comments: list[ZammadCommentResponse] = []
+    events: list[ZammadEventResponse] = []

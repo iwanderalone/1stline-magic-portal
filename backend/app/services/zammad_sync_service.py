@@ -1,13 +1,11 @@
-"""Startup synchronization for active Zammad tickets."""
-import json
+"""Synchronization for active Zammad tickets (startup + periodic)."""
 import logging
 
 import httpx
 
-from app.api.tickets import _extract_fields
+from app.api.tickets import upsert_ticket
 from app.core.config import get_settings
 from app.core.database import AsyncSessionFactory
-from app.models.models import ZammadEvent
 
 logger = logging.getLogger(__name__)
 
@@ -38,13 +36,22 @@ def _extract_ticket_list(data: object) -> list[dict]:
     return []
 
 
-async def sync_active_zammad_tickets() -> None:
-    """Fetch active Zammad tickets and store them as ticket_sync events."""
+async def sync_active_zammad_tickets(*, force: bool = False) -> None:
+    """Fetch active Zammad tickets and upsert them into the ticket board.
+
+    Runs at startup and on a periodic schedule. Uses the search API with
+    ``expand=true`` so state/owner/customer/group come back as readable names
+    (the lean search records only carry numeric *_id fields). Idempotent:
+    upserts current state per ticket rather than appending events.
+
+    Pass ``force=True`` to bypass the ZAMMAD_SYNC_ON_STARTUP gate (used by the
+    periodic worker, which has its own enable condition).
+    """
     settings = get_settings()
-    if not settings.ZAMMAD_SYNC_ON_STARTUP:
+    if not force and not settings.ZAMMAD_SYNC_ON_STARTUP:
         return
     if not settings.ZAMMAD_URL or not settings.ZAMMAD_API_TOKEN:
-        logger.info("[tickets] Zammad startup sync skipped: ZAMMAD_URL or ZAMMAD_API_TOKEN is not set")
+        logger.info("[tickets] Zammad sync skipped: ZAMMAD_URL or ZAMMAD_API_TOKEN is not set")
         return
 
     base_url = settings.ZAMMAD_URL.rstrip("/")
@@ -54,28 +61,22 @@ async def sync_active_zammad_tickets() -> None:
         async with httpx.AsyncClient(timeout=15) as client:
             response = await client.get(
                 f"{base_url}/api/v1/tickets/search",
-                params={"query": ACTIVE_TICKETS_QUERY},
+                params={"query": ACTIVE_TICKETS_QUERY, "expand": "true", "limit": 200},
                 headers=headers,
             )
             response.raise_for_status()
     except httpx.HTTPError as exc:
-        logger.warning("[tickets] Zammad startup sync failed: %s", exc)
+        logger.warning("[tickets] Zammad sync failed: %s", exc)
         return
 
     tickets = _extract_ticket_list(response.json())
     if not tickets:
-        logger.warning("[tickets] Zammad startup sync returned an unexpected payload")
+        logger.warning("[tickets] Zammad sync returned no tickets / unexpected payload")
         return
 
     async with AsyncSessionFactory() as db:
         for ticket in tickets:
-            payload = {"ticket": ticket, "source": "startup_sync"}
-            fields = _extract_fields("ticket_sync", payload)
-            db.add(ZammadEvent(
-                event_type="ticket_sync",
-                payload=json.dumps(payload, ensure_ascii=False),
-                **fields,
-            ))
+            await upsert_ticket(db, "ticket_sync", {"ticket": ticket})
         await db.commit()
 
-    logger.info("[tickets] Zammad startup sync stored %d active ticket(s)", len(tickets))
+    logger.info("[tickets] Zammad sync upserted %d active ticket(s)", len(tickets))
