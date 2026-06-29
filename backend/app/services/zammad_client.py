@@ -76,4 +76,16 @@ async def add_article(
     }
     if public and to:
         payload["to"] = to
-    return await _request("POST", "/api/v1/ticket_articles", payload)
+    try:
+        return await _request("POST", "/api/v1/ticket_articles", payload)
+    except ZammadError as exc:
+        # Common precondition: the ticket's group has no sending email address,
+        # so Zammad can't dispatch a customer email. Make it actionable.
+        if public and "email address" in str(exc).lower():
+            raise ZammadError(
+                "Can't send a public reply — Zammad has no sending email address "
+                "for this ticket's group. Configure an email channel in Zammad "
+                "(Admin → Channels → Email) and assign it to the group, or post an "
+                "internal note instead."
+            ) from exc
+        raise
