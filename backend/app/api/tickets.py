@@ -67,15 +67,21 @@ def detect_events(body: dict) -> list[str]:
     return detected
 
 
+def _clean(s: Optional[str]) -> Optional[str]:
+    """Normalize Zammad placeholder values ('', '-') to None."""
+    if not isinstance(s, str):
+        return s
+    s = s.strip()
+    return s if s and s != "-" else None
+
+
 def _person_name(value) -> Optional[str]:
     """Human-readable name from a Zammad person field (dict, string, or None)."""
     if isinstance(value, dict):
         fn = value.get("firstname", "")
         ln = value.get("lastname", "")
-        return f"{fn} {ln}".strip() or value.get("login") or value.get("email") or None
-    if isinstance(value, str):
-        return value.strip() or None
-    return None
+        return f"{fn} {ln}".strip() or _clean(value.get("login")) or _clean(value.get("email"))
+    return _clean(value)
 
 
 def _assoc_name(value) -> Optional[str]:
@@ -87,18 +93,14 @@ def _assoc_name(value) -> Optional[str]:
       - lean records: the field is absent (only state_id etc.) → None
     """
     if isinstance(value, dict):
-        return value.get("name") or None
-    if isinstance(value, str):
-        return value.strip() or None
-    return None
+        return _clean(value.get("name"))
+    return _clean(value)
 
 
 def _customer_name(value) -> Optional[str]:
     if isinstance(value, dict):
-        return value.get("email") or value.get("login") or _person_name(value)
-    if isinstance(value, str):
-        return value.strip() or None
-    return None
+        return _clean(value.get("email")) or _clean(value.get("login")) or _person_name(value)
+    return _clean(value)
 
 
 def _extract_fields(event_type: str, body: dict) -> dict:
