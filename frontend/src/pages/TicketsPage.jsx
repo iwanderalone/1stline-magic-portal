@@ -30,20 +30,61 @@ function formatTime(iso) {
 }
 
 /* ─── Ticket detail modal ──────────────────────────────── */
-function TicketDetailModal({ ticketId, onClose, onError }) {
+const STATE_OPTIONS = [
+  { value: 'open', label: 'Open' },
+  { value: 'in_progress', label: 'In progress' },
+  { value: 'on_pause', label: 'On pause' },
+  { value: 'closed', label: 'Closed' },
+];
+
+function TicketDetailModal({ ticketId, onClose, onError, onChanged }) {
   const { theme: t } = useTheme();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [stateSel, setStateSel] = useState('');
+  const [savingState, setSavingState] = useState(false);
+  const [reply, setReply] = useState('');
+  const [isPublic, setIsPublic] = useState(false);
+  const [sending, setSending] = useState(false);
 
-  useEffect(() => {
-    let alive = true;
-    setLoading(true);
-    api(`/tickets/board/${ticketId}`)
-      .then(d => { if (alive) setData(d); })
-      .catch(e => { onError?.(e.message || 'Failed to load ticket'); onClose(); })
-      .finally(() => { if (alive) setLoading(false); });
-    return () => { alive = false; };
+  const reload = useCallback(() => {
+    return api(`/tickets/board/${ticketId}`)
+      .then(d => { setData(d); setStateSel(d.state || ''); return d; })
+      .catch(e => { onError?.(e.message || 'Failed to load ticket'); onClose(); });
   }, [ticketId]);
+
+  useEffect(() => { setLoading(true); reload().finally(() => setLoading(false)); }, [reload]);
+
+  const applyState = async () => {
+    if (!stateSel || stateSel === data.state) return;
+    setSavingState(true);
+    try {
+      await api(`/tickets/board/${ticketId}/state`, { method: 'PATCH', body: JSON.stringify({ state: stateSel }) });
+      await reload();
+      onChanged?.();
+    } catch (e) {
+      onError?.(e.message || 'Failed to change status');
+    } finally {
+      setSavingState(false);
+    }
+  };
+
+  const sendReply = async () => {
+    const text = reply.trim();
+    if (!text) return;
+    if (isPublic && !window.confirm('This sends a real email to the customer. Continue?')) return;
+    setSending(true);
+    try {
+      await api(`/tickets/board/${ticketId}/reply`, { method: 'POST', body: JSON.stringify({ body: text, public: isPublic }) });
+      setReply('');
+      await reload();
+      onChanged?.();
+    } catch (e) {
+      onError?.(e.message || 'Failed to send');
+    } finally {
+      setSending(false);
+    }
+  };
 
   const meta = (label, value) => (
     <div style={{ minWidth: 0 }}>
@@ -58,9 +99,20 @@ function TicketDetailModal({ ticketId, onClose, onError }) {
         <div style={{ textAlign: 'center', padding: 30, color: t.textMuted }}>Loading…</div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-          {/* state + zammad link */}
+          {/* state control + zammad link */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <Badge color={BUCKET_COLOR[data.bucket] || 'gray'}>{data.state || data.bucket}</Badge>
+            <select
+              value={stateSel}
+              onChange={e => setStateSel(e.target.value)}
+              style={{ padding: '5px 8px', borderRadius: t.radius, fontSize: 12, border: `1px solid ${t.border}`, background: t.surface, color: t.text }}
+            >
+              {!STATE_OPTIONS.some(o => o.value === stateSel) && stateSel && <option value={stateSel}>{stateSel}</option>}
+              {STATE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+            <Button size="sm" variant="ghost" disabled={savingState || stateSel === data.state} onClick={applyState}>
+              {savingState ? 'Saving…' : 'Update status'}
+            </Button>
             {data.priority && <span style={{ fontSize: 12, color: t.textMuted }}>Priority: {data.priority}</span>}
             <span style={{ flex: 1 }} />
             {data.url && (
@@ -120,6 +172,34 @@ function TicketDetailModal({ ticketId, onClose, onError }) {
               </div>
             </div>
           )}
+
+          {/* reply composer */}
+          <div style={{ borderTop: `1px solid ${t.border}`, paddingTop: 14 }}>
+            <div style={{ display: 'flex', gap: 12, marginBottom: 8 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: !isPublic ? t.text : t.textMuted, cursor: 'pointer' }}>
+                <input type="radio" checked={!isPublic} onChange={() => setIsPublic(false)} /> Internal note
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: isPublic ? t.danger || '#d9534f' : t.textMuted, cursor: 'pointer' }}>
+                <input type="radio" checked={isPublic} onChange={() => setIsPublic(true)} /> Reply to customer (sends email)
+              </label>
+            </div>
+            <textarea
+              value={reply}
+              onChange={e => setReply(e.target.value)}
+              placeholder={isPublic ? 'Public reply — this emails the customer…' : 'Internal note — team only…'}
+              rows={3}
+              style={{
+                width: '100%', boxSizing: 'border-box', padding: '8px 12px', fontSize: 13,
+                borderRadius: t.radius, border: `1px solid ${isPublic ? (t.danger || '#d9534f') : t.border}`,
+                background: t.surface, color: t.text, resize: 'vertical', fontFamily: 'inherit',
+              }}
+            />
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+              <Button size="sm" disabled={sending || !reply.trim()} onClick={sendReply}>
+                {sending ? 'Sending…' : isPublic ? 'Send reply' : 'Add note'}
+              </Button>
+            </div>
+          </div>
         </div>
       )}
     </Overlay>
@@ -162,7 +242,7 @@ function TicketBoardView({ onError }) {
 
   return (
     <div>
-      {selected && <TicketDetailModal ticketId={selected} onClose={() => setSelected(null)} onError={onError} />}
+      {selected && <TicketDetailModal ticketId={selected} onClose={() => setSelected(null)} onError={onError} onChanged={() => load(bucket, search)} />}
 
       {/* filters + search */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16, alignItems: 'center' }}>

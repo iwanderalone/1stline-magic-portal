@@ -669,3 +669,12 @@ class ZammadTicketResponse(BaseModel):
 class ZammadTicketDetail(ZammadTicketResponse):
     comments: list[ZammadCommentResponse] = []
     events: list[ZammadEventResponse] = []
+
+
+class ZammadStateUpdate(BaseModel):
+    state: str  # one of: open, in_progress, on_pause, closed
+
+
+class ZammadReplyCreate(BaseModel):
+    body: str = Field(min_length=1, max_length=8000)
+    public: bool = False  # False = internal note; True = email the customer
