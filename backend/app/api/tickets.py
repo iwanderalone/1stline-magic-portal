@@ -17,7 +17,10 @@ from app.models.models import ZammadEvent, ZammadTicket, ZammadComment, User, ut
 from app.schemas.schemas import (
     ZammadWebhookPayload, ZammadEventResponse,
     ZammadTicketResponse, ZammadTicketDetail, ZammadCommentResponse,
+    ZammadStateUpdate, ZammadReplyCreate,
 )
+from app.services import zammad_client
+from app.services.zammad_client import ZammadError, ALLOWED_STATES
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/tickets", tags=["tickets"])
@@ -508,3 +511,92 @@ async def ticket_detail(
         ZammadEventResponse.model_validate(e) for e in events_res.scalars().all()
     ]
     return payload
+
+
+# ─── Write-back to Zammad (status + reply) ────────────────
+# Actions run as the Zammad service account. Any logged-in user (engineer or
+# admin) may act. Zammad fires a webhook back on success, which reconciles the
+# local row (state suppression + comment dedup keep it from double-counting),
+# but we also update locally for instant UX.
+
+@router.patch(
+    "/board/{ticket_id}/state",
+    response_model=ZammadTicketResponse,
+    summary="Change a ticket's state in Zammad",
+)
+async def change_ticket_state(
+    ticket_id: int,
+    payload: ZammadStateUpdate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    t = await db.get(ZammadTicket, ticket_id)
+    if not t:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    if payload.state not in ALLOWED_STATES:
+        raise HTTPException(status_code=422, detail=f"State must be one of {list(ALLOWED_STATES)}")
+
+    try:
+        await zammad_client.update_ticket_state(ticket_id, payload.state)
+    except ZammadError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+    t.state = payload.state          # optimistic local update; webhook reconciles
+    t.last_event_type = "ticket_status_changed"
+    t.last_event_at = utcnow()
+    await db.commit()
+    logger.info("[tickets] %s set ticket %s state -> %s", user.username, ticket_id, payload.state)
+    return _ticket_payload(t)
+
+
+@router.post(
+    "/board/{ticket_id}/reply",
+    response_model=ZammadCommentResponse,
+    summary="Post a note or public reply to a ticket",
+)
+async def reply_to_ticket(
+    ticket_id: int,
+    payload: ZammadReplyCreate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    t = await db.get(ZammadTicket, ticket_id)
+    if not t:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    if payload.public and not get_settings().ZAMMAD_ALLOW_PUBLIC_REPLY:
+        raise HTTPException(status_code=403, detail="Public replies are disabled on this portal")
+
+    try:
+        article = await zammad_client.add_article(
+            ticket_id, payload.body, public=payload.public, to=t.customer,
+        )
+    except ZammadError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+    # Optimistically store the article we just created (deduped by article id,
+    # so the comment_added webhook coming back won't duplicate it).
+    art_id = article.get("id")
+    comment = None
+    if art_id is not None:
+        dup = await db.execute(select(ZammadComment).where(ZammadComment.article_id == art_id))
+        comment = dup.scalar_one_or_none()
+    if comment is None:
+        comment = ZammadComment(
+            ticket_id=ticket_id,
+            article_id=art_id,
+            author=f"{user.display_name or user.username} (portal)",
+            sender="Agent",
+            body=payload.body[:8000],
+            internal=not payload.public,
+            zammad_created_at=_parse_dt(article.get("created_at")) or utcnow(),
+        )
+        db.add(comment)
+    t.last_comment = payload.body[:2000]
+    t.last_event_at = utcnow()
+    await db.commit()
+    await db.refresh(comment)
+    logger.info(
+        "[tickets] %s posted %s to ticket %s",
+        user.username, "public reply" if payload.public else "note", ticket_id,
+    )
+    return ZammadCommentResponse.model_validate(comment)

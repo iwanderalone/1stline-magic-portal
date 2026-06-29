@@ -88,6 +88,7 @@ class Settings(BaseSettings):
     ZAMMAD_URL: str = ""              # e.g. https://tickets.example.com — used for startup sync and ticket links
     ZAMMAD_API_TOKEN: str = ""        # optional — enables startup sync when paired with ZAMMAD_URL
     ZAMMAD_SYNC_ON_STARTUP: bool = True
+    ZAMMAD_ALLOW_PUBLIC_REPLY: bool = True   # server-side guard: if false, portal can only post internal notes
 
     # Mail Reporter
     MAIL_IMAP_SERVER: str = "imap.yandex.com"
