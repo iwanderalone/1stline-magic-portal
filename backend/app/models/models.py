@@ -502,6 +502,7 @@ class ZammadTicket(Base):
     last_event_type   = Column(String(50), nullable=True)
     zammad_created_at = Column(DateTime(timezone=True), nullable=True)
     zammad_updated_at = Column(DateTime(timezone=True), nullable=True)
+    state_changed_at  = Column(DateTime(timezone=True), nullable=True)  # when the ticket entered its current state (time-in-status)
     last_event_at     = Column(DateTime(timezone=True), default=utcnow, nullable=False)
     created_at        = Column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at        = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)

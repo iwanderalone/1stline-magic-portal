@@ -184,9 +184,11 @@ async def upsert_ticket(
     now = received_at or utcnow()
 
     existing = await db.get(ZammadTicket, tid)
-    if existing is None:
-        existing = ZammadTicket(id=tid, created_at=now)
+    is_new = existing is None
+    if is_new:
+        existing = ZammadTicket(id=tid, created_at=now, state_changed_at=now)
         db.add(existing)
+    prior_state = existing.state
 
     # Keep non-empty identity fields (never blank a number/title).
     def _set(attr, value):
@@ -213,6 +215,12 @@ async def upsert_ticket(
     _set("zammad_updated_at", _parse_dt(ticket.get("updated_at")))
     existing.last_event_type = event_type
     existing.last_event_at = now
+
+    # Time-in-status: stamp when the state actually changes (or is first seen).
+    if not is_new and "state" in ticket and fields["ticket_state"] and fields["ticket_state"] != prior_state:
+        existing.state_changed_at = now
+    if existing.state_changed_at is None:
+        existing.state_changed_at = now
 
     if comment:
         existing.last_comment = comment["body"][:2000]
@@ -425,6 +433,7 @@ def _ticket_payload(t: ZammadTicket) -> dict:
         "last_comment": t.last_comment,
         "last_event_type": t.last_event_type,
         "last_event_at": t.last_event_at,
+        "state_changed_at": t.state_changed_at,
         "zammad_created_at": t.zammad_created_at,
         "zammad_updated_at": t.zammad_updated_at,
         "url": _ticket_url(t.id),
