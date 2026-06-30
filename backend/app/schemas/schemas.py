@@ -662,6 +662,7 @@ class ZammadTicketResponse(BaseModel):
     last_comment: Optional[str]
     last_event_type: Optional[str]
     last_event_at: Optional[datetime]
+    state_changed_at: Optional[datetime]
     zammad_created_at: Optional[datetime]
     zammad_updated_at: Optional[datetime]
     url: Optional[str]
