@@ -44,7 +44,7 @@ function TicketDetailModal({ ticketId, onClose, onError, onChanged }) {
   const [stateSel, setStateSel] = useState('');
   const [savingState, setSavingState] = useState(false);
   const [reply, setReply] = useState('');
-  const [isPublic, setIsPublic] = useState(false);
+  const [toCustomer, setToCustomer] = useState(true);
   const [sending, setSending] = useState(false);
 
   const reload = useCallback(() => {
@@ -72,10 +72,9 @@ function TicketDetailModal({ ticketId, onClose, onError, onChanged }) {
   const sendReply = async () => {
     const text = reply.trim();
     if (!text) return;
-    if (isPublic && !window.confirm('This sends a real email to the customer. Continue?')) return;
     setSending(true);
     try {
-      await api(`/tickets/board/${ticketId}/reply`, { method: 'POST', body: JSON.stringify({ body: text, public: isPublic }) });
+      await api(`/tickets/board/${ticketId}/reply`, { method: 'POST', body: JSON.stringify({ body: text, to_customer: toCustomer }) });
       setReply('');
       await reload();
       onChanged?.();
@@ -140,11 +139,19 @@ function TicketDetailModal({ ticketId, onClose, onError, onChanged }) {
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {data.comments.map(c => (
-                  <div key={c.id} style={{ border: `1px solid ${t.border}`, borderRadius: t.radius, padding: '8px 12px', background: t.surfaceAlt || t.surface }}>
+                  <div key={c.id} style={{
+                    border: `1px solid ${c.portal_only ? (t.warning || '#caa024') : t.border}`,
+                    borderRadius: t.radius, padding: '8px 12px',
+                    background: c.portal_only ? 'rgba(202,160,36,0.07)' : (t.surfaceAlt || t.surface),
+                  }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
                       <span style={{ fontSize: 12, fontWeight: 600, color: t.text }}>
                         {c.author || c.sender || 'Unknown'}
-                        {c.internal ? <span style={{ marginLeft: 6, fontSize: 10, color: t.textMuted }}>internal</span> : null}
+                        {c.portal_only
+                          ? <Badge color="yellow" style={{ marginLeft: 6 }}>Internal · portal only</Badge>
+                          : (c.sender === 'Customer'
+                              ? <span style={{ marginLeft: 6, fontSize: 10, color: t.textMuted }}>customer</span>
+                              : null)}
                       </span>
                       <span style={{ fontSize: 11, color: t.textMuted, whiteSpace: 'nowrap' }}>{formatTime(c.zammad_created_at || c.created_at)}</span>
                     </div>
@@ -176,27 +183,30 @@ function TicketDetailModal({ ticketId, onClose, onError, onChanged }) {
           {/* reply composer */}
           <div style={{ borderTop: `1px solid ${t.border}`, paddingTop: 14 }}>
             <div style={{ display: 'flex', gap: 12, marginBottom: 8 }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: !isPublic ? t.text : t.textMuted, cursor: 'pointer' }}>
-                <input type="radio" checked={!isPublic} onChange={() => setIsPublic(false)} /> Internal note
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: toCustomer ? (t.danger || '#d9534f') : t.textMuted, cursor: 'pointer' }}>
+                <input type="radio" checked={toCustomer} onChange={() => setToCustomer(true)} /> Reply to customer
               </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: isPublic ? t.danger || '#d9534f' : t.textMuted, cursor: 'pointer' }}>
-                <input type="radio" checked={isPublic} onChange={() => setIsPublic(true)} /> Reply to customer (sends email)
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: !toCustomer ? t.text : t.textMuted, cursor: 'pointer' }}>
+                <input type="radio" checked={!toCustomer} onChange={() => setToCustomer(false)} /> Internal note (portal only)
               </label>
             </div>
             <textarea
               value={reply}
               onChange={e => setReply(e.target.value)}
-              placeholder={isPublic ? 'Public reply — this emails the customer…' : 'Internal note — team only…'}
+              placeholder={toCustomer ? 'Reply to customer — this reaches them in Telegram…' : 'Internal note — visible on the portal only, never sent…'}
               rows={3}
               style={{
                 width: '100%', boxSizing: 'border-box', padding: '8px 12px', fontSize: 13,
-                borderRadius: t.radius, border: `1px solid ${isPublic ? (t.danger || '#d9534f') : t.border}`,
+                borderRadius: t.radius, border: `1px solid ${toCustomer ? (t.danger || '#d9534f') : t.border}`,
                 background: t.surface, color: t.text, resize: 'vertical', fontFamily: 'inherit',
               }}
             />
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
+              <span style={{ fontSize: 11, color: t.textMuted }}>
+                {toCustomer ? 'Goes to the customer via Telegram' : 'Stays on the portal — the customer never sees it'}
+              </span>
               <Button size="sm" disabled={sending || !reply.trim()} onClick={sendReply}>
-                {sending ? 'Sending…' : isPublic ? 'Send reply' : 'Add note'}
+                {sending ? 'Sending…' : toCustomer ? 'Send reply' : 'Add note'}
               </Button>
             </div>
           </div>

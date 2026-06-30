@@ -642,6 +642,7 @@ class ZammadCommentResponse(BaseOrmModel):
     sender: Optional[str]
     body: Optional[str]
     internal: Optional[bool]
+    portal_only: bool = False
     zammad_created_at: Optional[datetime]
     created_at: datetime
 
@@ -677,4 +678,6 @@ class ZammadStateUpdate(BaseModel):
 
 class ZammadReplyCreate(BaseModel):
     body: str = Field(min_length=1, max_length=8000)
-    public: bool = False  # False = internal note; True = email the customer
+    # True  = reply to the customer (posted to Zammad as a note → reaches the Mini App)
+    # False = portal-only internal note (stored on the website, never sent to Zammad)
+    to_customer: bool = False
