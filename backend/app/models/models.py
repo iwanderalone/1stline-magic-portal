@@ -521,6 +521,7 @@ class ZammadComment(Base):
     sender            = Column(String(50), nullable=True)   # Customer | Agent | System
     body              = Column(Text, nullable=True)
     internal          = Column(Boolean, default=False)
+    portal_only       = Column(Boolean, default=False, nullable=False)  # true = website-only note, never sent to Zammad
     zammad_created_at = Column(DateTime(timezone=True), nullable=True)
     created_at        = Column(DateTime(timezone=True), default=utcnow, nullable=False)
 

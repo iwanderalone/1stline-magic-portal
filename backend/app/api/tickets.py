@@ -552,7 +552,7 @@ async def change_ticket_state(
 @router.post(
     "/board/{ticket_id}/reply",
     response_model=ZammadCommentResponse,
-    summary="Post a note or public reply to a ticket",
+    summary="Reply to the customer, or add a portal-only internal note",
 )
 async def reply_to_ticket(
     ticket_id: int,
@@ -563,18 +563,37 @@ async def reply_to_ticket(
     t = await db.get(ZammadTicket, ticket_id)
     if not t:
         raise HTTPException(status_code=404, detail="Ticket not found")
-    if payload.public and not get_settings().ZAMMAD_ALLOW_PUBLIC_REPLY:
-        raise HTTPException(status_code=403, detail="Public replies are disabled on this portal")
+    author = f"{user.display_name or user.username} (portal)"
 
-    try:
-        article = await zammad_client.add_article(
-            ticket_id, payload.body, public=payload.public, to=t.customer,
+    if not payload.to_customer:
+        # Portal-only internal note — stored on the website, never sent to Zammad.
+        comment = ZammadComment(
+            ticket_id=ticket_id,
+            article_id=None,
+            author=author,
+            sender="Agent",
+            body=payload.body[:8000],
+            internal=True,
+            portal_only=True,
+            zammad_created_at=utcnow(),
         )
+        db.add(comment)
+        t.last_event_at = utcnow()
+        await db.commit()
+        await db.refresh(comment)
+        logger.info("[tickets] %s added portal-only note to ticket %s", user.username, ticket_id)
+        return ZammadCommentResponse.model_validate(comment)
+
+    # Customer reply — posted to Zammad as a note (reaches the Mini App customer).
+    if not get_settings().ZAMMAD_ALLOW_PUBLIC_REPLY:
+        raise HTTPException(status_code=403, detail="Customer replies are disabled on this portal")
+    try:
+        article = await zammad_client.post_customer_reply(ticket_id, payload.body)
     except ZammadError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
 
-    # Optimistically store the article we just created (deduped by article id,
-    # so the comment_added webhook coming back won't duplicate it).
+    # Optimistically store the article (deduped by article id, so the
+    # comment_added webhook coming back won't duplicate it).
     art_id = article.get("id")
     comment = None
     if art_id is not None:
@@ -584,10 +603,11 @@ async def reply_to_ticket(
         comment = ZammadComment(
             ticket_id=ticket_id,
             article_id=art_id,
-            author=f"{user.display_name or user.username} (portal)",
+            author=author,
             sender="Agent",
             body=payload.body[:8000],
-            internal=not payload.public,
+            internal=False,
+            portal_only=False,
             zammad_created_at=_parse_dt(article.get("created_at")) or utcnow(),
         )
         db.add(comment)
@@ -595,8 +615,5 @@ async def reply_to_ticket(
     t.last_event_at = utcnow()
     await db.commit()
     await db.refresh(comment)
-    logger.info(
-        "[tickets] %s posted %s to ticket %s",
-        user.username, "public reply" if payload.public else "note", ticket_id,
-    )
+    logger.info("[tickets] %s posted customer reply to ticket %s", user.username, ticket_id)
     return ZammadCommentResponse.model_validate(comment)
