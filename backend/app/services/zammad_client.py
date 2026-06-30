@@ -4,7 +4,6 @@ All calls use the configured ZAMMAD_API_TOKEN (a service account). Errors from
 Zammad are surfaced as ZammadError so the API layer can return a clean message.
 """
 import logging
-from typing import Optional
 
 import httpx
 
@@ -51,41 +50,23 @@ async def update_ticket_state(ticket_id: int, state: str) -> dict:
     return await _request("PUT", f"/api/v1/tickets/{ticket_id}", {"state": state})
 
 
-async def add_article(
-    ticket_id: int,
-    body: str,
-    *,
-    public: bool,
-    to: Optional[str] = None,
-) -> dict:
-    """Post an article to a ticket.
+async def post_customer_reply(ticket_id: int, body: str) -> dict:
+    """Post a reply that reaches the customer.
 
-    public=False → internal note (team-only, no customer email).
-    public=True  → email article to the customer (actually sends mail).
+    The customer-facing channel here is the Telegram Mini App, which surfaces
+    Zammad **notes** to the user — so a customer reply is a Zammad note article
+    (NOT an email). This is the confirmed delivery path. Portal-only internal
+    notes never reach this function; they are stored locally and never sent.
     """
     settings = get_settings()
-    if public and not settings.ZAMMAD_ALLOW_PUBLIC_REPLY:
-        raise ZammadError("Public replies are disabled on this portal (ZAMMAD_ALLOW_PUBLIC_REPLY=false)")
+    if not settings.ZAMMAD_ALLOW_PUBLIC_REPLY:
+        raise ZammadError("Customer replies are disabled on this portal (ZAMMAD_ALLOW_PUBLIC_REPLY=false)")
 
     payload = {
         "ticket_id": ticket_id,
         "body": body,
         "content_type": "text/plain",
-        "type": "email" if public else "note",
-        "internal": not public,
+        "type": "note",
+        "internal": True,   # matches the note type the Mini App delivers to the customer
     }
-    if public and to:
-        payload["to"] = to
-    try:
-        return await _request("POST", "/api/v1/ticket_articles", payload)
-    except ZammadError as exc:
-        # Common precondition: the ticket's group has no sending email address,
-        # so Zammad can't dispatch a customer email. Make it actionable.
-        if public and "email address" in str(exc).lower():
-            raise ZammadError(
-                "Can't send a public reply — Zammad has no sending email address "
-                "for this ticket's group. Configure an email channel in Zammad "
-                "(Admin → Channels → Email) and assign it to the group, or post an "
-                "internal note instead."
-            ) from exc
-        raise
+    return await _request("POST", "/api/v1/ticket_articles", payload)
