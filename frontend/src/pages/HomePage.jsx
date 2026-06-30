@@ -4,6 +4,18 @@ import { useLang } from '../components/LangContext';
 import { Avatar, Badge, Button, Card, EmptyState, Tag } from '../components/UI';
 import { Icon } from '../components/Icons';
 import EmailDetailModal from '../components/EmailDetailModal';
+import TicketDetailModal, { stateLabel, fmtDuration } from '../components/TicketDetailModal';
+
+// Home ticket ordering: new+open first, then in_progress, on_pause, closed.
+const STATE_RANK = { new: 0, open: 0, in_progress: 1, on_pause: 2, closed: 3 };
+const STATE_BADGE = { new: 'blue', open: 'blue', in_progress: 'yellow', on_pause: 'orange', closed: 'green' };
+const HOME_TICKETS_MAX = 6;
+
+function ticketTs(tk) {
+  if (!tk.state_changed_at) return 0;
+  const raw = `${tk.state_changed_at}`;
+  return new Date(raw.endsWith('Z') || raw.includes('+') ? raw : `${raw}Z`).getTime();
+}
 
 const dateKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const addDays = (d, n) => {
@@ -93,27 +105,6 @@ function MetricCard({ label, value, detail, icon, color = 'var(--accent)' }) {
   );
 }
 
-function PlaceholderPanel({ title, description, icon }) {
-  return (
-    <Card>
-      <div style={{ padding: 18, display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-        <div style={{
-          width: 34, height: 34, borderRadius: 'var(--radius-sm)',
-          background: 'var(--surface-alt)', border: '1px solid var(--border-light)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)',
-          flexShrink: 0,
-        }}>
-          <Icon name={icon} size={17} />
-        </div>
-        <div>
-          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>{title}</h3>
-          <p style={{ margin: '5px 0 0', color: 'var(--text-muted)', fontSize: 13, lineHeight: 1.5 }}>{description}</p>
-        </div>
-      </div>
-    </Card>
-  );
-}
-
 export default function HomePage({ user, unread = 0, onNavigate }) {
   const { lang, t: tr } = useLang();
   const [now, setNow] = useState(() => new Date());
@@ -121,8 +112,12 @@ export default function HomePage({ user, unread = 0, onNavigate }) {
   const [emails, setEmails] = useState([]);
   const [reminders, setReminders] = useState([]);
   const [shifts, setShifts] = useState([]);
+  const [tickets, setTickets] = useState([]);
   const [error, setError] = useState('');
   const [openEmailId, setOpenEmailId] = useState(null);
+  const [openTicketId, setOpenTicketId] = useState(null);
+
+  const loadTickets = () => api('/tickets/board?limit=50').then(d => setTickets(d || [])).catch(() => {});
 
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 30000);
@@ -138,15 +133,17 @@ export default function HomePage({ user, unread = 0, onNavigate }) {
       const start = dateKey(today);
       const end = dateKey(addDays(today, 5));
       try {
-        const [mailData, reminderData, shiftData] = await Promise.all([
+        const [mailData, reminderData, shiftData, ticketData] = await Promise.all([
           api('/mail-reporter/emails?limit=8').catch(() => []),
           api('/reminders/active').catch(() => []),
           api(`/schedule/shifts?start_date=${start}&end_date=${end}`).catch(() => []),
+          api('/tickets/board?limit=50').catch(() => []),
         ]);
         if (cancelled) return;
         setEmails(mailData || []);
         setReminders(reminderData || []);
         setShifts(shiftData || []);
+        setTickets(ticketData || []);
       } catch (e) {
         if (!cancelled) setError(e.message || 'Failed to load home data');
       } finally {
@@ -166,6 +163,15 @@ export default function HomePage({ user, unread = 0, onNavigate }) {
   const unresolvedEmails = emails.filter(e => e.status !== 'solved');
   const blockedEmails = emails.filter(e => e.status === 'blocked').length;
   const uncheckedEmails = emails.filter(e => e.status === 'unchecked').length;
+
+  const sortedTickets = useMemo(() => {
+    return [...tickets].sort((a, b) => {
+      const ra = STATE_RANK[a.state] ?? 1;
+      const rb = STATE_RANK[b.state] ?? 1;
+      if (ra !== rb) return ra - rb;        // new+open, then in_progress, on_pause, closed
+      return ticketTs(b) - ticketTs(a);     // within a group: most recently entered status first
+    }).slice(0, HOME_TICKETS_MAX);
+  }, [tickets]);
 
   const currentShift = useMemo(() => {
     const currentUserId = String(user?.id || '');
@@ -311,9 +317,47 @@ export default function HomePage({ user, unread = 0, onNavigate }) {
             </div>
           </Card>
 
-          <PlaceholderPanel title={tr('homeIncidents')} icon="flame" description={tr('homeIncidentsDesc')} />
-          <PlaceholderPanel title={tr('homeTickets')} icon="ticket" description={tr('homeTicketsDesc')} />
-          <PlaceholderPanel title={tr('homeRunbooks')} icon="bookmark" description={tr('homeRunbooksDesc')} />
+          <Card
+            accent="var(--accent)"
+            header={<><Icon name="ticket" size={18} color="var(--accent)" /><h2 style={{ margin: 0, fontSize: 22 }}>{tr('homeTicketsTitle')}</h2><span style={{ flex: 1 }} /><Button size="sm" variant="ghost" iconRight="arrowRight" onClick={() => onNavigate?.('tickets')}>{tr('homeTicketsOpenFull')}</Button></>}
+          >
+            {loading ? (
+              <div style={{ padding: 24, color: 'var(--text-muted)' }}>{tr('homeTicketsLoading')}</div>
+            ) : sortedTickets.length === 0 ? (
+              <EmptyState title={tr('homeTicketsEmpty')} />
+            ) : (
+              <div>
+                {sortedTickets.map(tk => (
+                  <div
+                    key={tk.id}
+                    onClick={() => setOpenTicketId(tk.id)}
+                    style={{
+                      padding: '12px 16px', display: 'grid',
+                      gridTemplateColumns: 'auto minmax(0, 1fr) auto', gap: 12, alignItems: 'center',
+                      borderBottom: '1px solid var(--border-light)', cursor: 'pointer', transition: 'background 120ms ease',
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-alt)'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                  >
+                    <Badge color={STATE_BADGE[tk.state] || 'gray'}>{stateLabel(tk.state, tr)}</Badge>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 650, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginRight: 6 }}>#{tk.number || tk.id}</span>
+                        {tk.title || '—'}
+                      </div>
+                      {tk.assignee && (
+                        <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tk.assignee}</div>
+                      )}
+                    </div>
+                    <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{fmtDuration(tk.state_changed_at, lang)}</div>
+                      <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{tr('tkInStatus')}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
         </div>
       </section>
 
@@ -324,6 +368,15 @@ export default function HomePage({ user, unread = 0, onNavigate }) {
           emailId={openEmailId}
           onClose={() => setOpenEmailId(null)}
           onChange={(updated) => setEmails(prev => prev.map(e => e.id === updated.id ? { ...e, ...updated } : e))}
+        />
+      )}
+
+      {openTicketId && (
+        <TicketDetailModal
+          ticketId={openTicketId}
+          onClose={() => setOpenTicketId(null)}
+          onError={(message) => setError(message)}
+          onChanged={loadTickets}
         />
       )}
     </div>
