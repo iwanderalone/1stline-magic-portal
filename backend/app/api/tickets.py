@@ -19,7 +19,7 @@ from app.schemas.schemas import (
     ZammadTicketResponse, ZammadTicketDetail, ZammadCommentResponse,
     ZammadStateUpdate, ZammadReplyCreate,
 )
-from app.services import zammad_client
+from app.services import zammad_client, ticket_notifications
 from app.services.zammad_client import ZammadError, ALLOWED_STATES
 
 logger = logging.getLogger(__name__)
@@ -219,6 +219,7 @@ async def upsert_ticket(
     # Time-in-status: stamp when the state actually changes (or is first seen).
     if not is_new and "state" in ticket and fields["ticket_state"] and fields["ticket_state"] != prior_state:
         existing.state_changed_at = now
+        existing.open_alert_level = 0   # fresh status period → re-arm open-overdue escalation
     if existing.state_changed_at is None:
         existing.state_changed_at = now
 
@@ -337,6 +338,7 @@ async def receive_webhook(
     payload_text = raw_body.decode("utf-8", errors="replace")
     ticket_id = (body.get("ticket") or {}).get("id")
     existing = await db.get(ZammadTicket, ticket_id) if ticket_id else None
+    prior_state = existing.state if existing else None
 
     # Capture prior state before the upsert so change-detection compares against it.
     stored: list[str] = []
@@ -352,6 +354,15 @@ async def receive_webhook(
         await upsert_ticket(db, stored[-1] if stored else events[-1], body)
     await db.commit()
     logger.info("[tickets] stored %d/%d Zammad event(s): %s", len(stored), len(events), stored or "(all redundant)")
+
+    # Telegram alerts on real state transitions (webhook-driven only, not sync).
+    if ticket_id:
+        tk = await db.get(ZammadTicket, ticket_id)
+        if tk and tk.state != prior_state:
+            if tk.state == "open":
+                await ticket_notifications.notify_ticket_opened(tk)
+            elif tk.state == "closed":
+                await ticket_notifications.notify_ticket_solved(tk)
 
 
 # ─── Event log ────────────────────────────────────────────

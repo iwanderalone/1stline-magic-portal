@@ -228,6 +228,14 @@ async def lifespan(app: FastAPI):
             id="zammad_sync", max_instances=1, coalesce=True,
         )
 
+    # Ticket open-overdue Telegram escalation (15/30/60 min). Off unless a chat is set.
+    if settings.ZAMMAD_TELEGRAM_CHAT_ID:
+        from app.services.ticket_notifications import check_open_ticket_escalations
+        scheduler.add_job(
+            check_open_ticket_escalations, "interval", minutes=1,
+            id="zammad_open_escalation", max_instances=1, coalesce=True,
+        )
+
     scheduler.start()
     logger.info("Scheduler started: reminders (30s), shift notifications (pre-scheduled + 60s fallback), mail reporter (%ds)", settings.MAIL_POLL_INTERVAL)
 

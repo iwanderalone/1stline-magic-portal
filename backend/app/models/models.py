@@ -503,6 +503,7 @@ class ZammadTicket(Base):
     zammad_created_at = Column(DateTime(timezone=True), nullable=True)
     zammad_updated_at = Column(DateTime(timezone=True), nullable=True)
     state_changed_at  = Column(DateTime(timezone=True), nullable=True)  # when the ticket entered its current state (time-in-status)
+    open_alert_level  = Column(Integer, default=0, nullable=False)       # Telegram open-overdue escalation steps sent (0/1/2/3)
     last_event_at     = Column(DateTime(timezone=True), default=utcnow, nullable=False)
     created_at        = Column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at        = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
