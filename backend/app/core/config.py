@@ -89,6 +89,9 @@ class Settings(BaseSettings):
     ZAMMAD_API_TOKEN: str = ""        # optional — enables startup sync when paired with ZAMMAD_URL
     ZAMMAD_SYNC_ON_STARTUP: bool = True
     ZAMMAD_ALLOW_PUBLIC_REPLY: bool = True   # server-side guard: if false, portal can only post internal notes
+    # Ticket Telegram alerts (opened / open-overdue escalation / solved). Empty chat id disables them.
+    ZAMMAD_TELEGRAM_CHAT_ID: str = ""
+    ZAMMAD_TELEGRAM_THREAD_ID: str = ""
 
     # Mail Reporter
     MAIL_IMAP_SERVER: str = "imap.yandex.com"
