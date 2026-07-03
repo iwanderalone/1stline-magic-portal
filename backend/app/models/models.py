@@ -497,6 +497,8 @@ class ZammadTicket(Base):
     priority          = Column(String(50), nullable=True)
     assignee          = Column(String(150), nullable=True)
     customer          = Column(String(255), nullable=True)
+    request_type      = Column(String(150), nullable=True)  # cleaned custom field, e.g. "Email" from "IT::Request Type::Email"
+    description       = Column(Text, nullable=True)          # Zammad custom 'description' field
     article_count     = Column(Integer, nullable=True)
     last_comment      = Column(Text, nullable=True)
     last_event_type   = Column(String(50), nullable=True)

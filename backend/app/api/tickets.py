@@ -149,10 +149,21 @@ def _parse_dt(value) -> Optional[datetime]:
         return None
 
 
+def _html_to_text(raw: str) -> str:
+    """Zammad article bodies can be text/html — reduce to readable plain text."""
+    import html as html_mod
+    import re
+    text = re.sub(r"<br\s*/?>|</p>|</div>", "\n", raw, flags=re.I)
+    text = re.sub(r"<[^>]+>", "", text)
+    return html_mod.unescape(text).strip()
+
+
 def _extract_comment(body: dict) -> Optional[dict]:
     """Build a comment record from an article, or None if it isn't a real comment."""
     article = body.get("article") or {}
     text = (article.get("body") or "").strip()
+    if text and (article.get("content_type") or "").startswith("text/html"):
+        text = _html_to_text(text)
     sender = article.get("sender") or ""
     if not text or text == "..." or sender == "System":
         return None
@@ -208,6 +219,11 @@ async def upsert_ticket(
     _set_assoc("priority", "priority", fields["ticket_priority"])
     _set_assoc("assignee", "owner", fields["assignee"])
     _set_assoc("customer", "customer", fields["customer"])
+    # Custom fields the Mini App shows: description + request_type
+    # (raw request_type looks like "IT::Request Type::Email" — keep the tail).
+    raw_rt = ticket.get("request_type")
+    _set("request_type", raw_rt.split("::")[-1].strip() if isinstance(raw_rt, str) and raw_rt else None)
+    _set("description", (ticket.get("description") or "").strip() or None)
     if ticket.get("article_count") is not None:
         existing.article_count = ticket.get("article_count")
     _set("zammad_created_at", _parse_dt(ticket.get("created_at")))
@@ -439,6 +455,8 @@ def _ticket_payload(t: ZammadTicket) -> dict:
         "priority": t.priority,
         "assignee": t.assignee,
         "customer": t.customer,
+        "request_type": t.request_type,
+        "description": t.description,
         "article_count": t.article_count,
         "last_comment": t.last_comment,
         "last_event_type": t.last_event_type,

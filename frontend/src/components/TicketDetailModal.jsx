@@ -111,9 +111,22 @@ export default function TicketDetailModal({ ticketId, onClose, onError, onChange
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
             {meta(tr('tkAssignee'), data.assignee)}
             {meta(tr('tkCustomer'), data.customer)}
+            {meta(tr('tkRequestType'), data.request_type)}
             {meta(tr('tkCreated'), formatTime(data.zammad_created_at))}
             {meta(tr('tkUpdated'), formatTime(data.zammad_updated_at))}
           </div>
+
+          {/* description */}
+          {data.description && (
+            <div>
+              <div style={{ fontSize: 11, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 4 }}>{tr('tkDescription')}</div>
+              <div style={{
+                fontSize: 13, color: t.textSecondary, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                border: `1px solid ${t.border}`, borderRadius: t.radius, padding: '8px 12px',
+                background: t.surfaceAlt || t.surface,
+              }}>{data.description}</div>
+            </div>
+          )}
 
           {/* comments / events tabs */}
           <Tabs
