@@ -24,8 +24,8 @@ function TicketBoardView({ onError }) {
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState(null);
 
-  const load = useCallback(async (b, s) => {
-    setLoading(true);
+  const load = useCallback(async (b, s, silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const params = new URLSearchParams({ limit: 200 });
       if (b) params.set('bucket', b);
@@ -37,15 +37,21 @@ function TicketBoardView({ onError }) {
       setTickets(list);
       setCounts(cnt);
     } catch (err) {
-      onError?.(err.message || 'Failed to load tickets');
+      if (!silent) onError?.(err.message || 'Failed to load tickets');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [onError]);
 
   useEffect(() => {
     const id = setTimeout(() => load(bucket, search), search ? 300 : 0);
     return () => clearTimeout(id);
+  }, [bucket, search, load]);
+
+  // Background refresh so new webhook-delivered tickets show up without a reload.
+  useEffect(() => {
+    const id = setInterval(() => load(bucket, search, true), 30000);
+    return () => clearInterval(id);
   }, [bucket, search, load]);
 
   return (

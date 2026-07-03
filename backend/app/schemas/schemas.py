@@ -673,12 +673,6 @@ class ZammadTicketDetail(ZammadTicketResponse):
     events: list[ZammadEventResponse] = []
 
 
-class ZammadStateUpdate(BaseModel):
-    state: str  # one of: open, in_progress, on_pause, closed
-
-
 class ZammadReplyCreate(BaseModel):
+    """Portal-only internal note — stored on the website, never sent to Zammad."""
     body: str = Field(min_length=1, max_length=8000)
-    # True  = reply to the customer (posted to Zammad as a note → reaches the Mini App)
-    # False = portal-only internal note (stored on the website, never sent to Zammad)
-    to_customer: bool = False

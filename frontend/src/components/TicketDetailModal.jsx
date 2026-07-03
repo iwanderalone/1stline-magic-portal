@@ -16,13 +16,6 @@ export const EVENT_META = {
   ticket_sync:     { label: 'Sync',     color: 'gray'   },
 };
 
-export const STATE_OPTIONS = [
-  { value: 'open', key: 'tkStateOpen' },
-  { value: 'in_progress', key: 'tkStateInProgress' },
-  { value: 'on_pause', key: 'tkStateOnPause' },
-  { value: 'closed', key: 'tkStateClosed' },
-];
-
 const STATE_KEY = {
   new: 'tkStateNew', open: 'tkStateOpen', in_progress: 'tkStateInProgress',
   on_pause: 'tkStateOnPause', closed: 'tkStateClosed',
@@ -62,40 +55,23 @@ export default function TicketDetailModal({ ticketId, onClose, onError, onChange
   const { t: tr } = useLang();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [stateSel, setStateSel] = useState('');
-  const [savingState, setSavingState] = useState(false);
   const [reply, setReply] = useState('');
-  const [toCustomer, setToCustomer] = useState(true);
   const [sending, setSending] = useState(false);
 
   const reload = useCallback(() => {
     return api(`/tickets/board/${ticketId}`)
-      .then(d => { setData(d); setStateSel(d.state || ''); return d; })
+      .then(d => { setData(d); return d; })
       .catch(e => { onError?.(e.message || 'Failed to load ticket'); onClose(); });
   }, [ticketId]);
 
   useEffect(() => { setLoading(true); reload().finally(() => setLoading(false)); }, [reload]);
-
-  const applyState = async () => {
-    if (!stateSel || stateSel === data.state) return;
-    setSavingState(true);
-    try {
-      await api(`/tickets/board/${ticketId}/state`, { method: 'PATCH', body: JSON.stringify({ state: stateSel }) });
-      await reload();
-      onChanged?.();
-    } catch (e) {
-      onError?.(e.message || 'Failed to change status');
-    } finally {
-      setSavingState(false);
-    }
-  };
 
   const sendReply = async () => {
     const text = reply.trim();
     if (!text) return;
     setSending(true);
     try {
-      await api(`/tickets/board/${ticketId}/reply`, { method: 'POST', body: JSON.stringify({ body: text, to_customer: toCustomer }) });
+      await api(`/tickets/board/${ticketId}/reply`, { method: 'POST', body: JSON.stringify({ body: text }) });
       setReply('');
       await reload();
       onChanged?.();
@@ -119,20 +95,9 @@ export default function TicketDetailModal({ ticketId, onClose, onError, onChange
         <div style={{ textAlign: 'center', padding: 30, color: t.textMuted }}>{tr('tkLoading')}</div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-          {/* state control + zammad link */}
+          {/* state (read-only) + zammad link */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <Badge color={BUCKET_COLOR[data.bucket] || 'gray'}>{stateLabel(data.state, tr)}</Badge>
-            <select
-              value={stateSel}
-              onChange={e => setStateSel(e.target.value)}
-              style={{ padding: '5px 8px', borderRadius: t.radius, fontSize: 12, border: `1px solid ${t.border}`, background: t.surface, color: t.text }}
-            >
-              {!STATE_OPTIONS.some(o => o.value === stateSel) && stateSel && <option value={stateSel}>{stateLabel(stateSel, tr)}</option>}
-              {STATE_OPTIONS.map(o => <option key={o.value} value={o.value}>{tr(o.key)}</option>)}
-            </select>
-            <Button size="sm" variant="ghost" disabled={savingState || stateSel === data.state} onClick={applyState}>
-              {savingState ? tr('tkSaving') : tr('tkUpdateStatus')}
-            </Button>
             {data.priority && <span style={{ fontSize: 12, color: t.textMuted }}>{tr('tkPriority')}: {data.priority}</span>}
             <span style={{ flex: 1 }} />
             {data.url && (
@@ -201,33 +166,24 @@ export default function TicketDetailModal({ ticketId, onClose, onError, onChange
             </div>
           )}
 
-          {/* reply composer */}
+          {/* internal note composer (portal-only) */}
           <div style={{ borderTop: `1px solid ${t.border}`, paddingTop: 14 }}>
-            <div style={{ display: 'flex', gap: 12, marginBottom: 8 }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: toCustomer ? (t.danger || '#d9534f') : t.textMuted, cursor: 'pointer' }}>
-                <input type="radio" checked={toCustomer} onChange={() => setToCustomer(true)} /> {tr('tkReplyCustomer')}
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: !toCustomer ? t.text : t.textMuted, cursor: 'pointer' }}>
-                <input type="radio" checked={!toCustomer} onChange={() => setToCustomer(false)} /> {tr('tkInternalNote')}
-              </label>
-            </div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: t.textSecondary, marginBottom: 8 }}>{tr('tkInternalNote')}</div>
             <textarea
               value={reply}
               onChange={e => setReply(e.target.value)}
-              placeholder={toCustomer ? tr('tkReplyPlaceholder') : tr('tkNotePlaceholder')}
+              placeholder={tr('tkNotePlaceholder')}
               rows={3}
               style={{
                 width: '100%', boxSizing: 'border-box', padding: '8px 12px', fontSize: 13,
-                borderRadius: t.radius, border: `1px solid ${toCustomer ? (t.danger || '#d9534f') : t.border}`,
+                borderRadius: t.radius, border: `1px solid ${t.border}`,
                 background: t.surface, color: t.text, resize: 'vertical', fontFamily: 'inherit',
               }}
             />
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
-              <span style={{ fontSize: 11, color: t.textMuted }}>
-                {toCustomer ? tr('tkReplyHint') : tr('tkNoteHint')}
-              </span>
+              <span style={{ fontSize: 11, color: t.textMuted }}>{tr('tkNoteHint')}</span>
               <Button size="sm" disabled={sending || !reply.trim()} onClick={sendReply}>
-                {sending ? tr('tkSending') : toCustomer ? tr('tkSendReply') : tr('tkAddNote')}
+                {sending ? tr('tkSending') : tr('tkAddNote')}
               </Button>
             </div>
           </div>
