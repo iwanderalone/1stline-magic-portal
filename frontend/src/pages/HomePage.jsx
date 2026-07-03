@@ -9,7 +9,7 @@ import TicketDetailModal, { stateLabel, fmtDuration } from '../components/Ticket
 // Home ticket ordering: new+open first, then in_progress, on_pause, closed.
 const STATE_RANK = { new: 0, open: 0, in_progress: 1, on_pause: 2, closed: 3 };
 const STATE_BADGE = { new: 'blue', open: 'blue', in_progress: 'yellow', on_pause: 'orange', closed: 'green' };
-const HOME_TICKETS_MAX = 6;
+const ATTN_SECTION_MAX = 5;
 
 function ticketTs(tk) {
   if (!tk.state_changed_at) return 0;
@@ -105,6 +105,41 @@ function MetricCard({ label, value, detail, icon, color = 'var(--accent)' }) {
   );
 }
 
+function AttnSection({ icon, color, label, count, showAll, onShowAll, children }) {
+  const [open, setOpen] = useState(true);
+  return (
+    <div style={{ borderBottom: '1px solid var(--border-light)' }}>
+      <div
+        onClick={() => setOpen(o => !o)}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 8, padding: '11px 18px',
+          cursor: 'pointer', userSelect: 'none',
+        }}
+      >
+        <Icon name={open ? 'chevronDown' : 'chevronRight'} size={13} color="var(--text-muted)" />
+        <Icon name={icon} size={14} color={color} />
+        <span style={{ fontSize: 13, fontWeight: 700 }}>{label}</span>
+        <span style={{
+          fontSize: 11, fontWeight: 700, fontFamily: 'var(--font-mono)',
+          color: count > 0 ? color : 'var(--text-muted)',
+          background: 'var(--surface-alt)', padding: '1px 8px', borderRadius: 10,
+        }}>{count}</span>
+        <span style={{ flex: 1 }} />
+        {count > ATTN_SECTION_MAX && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onShowAll?.(); }}
+            style={{
+              background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+              fontSize: 11, color: 'var(--text-muted)', fontFamily: 'inherit',
+            }}
+          >{showAll} →</button>
+        )}
+      </div>
+      {open && children}
+    </div>
+  );
+}
+
 export default function HomePage({ user, unread = 0, onNavigate }) {
   const { lang, t: tr } = useLang();
   const [now, setNow] = useState(() => new Date());
@@ -116,17 +151,20 @@ export default function HomePage({ user, unread = 0, onNavigate }) {
   const [error, setError] = useState('');
   const [openEmailId, setOpenEmailId] = useState(null);
   const [openTicketId, setOpenTicketId] = useState(null);
+  const [firingAlerts, setFiringAlerts] = useState(0);
 
   const loadTickets = () => api('/tickets/board?limit=50').then(d => setTickets(d || [])).catch(() => {});
+  const loadAlertCount = () => api('/alerts/counts').then(d => setFiringAlerts(d?.firing || 0)).catch(() => {});
 
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 30000);
     return () => clearInterval(timer);
   }, []);
 
-  // Keep the tickets widget live — new tickets arrive via webhook within seconds.
+  // Keep tickets + alert banner live — both arrive via webhooks within seconds.
   useEffect(() => {
-    const timer = setInterval(loadTickets, 30000);
+    loadAlertCount();
+    const timer = setInterval(() => { loadTickets(); loadAlertCount(); }, 30000);
     return () => clearInterval(timer);
   }, []);
 
@@ -140,7 +178,7 @@ export default function HomePage({ user, unread = 0, onNavigate }) {
       const end = dateKey(addDays(today, 5));
       try {
         const [mailData, reminderData, shiftData, ticketData] = await Promise.all([
-          api('/mail-reporter/emails?limit=8').catch(() => []),
+          api('/mail-reporter/emails?limit=50').catch(() => []),
           api('/reminders/active').catch(() => []),
           api(`/schedule/shifts?start_date=${start}&end_date=${end}`).catch(() => []),
           api('/tickets/board?limit=50').catch(() => []),
@@ -170,14 +208,21 @@ export default function HomePage({ user, unread = 0, onNavigate }) {
   const blockedEmails = emails.filter(e => e.status === 'blocked').length;
   const uncheckedEmails = emails.filter(e => e.status === 'unchecked').length;
 
-  const sortedTickets = useMemo(() => {
-    return [...tickets].sort((a, b) => {
-      const ra = STATE_RANK[a.state] ?? 1;
-      const rb = STATE_RANK[b.state] ?? 1;
-      if (ra !== rb) return ra - rb;        // new+open, then in_progress, on_pause, closed
-      return ticketTs(b) - ticketTs(a);     // within a group: most recently entered status first
-    }).slice(0, HOME_TICKETS_MAX);
+  // Unsolved tickets, ordered new+open → in_progress → on_pause, recent-first within a group.
+  const attnTickets = useMemo(() => {
+    return tickets
+      .filter(tk => tk.bucket !== 'closed')
+      .sort((a, b) => {
+        const ra = STATE_RANK[a.state] ?? 1;
+        const rb = STATE_RANK[b.state] ?? 1;
+        if (ra !== rb) return ra - rb;
+        return ticketTs(b) - ticketTs(a);
+      });
   }, [tickets]);
+
+  const uncheckedList = useMemo(() => emails.filter(e => e.status === 'unchecked'), [emails]);
+  const pausedList = useMemo(() => emails.filter(e => e.status === 'on_pause'), [emails]);
+  const attnTotal = attnTickets.length + uncheckedList.length + pausedList.length;
 
   const currentShift = useMemo(() => {
     const currentUserId = String(user?.id || '');
@@ -207,6 +252,22 @@ export default function HomePage({ user, unread = 0, onNavigate }) {
 
   return (
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
+      {firingAlerts > 0 && (
+        <div
+          onClick={() => onNavigate?.('alerts')}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer',
+            padding: '10px 16px', borderRadius: 'var(--radius)',
+            background: 'rgba(217,83,79,0.10)', border: '1px solid var(--danger)',
+            color: 'var(--danger)', fontWeight: 700, fontSize: 14,
+          }}
+        >
+          <Icon name="siren" size={16} />
+          {firingAlerts} {firingAlerts === 1 ? tr('homeAlertsFiringOne') : tr('homeAlertsFiringMany')} {tr('homeAlertsFiring')}
+          <span style={{ flex: 1 }} />
+          <Icon name="arrowRight" size={14} />
+        </div>
+      )}
       <section style={{
         display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end',
         gap: 18, flexWrap: 'wrap', paddingBottom: 10, borderBottom: '1px solid var(--border-light)',
@@ -247,44 +308,85 @@ export default function HomePage({ user, unread = 0, onNavigate }) {
         gap: 16,
       }}>
         <Card
-          accent="var(--accent)"
-          header={<><Icon name="mail" size={18} color="var(--accent)" /><h2 style={{ margin: 0, fontSize: 22 }}>{tr('homeOperationalMail')}</h2><span style={{ flex: 1 }} /><Button size="sm" variant="ghost" iconRight="arrowRight" onClick={() => onNavigate?.('mail')}>{tr('open')}</Button></>}
+          accent="var(--warning)"
+          header={<><Icon name="alertTriangle" size={18} color="var(--warning)" /><h2 style={{ margin: 0, fontSize: 22 }}>{tr('homeAttention')}</h2><span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--text-muted)' }}>{attnTotal}</span></>}
         >
           {loading ? (
             <div style={{ padding: 34, color: 'var(--text-muted)' }}>{tr('homeLoadingQueue')}</div>
-          ) : unresolvedEmails.length === 0 ? (
-            <EmptyState title={tr('homeMailClear')} subtitle={tr('homeMailClearDesc')} />
+          ) : attnTotal === 0 ? (
+            <EmptyState title={tr('homeAttnEmpty')} />
           ) : (
             <div>
-              {unresolvedEmails.slice(0, 5).map(email => (
-                <div
-                  key={email.id}
-                  onClick={() => setOpenEmailId(email.id)}
-                  style={{
-                    padding: '14px 18px',
-                    display: 'grid',
-                    gridTemplateColumns: 'auto minmax(0, 1fr) auto',
-                    gap: 12,
-                    alignItems: 'center',
-                    borderBottom: '1px solid var(--border-light)',
-                    cursor: 'pointer',
-                    transition: 'background 120ms ease',
-                  }}
-                  onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-alt)'}
-                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                >
-                  <StatusMarker status={email.status} />
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontWeight: 650, fontSize: 14.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {email.subject || '(no subject)'}
+              <AttnSection icon="ticket" color="var(--accent)" label={tr('homeAttnTickets')} count={attnTickets.length} showAll={tr('homeShowAll')} onShowAll={() => onNavigate?.('tickets')}>
+                {attnTickets.slice(0, ATTN_SECTION_MAX).map(tk => (
+                  <div
+                    key={tk.id}
+                    onClick={() => setOpenTicketId(tk.id)}
+                    style={{
+                      padding: '9px 18px 9px 39px', display: 'grid',
+                      gridTemplateColumns: 'auto minmax(0, 1fr) auto', gap: 10, alignItems: 'center',
+                      cursor: 'pointer', transition: 'background 120ms ease',
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-alt)'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                  >
+                    <Badge color={STATE_BADGE[tk.state] || 'gray'}>{stateLabel(tk.state, tr)}</Badge>
+                    <div style={{ minWidth: 0, fontWeight: 650, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginRight: 6, fontWeight: 400 }}>#{tk.number || tk.id}</span>
+                      {tk.title || '—'}
                     </div>
-                    <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {email.sender || 'unknown sender'} · {email.mailbox_email || 'mailbox'} · {fmtSince(email.created_at)}
+                    <div style={{ textAlign: 'right', whiteSpace: 'nowrap', fontSize: 12, color: 'var(--text-muted)' }}>
+                      {fmtDuration(tk.state_changed_at, lang)} · {tr('tkInStatus')}
                     </div>
                   </div>
-                  <Badge color={statusTone(email.status)}>{email.status}</Badge>
-                </div>
-              ))}
+                ))}
+              </AttnSection>
+
+              <AttnSection icon="mail" color="var(--warning)" label={tr('homeAttnUnchecked')} count={uncheckedList.length} showAll={tr('homeShowAll')} onShowAll={() => onNavigate?.('mail')}>
+                {uncheckedList.slice(0, ATTN_SECTION_MAX).map(email => (
+                  <div
+                    key={email.id}
+                    onClick={() => setOpenEmailId(email.id)}
+                    style={{
+                      padding: '9px 18px 9px 39px', display: 'grid',
+                      gridTemplateColumns: 'auto minmax(0, 1fr) auto', gap: 10, alignItems: 'center',
+                      cursor: 'pointer', transition: 'background 120ms ease',
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-alt)'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                  >
+                    <StatusMarker status={email.status} />
+                    <div style={{ minWidth: 0, fontWeight: 650, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {email.subject || '(no subject)'}
+                      <span style={{ color: 'var(--text-muted)', fontSize: 12, fontWeight: 400, marginLeft: 8 }}>{email.sender || ''}</span>
+                    </div>
+                    <div style={{ whiteSpace: 'nowrap', fontSize: 12, color: 'var(--text-muted)' }}>{fmtSince(email.created_at)}</div>
+                  </div>
+                ))}
+              </AttnSection>
+
+              <AttnSection icon="clock" color="var(--accent)" label={tr('homeAttnPaused')} count={pausedList.length} showAll={tr('homeShowAll')} onShowAll={() => onNavigate?.('mail')}>
+                {pausedList.slice(0, ATTN_SECTION_MAX).map(email => (
+                  <div
+                    key={email.id}
+                    onClick={() => setOpenEmailId(email.id)}
+                    style={{
+                      padding: '9px 18px 9px 39px', display: 'grid',
+                      gridTemplateColumns: 'auto minmax(0, 1fr) auto', gap: 10, alignItems: 'center',
+                      cursor: 'pointer', transition: 'background 120ms ease',
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-alt)'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                  >
+                    <StatusMarker status={email.status} />
+                    <div style={{ minWidth: 0, fontWeight: 650, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {email.subject || '(no subject)'}
+                      <span style={{ color: 'var(--text-muted)', fontSize: 12, fontWeight: 400, marginLeft: 8 }}>{email.sender || ''}</span>
+                    </div>
+                    <div style={{ whiteSpace: 'nowrap', fontSize: 12, color: 'var(--text-muted)' }}>{fmtSince(email.created_at)}</div>
+                  </div>
+                ))}
+              </AttnSection>
             </div>
           )}
         </Card>
@@ -323,47 +425,6 @@ export default function HomePage({ user, unread = 0, onNavigate }) {
             </div>
           </Card>
 
-          <Card
-            accent="var(--accent)"
-            header={<><Icon name="ticket" size={18} color="var(--accent)" /><h2 style={{ margin: 0, fontSize: 22 }}>{tr('homeTicketsTitle')}</h2><span style={{ flex: 1 }} /><Button size="sm" variant="ghost" iconRight="arrowRight" onClick={() => onNavigate?.('tickets')}>{tr('homeTicketsOpenFull')}</Button></>}
-          >
-            {loading ? (
-              <div style={{ padding: 24, color: 'var(--text-muted)' }}>{tr('homeTicketsLoading')}</div>
-            ) : sortedTickets.length === 0 ? (
-              <EmptyState title={tr('homeTicketsEmpty')} />
-            ) : (
-              <div>
-                {sortedTickets.map(tk => (
-                  <div
-                    key={tk.id}
-                    onClick={() => setOpenTicketId(tk.id)}
-                    style={{
-                      padding: '12px 16px', display: 'grid',
-                      gridTemplateColumns: 'auto minmax(0, 1fr) auto', gap: 12, alignItems: 'center',
-                      borderBottom: '1px solid var(--border-light)', cursor: 'pointer', transition: 'background 120ms ease',
-                    }}
-                    onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-alt)'}
-                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                  >
-                    <Badge color={STATE_BADGE[tk.state] || 'gray'}>{stateLabel(tk.state, tr)}</Badge>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontWeight: 650, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginRight: 6 }}>#{tk.number || tk.id}</span>
-                        {tk.title || '—'}
-                      </div>
-                      {tk.assignee && (
-                        <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tk.assignee}</div>
-                      )}
-                    </div>
-                    <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{fmtDuration(tk.state_changed_at, lang)}</div>
-                      <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{tr('tkInStatus')}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Card>
         </div>
       </section>
 

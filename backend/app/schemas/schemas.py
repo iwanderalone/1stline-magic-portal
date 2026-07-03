@@ -439,6 +439,7 @@ class EmailLogResponse(BaseOrmModel):
     solver_comment: Optional[str] = None
     solved_at: Optional[datetime] = None
     comment_count: int = 0
+    last_comment: Optional[str] = None   # "username: text" preview of the newest comment
 
 class EmailLogDetailResponse(EmailLogResponse):
     body: Optional[str] = None
@@ -678,3 +679,21 @@ class ZammadTicketDetail(ZammadTicketResponse):
 class ZammadReplyCreate(BaseModel):
     """Portal-only internal note — stored on the website, never sent to Zammad."""
     body: str = Field(min_length=1, max_length=8000)
+
+
+# ─── Grafana alerts ──────────────────────────────────────
+
+class GrafanaAlertResponse(BaseOrmModel):
+    id: int
+    fingerprint: str
+    status: str
+    alertname: Optional[str]
+    severity: Optional[str]
+    summary: Optional[str]
+    labels: Optional[str]
+    generator_url: Optional[str]
+    fire_count: int
+    starts_at: Optional[datetime]
+    ends_at: Optional[datetime]
+    received_at: datetime
+    updated_at: datetime

@@ -383,7 +383,15 @@ function EmailList({ emails, activeId, onSelect, loading, ruleMap }) {
             {activeId === em.id && <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: 'var(--accent)' }} />}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
               <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{fmtTime(em.received_at || em.created_at)}</div>
-              {em.comment_count > 0 && <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '10px', color: 'var(--accent)', fontWeight: 600 }}><Icon name="message" size={10} /> {em.comment_count}</div>}
+              {em.comment_count > 0 && (
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 4, fontSize: '11px',
+                  color: 'var(--accent)', fontWeight: 700, background: 'var(--accent-light)',
+                  padding: '1px 8px', borderRadius: 10,
+                }}>
+                  <Icon name="message" size={11} /> {em.comment_count}
+                </div>
+              )}
             </div>
             <div style={{ fontWeight: 600, fontSize: '13.5px', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: activeId === em.id ? 'var(--text)' : 'var(--text-secondary)' }}>
               {em.subject || '(no subject)'}
@@ -391,6 +399,16 @@ function EmailList({ emails, activeId, onSelect, loading, ruleMap }) {
             <div style={{ fontSize: '12px', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 6 }}>
               {em.sender}
             </div>
+            {em.last_comment && (
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 5, marginBottom: 6,
+                fontSize: '11.5px', color: 'var(--accent)',
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}>
+                <Icon name="message" size={10} />
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{em.last_comment}</span>
+              </div>
+            )}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               {rule ? <RuleBadge rule={rule} style={{ fontSize: '10px', padding: '0 8px' }} /> : <Badge tone="gray" style={{ fontSize: '10px' }}>General</Badge>}
               <span style={{ flex: 1 }} />
@@ -507,7 +525,9 @@ function EmailDetail({ email, ruleMap, onStatusChange, onAddComment }) {
 
       {/* Internal Activity */}
       <section style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 16, minHeight: 0 }}>
-        <div className="t-eyebrow">Activity & Comments</div>
+        <div className="t-eyebrow" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Icon name="message" size={12} /> Activity & Comments{comments.length > 0 ? ` (${comments.length})` : ''}
+        </div>
 
         <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10, paddingRight: 4 }}>
           {loadingComments ? (
