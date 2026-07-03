@@ -92,6 +92,10 @@ class Settings(BaseSettings):
     ZAMMAD_TELEGRAM_CHAT_ID: str = ""
     ZAMMAD_TELEGRAM_THREAD_ID: str = ""
 
+    # Grafana alert webhook. If a token is set, incoming webhooks must carry it
+    # (Authorization: Bearer <token>). Empty = accept unauthenticated posts.
+    GRAFANA_WEBHOOK_TOKEN: str = ""
+
     # Mail Reporter
     MAIL_IMAP_SERVER: str = "imap.yandex.com"
     MAIL_IMAP_PORT: int = 993

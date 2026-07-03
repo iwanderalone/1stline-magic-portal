@@ -131,6 +131,13 @@ async def list_email_logs(
     )
     comment_counts = {row.email_id: row.cnt for row in counts_result}
 
+    # Latest comment per email (for list previews) — chronological scan keeps the newest
+    latest_result = await db.execute(
+        select(EmailComment.email_id, EmailComment.username, EmailComment.text)
+        .order_by(EmailComment.created_at)
+    )
+    latest_comments = {row.email_id: f"{row.username}: {row.text}" for row in latest_result}
+
     # Attach mailbox_email for display
     mailbox_cache: dict[int, str] = {}
     out = []
@@ -141,6 +148,7 @@ async def list_email_logs(
         data = EmailLogResponse.model_validate(log)
         data.mailbox_email = mailbox_cache[log.mailbox_id]
         data.comment_count = comment_counts.get(log.id, 0)
+        data.last_comment = latest_comments.get(log.id)
         out.append(data)
     return out
 

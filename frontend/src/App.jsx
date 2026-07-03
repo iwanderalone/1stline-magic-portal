@@ -15,6 +15,7 @@ import RemindersPage from './pages/RemindersPage';
 import HomePage from './pages/HomePage';
 import RunbooksPage from './pages/RunbooksPage';
 import TicketsPage from './pages/TicketsPage';
+import AlertsPage from './pages/AlertsPage';
 import NotificationsPanel from './components/NotificationsPanel';
 import CommandPalette from './components/CommandPalette';
 
@@ -40,6 +41,7 @@ const NAV_ICONS = {
   schedule:   'calendar',
   mail:       'mail',
   tickets:    'ticket',
+  alerts:     'siren',
   runbooks:   'bookmark',
   timeoff:    'sun',
   reminders:  'bell',
@@ -181,7 +183,7 @@ export default function App() {
   });
 
   const isAdmin = (u) => u?.role === 'admin';
-  const PAGES = ['home', 'schedule', 'timeoff', 'profile', 'admin', 'mail', 'reminders', 'runbooks'];
+  const PAGES = ['home', 'schedule', 'timeoff', 'profile', 'admin', 'mail', 'reminders', 'runbooks', 'tickets', 'alerts'];
   const pageFromLocation = () => {
     const rawHash = window.location.hash.replace(/^#\/?/, '');
     const rawPath = window.location.pathname.replace(/^\/+|\/+$/g, '').split('/')[0];
@@ -280,6 +282,7 @@ export default function App() {
     { id: 'schedule',  label: tr('schedule') },
     { id: 'mail',      label: lang === 'ru' ? 'Почта'    : 'Mail' },
     { id: 'tickets',   label: lang === 'ru' ? 'Тикеты'   : 'Tickets' },
+    { id: 'alerts',    label: lang === 'ru' ? 'Алерты'   : 'Alerts' },
     { id: 'runbooks',  label: lang === 'ru' ? 'Рунбуки'  : 'Runbooks' },
     { id: 'timeoff',   label: tr('timeOff') },
     { id: 'reminders', label: tr('reminders') },
@@ -460,6 +463,7 @@ export default function App() {
               {page === 'admin'      && isAdmin(auth.user) && <AdminPage />}
               {page === 'mail'       && <MailReporterPage user={auth.user} />}
               {page === 'tickets'    && <TicketsPage user={auth.user} />}
+              {page === 'alerts'     && <AlertsPage />}
               {page === 'runbooks'   && <RunbooksPage user={auth.user} initialRunbookId={initialRunbookId} />}
               {page === 'reminders'  && <RemindersPage user={auth.user} />}
             </div>
