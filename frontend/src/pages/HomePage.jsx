@@ -124,6 +124,12 @@ export default function HomePage({ user, unread = 0, onNavigate }) {
     return () => clearInterval(timer);
   }, []);
 
+  // Keep the tickets widget live — new tickets arrive via webhook within seconds.
+  useEffect(() => {
+    const timer = setInterval(loadTickets, 30000);
+    return () => clearInterval(timer);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     async function load() {
