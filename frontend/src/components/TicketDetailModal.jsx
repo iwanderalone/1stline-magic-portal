@@ -2,7 +2,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { api } from '../api';
 import { useTheme } from './ThemeContext';
 import { useLang } from './LangContext';
-import { Button, Badge, Overlay } from './UI';
+import { Button, Badge, Overlay, Tabs } from './UI';
+
+const TELEGRAM_BOT_URL = 'https://t.me/sd_viory_video_bot';
 
 export const BUCKET_COLOR = { open: 'blue', paused: 'orange', closed: 'green' };
 
@@ -55,6 +57,7 @@ export default function TicketDetailModal({ ticketId, onClose, onError, onChange
   const { t: tr } = useLang();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState('comments');
   const [reply, setReply] = useState('');
   const [sending, setSending] = useState(false);
 
@@ -95,32 +98,32 @@ export default function TicketDetailModal({ ticketId, onClose, onError, onChange
         <div style={{ textAlign: 'center', padding: 30, color: t.textMuted }}>{tr('tkLoading')}</div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-          {/* state (read-only) + zammad link */}
+          {/* state (read-only) + bot link */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <Badge color={BUCKET_COLOR[data.bucket] || 'gray'}>{stateLabel(data.state, tr)}</Badge>
-            {data.priority && <span style={{ fontSize: 12, color: t.textMuted }}>{tr('tkPriority')}: {data.priority}</span>}
             <span style={{ flex: 1 }} />
-            {data.url && (
-              <a href={data.url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: t.accent, textDecoration: 'none' }}>
-                {tr('tkOpenInZammad')} ↗
-              </a>
-            )}
+            <a href={TELEGRAM_BOT_URL} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: t.accent, textDecoration: 'none' }}>
+              {tr('tkOpenBot')} ↗
+            </a>
           </div>
 
           {/* meta grid */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
             {meta(tr('tkAssignee'), data.assignee)}
             {meta(tr('tkCustomer'), data.customer)}
-            {meta(tr('tkGroup'), data.group_name)}
             {meta(tr('tkCreated'), formatTime(data.zammad_created_at))}
             {meta(tr('tkUpdated'), formatTime(data.zammad_updated_at))}
-            {meta(tr('tkComments'), data.comments?.length ?? 0)}
           </div>
 
-          {/* comment thread */}
-          <div>
-            <div style={{ fontSize: 12, fontWeight: 600, color: t.textSecondary, marginBottom: 8 }}>{tr('tkComments')}</div>
-            {(!data.comments || data.comments.length === 0) ? (
+          {/* comments / events tabs */}
+          <Tabs
+            tabs={[{ id: 'comments', label: tr('tkComments') }, { id: 'events', label: tr('tkEventHistory') }]}
+            active={tab}
+            onChange={setTab}
+          />
+
+          {tab === 'comments' ? (
+            (!data.comments || data.comments.length === 0) ? (
               <div style={{ fontSize: 13, color: t.textMuted }}>{tr('tkNoComments')}</div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -145,14 +148,12 @@ export default function TicketDetailModal({ ticketId, onClose, onError, onChange
                   </div>
                 ))}
               </div>
-            )}
-          </div>
-
-          {/* event history */}
-          {data.events?.length > 0 && (
-            <div>
-              <div style={{ fontSize: 12, fontWeight: 600, color: t.textSecondary, marginBottom: 8 }}>{tr('tkEventHistory')}</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            )
+          ) : (
+            (!data.events || data.events.length === 0) ? (
+              <div style={{ fontSize: 13, color: t.textMuted }}>{tr('tkNoEvents')}</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {data.events.map(ev => {
                   const m = EVENT_META[ev.event_type] || { label: ev.event_type, color: 'gray' };
                   return (
@@ -163,30 +164,34 @@ export default function TicketDetailModal({ ticketId, onClose, onError, onChange
                   );
                 })}
               </div>
-            </div>
+            )
           )}
 
           {/* internal note composer (portal-only) */}
-          <div style={{ borderTop: `1px solid ${t.border}`, paddingTop: 14 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: t.textSecondary, marginBottom: 8 }}>{tr('tkInternalNote')}</div>
-            <textarea
-              value={reply}
-              onChange={e => setReply(e.target.value)}
-              placeholder={tr('tkNotePlaceholder')}
-              rows={3}
-              style={{
-                width: '100%', boxSizing: 'border-box', padding: '8px 12px', fontSize: 13,
-                borderRadius: t.radius, border: `1px solid ${t.border}`,
-                background: t.surface, color: t.text, resize: 'vertical', fontFamily: 'inherit',
-              }}
-            />
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
-              <span style={{ fontSize: 11, color: t.textMuted }}>{tr('tkNoteHint')}</span>
-              <Button size="sm" disabled={sending || !reply.trim()} onClick={sendReply}>
-                {sending ? tr('tkSending') : tr('tkAddNote')}
-              </Button>
+          {tab === 'comments' && (
+            <div style={{ borderTop: `1px solid ${t.border}`, paddingTop: 14 }}>
+              <div style={{ fontSize: 12, marginBottom: 8 }}>
+                <span style={{ fontWeight: 600, color: t.textSecondary }}>{tr('tkInternalNote')}</span>
+                <span style={{ color: t.textMuted }}> · {tr('tkNoteHint')}</span>
+              </div>
+              <textarea
+                value={reply}
+                onChange={e => setReply(e.target.value)}
+                placeholder={tr('tkNotePlaceholder')}
+                rows={3}
+                style={{
+                  width: '100%', boxSizing: 'border-box', padding: '8px 12px', fontSize: 13,
+                  borderRadius: t.radius, border: `1px solid ${t.border}`,
+                  background: t.surface, color: t.text, resize: 'vertical', fontFamily: 'inherit',
+                }}
+              />
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+                <Button size="sm" disabled={sending || !reply.trim()} onClick={sendReply}>
+                  {sending ? tr('tkSending') : tr('tkAddNote')}
+                </Button>
+              </div>
             </div>
-          </div>
+          )}
         </div>
       )}
     </Overlay>
