@@ -223,7 +223,7 @@ async def lifespan(app: FastAPI):
     # webhook is missed or the server was down. Idempotent upsert.
     if settings.ZAMMAD_URL and settings.ZAMMAD_API_TOKEN:
         scheduler.add_job(
-            sync_active_zammad_tickets, "interval", minutes=10,
+            sync_active_zammad_tickets, "interval", minutes=5,
             kwargs={"force": True},
             id="zammad_sync", max_instances=1, coalesce=True,
         )
