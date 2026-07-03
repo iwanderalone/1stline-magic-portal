@@ -511,6 +511,30 @@ class ZammadTicket(Base):
     updated_at        = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
 
 
+class GrafanaAlert(Base):
+    """Grafana alert state, one row per alert fingerprint (upserted on webhook)."""
+    __tablename__ = "grafana_alerts"
+    __table_args__ = (
+        UniqueConstraint("fingerprint", name="uq_grafana_alerts_fingerprint"),
+        Index("ix_grafana_alerts_status", "status"),
+        Index("ix_grafana_alerts_updated_at", "updated_at"),
+    )
+
+    id            = Column(Integer, primary_key=True, autoincrement=True)
+    fingerprint   = Column(String(64), nullable=False)
+    status        = Column(String(20), nullable=False, default="firing")  # firing | resolved
+    alertname     = Column(String(200), nullable=True)
+    severity      = Column(String(50), nullable=True)
+    summary       = Column(Text, nullable=True)
+    labels        = Column(Text, nullable=True)          # raw labels JSON
+    generator_url = Column(String(500), nullable=True)
+    fire_count    = Column(Integer, default=1, nullable=False)
+    starts_at     = Column(DateTime(timezone=True), nullable=True)
+    ends_at       = Column(DateTime(timezone=True), nullable=True)
+    received_at   = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at    = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+
+
 class ZammadComment(Base):
     __tablename__ = "zammad_comments"
     __table_args__ = (
