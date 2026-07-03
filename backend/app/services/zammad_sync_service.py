@@ -79,4 +79,63 @@ async def sync_active_zammad_tickets(*, force: bool = False) -> None:
             await upsert_ticket(db, "ticket_sync", {"ticket": ticket})
         await db.commit()
 
-    logger.info("[tickets] Zammad sync upserted %d active ticket(s)", len(tickets))
+    ticket_ids = [tk.get("id") for tk in tickets if tk.get("id")]
+    backfilled = await backfill_ticket_articles(ticket_ids)
+    logger.info(
+        "[tickets] Zammad sync upserted %d active ticket(s), backfilled %d comment(s)",
+        len(tickets), backfilled,
+    )
+
+
+async def backfill_ticket_articles(ticket_ids: list[int]) -> int:
+    """Import missing article history for the given tickets from the Zammad API.
+
+    Comments normally arrive via webhooks; this covers everything posted before
+    the webhooks existed (or while the portal was down). Deduped by article id,
+    so re-running is free. Returns the number of newly stored comments.
+    """
+    from sqlalchemy import select
+    from app.api.tickets import _extract_comment
+    from app.models.models import ZammadComment, ZammadTicket
+
+    settings = get_settings()
+    if not settings.ZAMMAD_URL or not settings.ZAMMAD_API_TOKEN:
+        return 0
+    base_url = settings.ZAMMAD_URL.rstrip("/")
+    headers = {"Authorization": f"Token token={settings.ZAMMAD_API_TOKEN}"}
+    added = 0
+
+    async with httpx.AsyncClient(timeout=15) as client, AsyncSessionFactory() as db:
+        for tid in ticket_ids:
+            try:
+                resp = await client.get(
+                    f"{base_url}/api/v1/ticket_articles/by_ticket/{tid}",
+                    params={"expand": "true"},
+                    headers=headers,
+                )
+                resp.raise_for_status()
+                articles = resp.json()
+            except httpx.HTTPError as exc:
+                logger.warning("[tickets] article backfill failed for ticket %s: %s", tid, exc)
+                continue
+            if not isinstance(articles, list):
+                continue
+
+            existing_ids = set((await db.execute(
+                select(ZammadComment.article_id).where(ZammadComment.ticket_id == tid)
+            )).scalars().all())
+            last_body = None
+            for art in articles:
+                comment = _extract_comment({"article": art})
+                if not comment or comment.get("article_id") in existing_ids:
+                    continue
+                db.add(ZammadComment(ticket_id=tid, **comment))
+                existing_ids.add(comment.get("article_id"))
+                last_body = comment["body"]
+                added += 1
+            if last_body:
+                tk = await db.get(ZammadTicket, tid)
+                if tk and not tk.last_comment:
+                    tk.last_comment = last_body[:2000]
+        await db.commit()
+    return added

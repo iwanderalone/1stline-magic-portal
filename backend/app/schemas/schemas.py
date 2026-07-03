@@ -658,6 +658,8 @@ class ZammadTicketResponse(BaseModel):
     priority: Optional[str]
     assignee: Optional[str]
     customer: Optional[str]
+    request_type: Optional[str] = None
+    description: Optional[str] = None
     article_count: Optional[int]
     last_comment: Optional[str]
     last_event_type: Optional[str]
