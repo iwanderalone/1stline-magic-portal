@@ -38,6 +38,9 @@ services:
       ZAMMAD_URL: "${ZAMMAD_URL:-}"
       ZAMMAD_API_TOKEN: "${ZAMMAD_API_TOKEN:-}"
       ZAMMAD_SYNC_ON_STARTUP: "${ZAMMAD_SYNC_ON_STARTUP:-true}"
+      ZAMMAD_TELEGRAM_CHAT_ID: "${ZAMMAD_TELEGRAM_CHAT_ID:-}"
+      ZAMMAD_TELEGRAM_THREAD_ID: "${ZAMMAD_TELEGRAM_THREAD_ID:-}"
+      GRAFANA_WEBHOOK_TOKEN: "${GRAFANA_WEBHOOK_TOKEN:-}"
       LOG_DIR: /app/data/logs
     volumes:
       - ./data:/app/data
