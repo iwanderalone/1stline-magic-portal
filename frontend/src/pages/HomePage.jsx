@@ -90,18 +90,13 @@ function statusTone(status) {
   }[status] || 'gray';
 }
 
-function MetricCard({ label, value, detail, icon, color = 'var(--accent)' }) {
+function Stat({ icon, color, value, label }) {
   return (
-    <Card style={{ minHeight: 126 }}>
-      <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-          <div className="t-eyebrow" style={{ marginTop: 2 }}>{label}</div>
-          {icon && <Icon name={icon} size={17} color={color} />}
-        </div>
-        <div style={{ fontFamily: 'var(--font-display)', fontSize: 34, lineHeight: 1, color: 'var(--text)' }}>{value}</div>
-        <div style={{ fontSize: 13, color: 'var(--text-muted)', minHeight: 20 }}>{detail}</div>
-      </div>
-    </Card>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <Icon name={icon} size={14} color={color} />
+      <span style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 600, color: 'var(--text)', lineHeight: 1 }}>{value}</span>
+      <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{label}</span>
+    </div>
   );
 }
 
@@ -151,20 +146,20 @@ export default function HomePage({ user, unread = 0, onNavigate }) {
   const [error, setError] = useState('');
   const [openEmailId, setOpenEmailId] = useState(null);
   const [openTicketId, setOpenTicketId] = useState(null);
-  const [firingAlerts, setFiringAlerts] = useState(0);
+  const [firingList, setFiringList] = useState([]);
 
   const loadTickets = () => api('/tickets/board?limit=50').then(d => setTickets(d || [])).catch(() => {});
-  const loadAlertCount = () => api('/alerts/counts').then(d => setFiringAlerts(d?.firing || 0)).catch(() => {});
+  const loadAlerts = () => api('/alerts?status=firing&limit=50').then(d => setFiringList(d || [])).catch(() => {});
 
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 30000);
     return () => clearInterval(timer);
   }, []);
 
-  // Keep tickets + alert banner live — both arrive via webhooks within seconds.
+  // Keep tickets + alerts live — both arrive via webhooks within seconds.
   useEffect(() => {
-    loadAlertCount();
-    const timer = setInterval(() => { loadTickets(); loadAlertCount(); }, 30000);
+    loadAlerts();
+    const timer = setInterval(() => { loadTickets(); loadAlerts(); }, 30000);
     return () => clearInterval(timer);
   }, []);
 
@@ -221,8 +216,7 @@ export default function HomePage({ user, unread = 0, onNavigate }) {
   }, [tickets]);
 
   const uncheckedList = useMemo(() => emails.filter(e => e.status === 'unchecked'), [emails]);
-  const pausedList = useMemo(() => emails.filter(e => e.status === 'on_pause'), [emails]);
-  const attnTotal = attnTickets.length + uncheckedList.length + pausedList.length;
+  const attnTotal = firingList.length + attnTickets.length + uncheckedList.length;
 
   const currentShift = useMemo(() => {
     const currentUserId = String(user?.id || '');
@@ -252,22 +246,6 @@ export default function HomePage({ user, unread = 0, onNavigate }) {
 
   return (
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
-      {firingAlerts > 0 && (
-        <div
-          onClick={() => onNavigate?.('alerts')}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer',
-            padding: '10px 16px', borderRadius: 'var(--radius)',
-            background: 'rgba(217,83,79,0.10)', border: '1px solid var(--danger)',
-            color: 'var(--danger)', fontWeight: 700, fontSize: 14,
-          }}
-        >
-          <Icon name="siren" size={16} />
-          {firingAlerts} {firingAlerts === 1 ? tr('homeAlertsFiringOne') : tr('homeAlertsFiringMany')} {tr('homeAlertsFiring')}
-          <span style={{ flex: 1 }} />
-          <Icon name="arrowRight" size={14} />
-        </div>
-      )}
       <section style={{
         display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end',
         gap: 18, flexWrap: 'wrap', paddingBottom: 10, borderBottom: '1px solid var(--border-light)',
@@ -295,20 +273,26 @@ export default function HomePage({ user, unread = 0, onNavigate }) {
         </div>
       </section>
 
-      <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 14 }}>
-        <MetricCard label={tr('homeMailQueue')} value={unresolvedEmails.length} detail={`${uncheckedEmails} ${tr('homeUnchecked')} · ${blockedEmails} ${tr('homeBlocked')}`} icon="mail" color="var(--accent)" />
-        <MetricCard label={tr('homeActiveReminders')} value={reminders.length} detail={reminders[0] ? `${tr('homeNext')}: ${reminders[0].title}` : tr('homeNothingScheduled')} icon="bell" color="var(--warning)" />
-        <MetricCard label={tr('homeUnreadNotices')} value={unread} detail={unread > 0 ? tr('homeCheckNotifications') : tr('homeAllClear')} icon="message" color="var(--success)" />
-        <MetricCard label={tr('homeNextEngineer')} value={nextShift ? nextEngineer.split(' ')[0] : '—'} detail={nextShift ? `${nextShift.date} · ${fmtTime(nextShift.start_time) || tr(`shift_${nextShift.shift_type}`)}` : tr('homeNoShiftNextDays')} icon="user" color="var(--accent)" />
+      {/* Slim stat strip — replaces the old full-size metric cards */}
+      <section style={{
+        display: 'flex', alignItems: 'center', gap: 22, flexWrap: 'wrap',
+        padding: '9px 16px', border: '1px solid var(--border-light)',
+        borderRadius: 'var(--radius)', background: 'var(--surface-alt)',
+      }}>
+        <Stat icon="mail" color="var(--accent)" value={unresolvedEmails.length} label={tr('homeMailQueue')} />
+        <Stat icon="bell" color="var(--warning)" value={reminders.length} label={tr('homeActiveReminders')} />
+        <Stat icon="message" color="var(--success)" value={unread} label={tr('homeUnreadNotices')} />
+        <span style={{ flex: 1 }} />
+        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+          {tr('homeNextEngineer')}: <b style={{ color: 'var(--text-secondary)' }}>{nextShift ? nextEngineer.split(' ')[0] : '—'}</b>
+          {nextShift ? ` · ${nextShift.date} ${fmtTime(nextShift.start_time)}` : ''}
+        </span>
       </section>
 
-      <section style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 420px), 1fr))',
-        gap: 16,
-      }}>
+      <section style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'flex-start' }}>
         <Card
           accent="var(--warning)"
+          style={{ flex: '2 1 480px', minWidth: 0 }}
           header={<><Icon name="alertTriangle" size={18} color="var(--warning)" /><h2 style={{ margin: 0, fontSize: 22 }}>{tr('homeAttention')}</h2><span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--text-muted)' }}>{attnTotal}</span></>}
         >
           {loading ? (
@@ -317,6 +301,33 @@ export default function HomePage({ user, unread = 0, onNavigate }) {
             <EmptyState title={tr('homeAttnEmpty')} />
           ) : (
             <div>
+              {firingList.length > 0 && (
+                <AttnSection icon="siren" color="var(--danger)" label={tr('homeAttnAlerts')} count={firingList.length} showAll={tr('homeShowAll')} onShowAll={() => onNavigate?.('alerts')}>
+                  {firingList.slice(0, ATTN_SECTION_MAX).map(a => (
+                    <div
+                      key={a.id}
+                      onClick={() => onNavigate?.('alerts')}
+                      style={{
+                        padding: '9px 18px 9px 39px', display: 'grid',
+                        gridTemplateColumns: 'auto minmax(0, 1fr) auto', gap: 10, alignItems: 'center',
+                        cursor: 'pointer', transition: 'background 120ms ease',
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-alt)'}
+                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                    >
+                      <Badge color="red">{a.severity || 'firing'}</Badge>
+                      <div style={{ minWidth: 0, fontWeight: 650, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {a.alertname || '(unnamed alert)'}
+                        {a.summary && <span style={{ color: 'var(--text-muted)', fontSize: 12, fontWeight: 400, marginLeft: 8 }}>{a.summary}</span>}
+                      </div>
+                      <div style={{ whiteSpace: 'nowrap', fontSize: 12, color: 'var(--danger)', fontWeight: 600 }}>
+                        {fmtDuration(a.starts_at || a.received_at, lang)}
+                      </div>
+                    </div>
+                  ))}
+                </AttnSection>
+              )}
+
               <AttnSection icon="ticket" color="var(--accent)" label={tr('homeAttnTickets')} count={attnTickets.length} showAll={tr('homeShowAll')} onShowAll={() => onNavigate?.('tickets')}>
                 {attnTickets.slice(0, ATTN_SECTION_MAX).map(tk => (
                   <div
@@ -365,33 +376,11 @@ export default function HomePage({ user, unread = 0, onNavigate }) {
                 ))}
               </AttnSection>
 
-              <AttnSection icon="clock" color="var(--accent)" label={tr('homeAttnPaused')} count={pausedList.length} showAll={tr('homeShowAll')} onShowAll={() => onNavigate?.('mail')}>
-                {pausedList.slice(0, ATTN_SECTION_MAX).map(email => (
-                  <div
-                    key={email.id}
-                    onClick={() => setOpenEmailId(email.id)}
-                    style={{
-                      padding: '9px 18px 9px 39px', display: 'grid',
-                      gridTemplateColumns: 'auto minmax(0, 1fr) auto', gap: 10, alignItems: 'center',
-                      cursor: 'pointer', transition: 'background 120ms ease',
-                    }}
-                    onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-alt)'}
-                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                  >
-                    <StatusMarker status={email.status} />
-                    <div style={{ minWidth: 0, fontWeight: 650, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {email.subject || '(no subject)'}
-                      <span style={{ color: 'var(--text-muted)', fontSize: 12, fontWeight: 400, marginLeft: 8 }}>{email.sender || ''}</span>
-                    </div>
-                    <div style={{ whiteSpace: 'nowrap', fontSize: 12, color: 'var(--text-muted)' }}>{fmtSince(email.created_at)}</div>
-                  </div>
-                ))}
-              </AttnSection>
             </div>
           )}
         </Card>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, flex: '1 1 300px', minWidth: 0 }}>
           <Card
             accent="var(--success)"
             header={<><Icon name="calendar" size={18} color="var(--success)" /><h2 style={{ margin: 0, fontSize: 22 }}>{tr('homeShiftContext')}</h2></>}
