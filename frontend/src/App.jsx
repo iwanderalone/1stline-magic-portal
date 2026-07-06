@@ -16,6 +16,7 @@ import HomePage from './pages/HomePage';
 import RunbooksPage from './pages/RunbooksPage';
 import TicketsPage from './pages/TicketsPage';
 import AlertsPage from './pages/AlertsPage';
+import AssistantChat from './components/AssistantChat';
 import NotificationsPanel from './components/NotificationsPanel';
 import CommandPalette from './components/CommandPalette';
 
@@ -472,6 +473,8 @@ export default function App() {
       </div>
 
       {showNotifs && <NotificationsPanel onClose={() => setShowNotifs(false)} />}
+
+      <AssistantChat />
 
       <CommandPalette
         open={paletteOpen}
