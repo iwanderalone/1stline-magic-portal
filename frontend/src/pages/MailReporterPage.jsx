@@ -4,6 +4,7 @@ import { useLang } from '../components/LangContext';
 import { Button, Card, Badge, Input, Overlay, Toast, EmptyState, Tag } from '../components/UI';
 import { Icon } from '../components/Icons';
 import { MessageBody } from '../components/EmailDetailModal';
+import EmailReplies from '../components/EmailReplies';
 
 // --- Constants & Config ---
 
@@ -520,6 +521,16 @@ function EmailDetail({ email, ruleMap, onStatusChange, onAddComment }) {
         </div>
         <MessageBody body={email.body} />
       </section>
+
+      <div style={{ height: 1, background: 'var(--border-light)' }} />
+
+      {/* Outbound replies */}
+      <EmailReplies
+        emailId={email.id}
+        sender={email.sender}
+        mailboxEmail={email.mailbox_email}
+        onError={(message) => window.alert(message)}
+      />
 
       <div style={{ height: 1, background: 'var(--border-light)' }} />
 

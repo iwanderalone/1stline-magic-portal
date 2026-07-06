@@ -106,6 +106,9 @@ class Settings(BaseSettings):
     MAIL_IMAP_SERVER: str = "imap.yandex.com"
     MAIL_IMAP_PORT: int = 993
     MAIL_IMAP_TIMEOUT: int = 30
+    # Outbound SMTP (replies from the portal). Mailboxes reuse their IMAP credentials.
+    MAIL_SMTP_SERVER: str = "smtp.yandex.com"
+    MAIL_SMTP_PORT: int = 465
     MAIL_POLL_INTERVAL: int = 30          # seconds between email checks
     MAIL_DEFAULT_CHAT_ID: str = ""        # fallback Telegram chat_id if mailbox has no target
     MAIL_DEFAULT_THREAD_ID: str = ""      # fallback Telegram thread/topic id

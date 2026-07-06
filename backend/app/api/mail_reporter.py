@@ -10,12 +10,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import get_current_user, require_admin, get_or_404
-from app.models.models import MailboxConfig, EmailLog, EmailComment, MailRoutingRule, User
+from app.models.models import MailboxConfig, EmailLog, EmailComment, EmailReply, MailRoutingRule, User
 from app.schemas.schemas import (
     MailboxConfigCreate, MailboxConfigUpdate, MailboxConfigResponse, EmailLogResponse,
     EmailLogDetailResponse, EmailLogUpdate, EmailCommentCreate, EmailCommentResponse,
+    EmailReplyCreate, EmailReplyResponse,
     MailRoutingRuleCreate, MailRoutingRuleUpdate, MailRoutingRuleResponse,
 )
+from app.services.smtp_service import send_reply, extract_address, SmtpError
 from app.services.mail_reporter_service import (
     _test_imap_connection, check_all_mailboxes,
 )
@@ -360,3 +362,71 @@ async def add_comment(
     await db.commit()
     await db.refresh(comment)
     return comment
+
+
+# ─── Outbound replies (SMTP) ─────────────────────────────────────────
+
+@router.get("/emails/{email_id}/replies", response_model=list[EmailReplyResponse])
+async def list_replies(
+    email_id: int,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    result = await db.execute(
+        select(EmailReply).where(EmailReply.email_id == email_id).order_by(EmailReply.created_at)
+    )
+    return result.scalars().all()
+
+
+@router.post(
+    "/emails/{email_id}/reply",
+    response_model=EmailReplyResponse,
+    status_code=201,
+    summary="Send an SMTP reply to the original sender",
+    description=(
+        "Sends 'Re: <subject>' back to the email's sender, from the mailbox that received it "
+        "(reusing its stored credentials via the configured SMTP server). The sent reply is "
+        "logged and shown in the email's activity thread."
+    ),
+)
+async def reply_to_email(
+    email_id: int,
+    payload: EmailReplyCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    log = await get_or_404(db, EmailLog, email_id)
+    mailbox = await db.get(MailboxConfig, log.mailbox_id)
+    if not mailbox:
+        raise HTTPException(status_code=409, detail="The mailbox for this email no longer exists")
+
+    to_addr = extract_address(log.sender)
+    if not to_addr:
+        raise HTTPException(status_code=422, detail=f"Cannot parse a recipient address from sender {log.sender!r}")
+
+    subject = log.subject or ""
+    if not subject.lower().startswith("re:"):
+        subject = f"Re: {subject}".strip()
+
+    reply = EmailReply(
+        email_id=email_id,
+        user_id=current_user.id,
+        username=current_user.display_name or current_user.username,
+        to_addr=to_addr,
+        subject=subject[:500],
+        body=payload.body,
+    )
+    try:
+        await send_reply(mailbox, to_addr, subject, payload.body, in_reply_to=log.message_id)
+        reply.status = "sent"
+    except SmtpError as exc:
+        reply.status = "failed"
+        reply.error = str(exc)[:1000]
+        db.add(reply)
+        await db.commit()
+        raise HTTPException(status_code=502, detail=str(exc))
+
+    db.add(reply)
+    await db.commit()
+    await db.refresh(reply)
+    return reply
