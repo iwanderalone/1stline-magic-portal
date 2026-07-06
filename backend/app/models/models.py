@@ -395,11 +395,29 @@ class EmailLog(Base):
     status = Column(String(20), default="unchecked", nullable=False)  # unchecked | solved | on_pause | blocked
     solver_comment = Column(Text, nullable=True)
     solved_at = Column(DateTime(timezone=True), nullable=True)
+    message_id = Column(String(500), nullable=True)  # RFC 5322 Message-ID — enables In-Reply-To threading
 
     mailbox = relationship("MailboxConfig", back_populates="logs")
     comments = relationship("EmailComment", back_populates="email_log",
                             cascade="all, delete-orphan",
                             order_by="EmailComment.created_at")
+
+
+class EmailReply(Base):
+    """Outbound SMTP reply sent from the portal for an ingested email."""
+    __tablename__ = "email_replies"
+    __table_args__ = (Index("ix_email_replies_email_id", "email_id"),)
+
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    email_id   = Column(Integer, ForeignKey("email_logs.id", ondelete="CASCADE"), nullable=False)
+    user_id    = Column(Uuid(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    username   = Column(String(100), nullable=True)
+    to_addr    = Column(String(500), nullable=False)
+    subject    = Column(String(500), nullable=False)
+    body       = Column(Text, nullable=False)
+    status     = Column(String(20), default="sent", nullable=False)  # sent | failed
+    error      = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 
 # ─── Telegram Templates ───────────────────────────────────

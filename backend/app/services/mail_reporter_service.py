@@ -742,6 +742,8 @@ async def _check_one_mailbox(mb: MailboxConfig, user_rules: list, builtin_map: d
                     extracted_code=extra.get("code") if category == "adobe" else None,
                     skip_reason=skip_reason,
                     received_at=raw["timestamp"],
+                    # only real RFC Message-IDs (fallback ids are "date|subject" strings)
+                    message_id=raw["msg_id"][:500] if raw["msg_id"].startswith("<") else None,
                 ))
 
                 if sent:
