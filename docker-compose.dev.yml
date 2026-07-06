@@ -67,6 +67,8 @@ services:
       ZAMMAD_TELEGRAM_CHAT_ID: "${ZAMMAD_TELEGRAM_CHAT_ID:-}"
       ZAMMAD_TELEGRAM_THREAD_ID: "${ZAMMAD_TELEGRAM_THREAD_ID:-}"
       GRAFANA_WEBHOOK_TOKEN: "${GRAFANA_WEBHOOK_TOKEN:-}"
+      GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
+      GEMINI_MODEL: "${GEMINI_MODEL:-gemini-flash-latest}"
       LOG_DIR: /app/data/logs
     volumes:
       - ./data-dev:/app/data
