@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { api } from '../api';
 import { Button, Badge, Tag, Overlay, Toast } from './UI';
 import { Icon } from './Icons';
+import EmailReplies from './EmailReplies';
 
 const STATUS_CONFIG = {
   unchecked: { label: 'Unchecked', color: 'yellow', icon: 'clock' },
@@ -154,6 +155,14 @@ export default function EmailDetailModal({ emailId, onClose, onChange }) {
             </div>
             <MessageBody body={email.body} />
           </section>
+
+          {/* Outbound replies */}
+          <EmailReplies
+            emailId={email.id}
+            sender={email.sender}
+            mailboxEmail={email.mailbox_email}
+            onError={(message) => setToast({ message, type: 'error' })}
+          />
 
           {/* Comments */}
           <section style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>

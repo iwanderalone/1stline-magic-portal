@@ -420,6 +420,20 @@ class EmailCommentResponse(BaseOrmModel):
     text: str
     created_at: datetime
 
+class EmailReplyCreate(BaseModel):
+    body: str = Field(..., min_length=1, max_length=20000)
+
+class EmailReplyResponse(BaseOrmModel):
+    id: int
+    email_id: int
+    username: Optional[str]
+    to_addr: str
+    subject: str
+    body: str
+    status: str
+    error: Optional[str]
+    created_at: datetime
+
 class EmailLogResponse(BaseOrmModel):
     id: int
     mailbox_id: int
