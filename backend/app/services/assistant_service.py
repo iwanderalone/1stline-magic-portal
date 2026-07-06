@@ -69,6 +69,11 @@ TOOL_DECLARATIONS = [
         },
     },
     {
+        "name": "list_runbooks",
+        "description": "List all runbooks in the library (slug, title, category). Use when the user asks what runbooks/guides exist.",
+        "parameters": {"type": "object", "properties": {}},
+    },
+    {
         "name": "search_runbooks",
         "description": "Search the runbook library by keywords (matches title, category, tags, when-to-use and step text). Use for any 'how do I…' operational question.",
         "parameters": {
@@ -175,6 +180,15 @@ async def _tool_file_timeoff_request(user: User, args: dict) -> dict:
     return {"ok": True, "status": "pending", "note": "Request filed — awaiting admin approval."}
 
 
+async def _tool_list_runbooks(user: User, args: dict) -> dict:
+    async with AsyncSessionFactory() as db:
+        rows = (await db.execute(select(Runbook).order_by(Runbook.category, Runbook.slug))).scalars().all()
+    return {"runbooks": [
+        {"slug": r.slug, "title": r.title, "category": r.category, "when_to_use": r.when_to_use}
+        for r in rows
+    ]}
+
+
 async def _tool_search_runbooks(user: User, args: dict) -> dict:
     query = (args.get("query") or "").strip()
     if not query:
@@ -232,6 +246,7 @@ TOOL_IMPL = {
     "get_team_schedule": _tool_get_team_schedule,
     "get_my_timeoff": _tool_get_my_timeoff,
     "file_timeoff_request": _tool_file_timeoff_request,
+    "list_runbooks": _tool_list_runbooks,
     "search_runbooks": _tool_search_runbooks,
     "get_runbook": _tool_get_runbook,
 }
@@ -277,6 +292,9 @@ async def run_chat(user: User, messages: list[dict]) -> dict:
     async with httpx.AsyncClient(timeout=45) as client:
         for _ in range(MAX_TOOL_ROUNDS):
             resp = await client.post(url, params={"key": settings.GEMINI_API_KEY}, json=body)
+            if resp.status_code == 429:
+                logger.warning("[assistant] Gemini rate-limited: %s", resp.text[:300])
+                return {"reply": None, "error": "The assistant is rate-limited right now — try again in a minute."}
             if resp.status_code >= 400:
                 logger.warning("[assistant] Gemini %s: %s", resp.status_code, resp.text[:300])
                 return {"reply": None, "error": f"AI service error ({resp.status_code})"}
