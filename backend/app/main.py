@@ -26,6 +26,7 @@ from app.api import mail_reporter
 from app.api import runbooks
 from app.api import tickets
 from app.api import alerts
+from app.api import assistant
 from app.workers.reminder_worker import check_and_fire_reminders
 from app.workers.shift_notification_scheduler import schedule_pending_notifications
 from app.workers.shift_notification_worker import check_shift_notifications
@@ -334,6 +335,7 @@ app.include_router(mail_reporter.router, prefix="/api")
 app.include_router(runbooks.router, prefix="/api")
 app.include_router(tickets.router, prefix="/api")
 app.include_router(alerts.router, prefix="/api")
+app.include_router(assistant.router, prefix="/api")
 
 
 @app.exception_handler(Exception)

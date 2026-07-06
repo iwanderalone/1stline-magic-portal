@@ -96,6 +96,12 @@ class Settings(BaseSettings):
     # (Authorization: Bearer <token>). Empty = accept unauthenticated posts.
     GRAFANA_WEBHOOK_TOKEN: str = ""
 
+    # AI assistant (Gemini). Empty key = assistant disabled.
+    # Privacy boundary: only TEAM data (schedule, time-off, runbooks) is ever
+    # sent to the model — never customer ticket/email content.
+    GEMINI_API_KEY: str = ""
+    GEMINI_MODEL: str = "gemini-flash-latest"
+
     # Mail Reporter
     MAIL_IMAP_SERVER: str = "imap.yandex.com"
     MAIL_IMAP_PORT: int = 993
