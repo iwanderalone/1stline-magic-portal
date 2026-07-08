@@ -40,9 +40,17 @@ def _send_sync(
         msg["References"] = in_reply_to
     msg.set_content(body)
 
-    with smtplib.SMTP_SSL(host, port, timeout=30) as smtp:
-        smtp.login(login, password)
-        smtp.send_message(msg)
+    # Port 465 = implicit SSL; anything else (587) = STARTTLS.
+    # (The VPS provider blocks outbound 465, so 587 is the default.)
+    if port == 465:
+        with smtplib.SMTP_SSL(host, port, timeout=30) as smtp:
+            smtp.login(login, password)
+            smtp.send_message(msg)
+    else:
+        with smtplib.SMTP(host, port, timeout=30) as smtp:
+            smtp.starttls()
+            smtp.login(login, password)
+            smtp.send_message(msg)
 
 
 async def send_reply(
