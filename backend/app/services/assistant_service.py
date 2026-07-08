@@ -4,6 +4,7 @@ Privacy boundary (user-approved): only TEAM data is sent to the model —
 schedule, time-off, runbook content, and the user's own messages. Customer
 ticket/email content must NEVER be wired into these tools.
 """
+import asyncio
 import json
 import logging
 from datetime import date, datetime, timedelta
@@ -291,7 +292,15 @@ async def run_chat(user: User, messages: list[dict]) -> dict:
     tools_used: list[str] = []
     async with httpx.AsyncClient(timeout=45) as client:
         for _ in range(MAX_TOOL_ROUNDS):
-            resp = await client.post(url, params={"key": settings.GEMINI_API_KEY}, json=body)
+            # Google intermittently 503s under load ("high demand") — retry with backoff.
+            for attempt in range(3):
+                resp = await client.post(url, params={"key": settings.GEMINI_API_KEY}, json=body)
+                if resp.status_code != 503:
+                    break
+                logger.warning("[assistant] Gemini 503 (overloaded), attempt %d/3", attempt + 1)
+                await asyncio.sleep(2 * (attempt + 1))
+            if resp.status_code == 503:
+                return {"reply": None, "error": "The AI model is overloaded on Google's side right now — please try again in a moment."}
             if resp.status_code == 429:
                 logger.warning("[assistant] Gemini rate-limited: %s", resp.text[:300])
                 return {"reply": None, "error": "The assistant is rate-limited right now — try again in a minute."}
