@@ -205,26 +205,39 @@ export default function AssistantChat() {
             {error && <div style={{ fontSize: 12, color: 'var(--danger)', paddingLeft: 38 }}>{error}</div>}
           </div>
 
-          {/* input */}
+          {/* input — auto-growing textarea, Enter sends, Shift+Enter = newline */}
           <form
             onSubmit={e => { e.preventDefault(); send(); }}
-            style={{ display: 'flex', gap: 8, padding: 12, borderTop: '1px solid var(--border)' }}
+            style={{ display: 'flex', gap: 8, padding: 12, borderTop: '1px solid var(--border)', alignItems: 'flex-end' }}
           >
-            <input
+            <textarea
               value={input}
-              onChange={e => setInput(e.target.value)}
+              rows={1}
+              onChange={e => {
+                setInput(e.target.value);
+                e.target.style.height = 'auto';
+                e.target.style.height = Math.min(e.target.scrollHeight, 110) + 'px';
+              }}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  send();
+                  e.target.style.height = 'auto';
+                }
+              }}
               placeholder={tr('aiPlaceholder')}
               style={{
                 flex: 1, padding: '9px 12px', fontSize: 13, fontFamily: 'inherit',
                 background: 'var(--surface-alt)', border: '1px solid var(--border)',
                 borderRadius: 'var(--radius-sm)', color: 'var(--text)', outline: 'none',
+                resize: 'none', lineHeight: 1.45, maxHeight: 110, overflowY: 'auto',
               }}
             />
             <button type="submit" disabled={busy || !input.trim()} style={{
               border: 'none', background: 'var(--accent)', color: '#fff',
-              borderRadius: 'var(--radius-sm)', padding: '0 14px', cursor: 'pointer',
+              borderRadius: 'var(--radius-sm)', padding: '9px 14px', cursor: 'pointer',
               opacity: busy || !input.trim() ? 0.5 : 1,
-              display: 'flex', alignItems: 'center',
+              display: 'flex', alignItems: 'center', flexShrink: 0,
             }}>
               <Icon name="send" size={15} color="#fff" />
             </button>
