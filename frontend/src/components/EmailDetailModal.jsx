@@ -2,13 +2,14 @@ import { useState, useEffect, useCallback } from 'react';
 import { api } from '../api';
 import { Button, Badge, Tag, Overlay, Toast } from './UI';
 import { Icon } from './Icons';
+import { useLang } from './LangContext';
 import EmailReplies from './EmailReplies';
 
 const STATUS_CONFIG = {
-  unchecked: { label: 'Unchecked', color: 'yellow', icon: 'clock' },
-  solved:    { label: 'Solved',    color: 'green',  icon: 'checkCircle' },
-  on_pause:  { label: 'Paused',    color: 'blue',   icon: 'play' },
-  blocked:   { label: 'Blocked',   color: 'red',    icon: 'alertTriangle' },
+  unchecked: { key: 'mailStatusUnchecked', color: 'yellow', icon: 'clock' },
+  solved:    { key: 'mailStatusSolved',    color: 'green',  icon: 'checkCircle' },
+  on_pause:  { key: 'mailStatusPaused',    color: 'blue',   icon: 'play' },
+  blocked:   { key: 'mailStatusBlocked',   color: 'red',    icon: 'alertTriangle' },
 };
 const STATUS_CYCLE = ['unchecked', 'on_pause', 'blocked', 'solved'];
 
@@ -48,6 +49,7 @@ export function MessageBody({ body }) {
 }
 
 export default function EmailDetailModal({ emailId, onClose, onChange }) {
+  const { t: tr } = useLang();
   const [email, setEmail] = useState(null);
   const [comments, setComments] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -107,10 +109,10 @@ export default function EmailDetailModal({ emailId, onClose, onChange }) {
   };
 
   return (
-    <Overlay onClose={onClose} title={loading ? 'Loading…' : (email?.subject || '(no subject)')} maxWidth={720}>
+    <Overlay onClose={onClose} title={loading ? tr('mailLoading') : (email?.subject || '(no subject)')} maxWidth={720}>
       {toast && <Toast {...toast} onClose={() => setToast(null)} />}
       {loading || !email ? (
-        <div style={{ padding: 30, color: 'var(--text-muted)', textAlign: 'center' }}>Loading…</div>
+        <div style={{ padding: 30, color: 'var(--text-muted)', textAlign: 'center' }}>{tr('mailLoading')}</div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
           {/* Status cycle */}
@@ -128,7 +130,7 @@ export default function EmailDetailModal({ emailId, onClose, onChange }) {
                     display: 'flex', alignItems: 'center', gap: 5,
                     boxShadow: active ? 'var(--shadow-xs)' : 'none', fontFamily: 'inherit',
                   }}>
-                  <Icon name={cfg.icon} size={11} /> {cfg.label}
+                  <Icon name={cfg.icon} size={11} /> {tr(cfg.key)}
                 </button>
               );
             })}
@@ -136,11 +138,11 @@ export default function EmailDetailModal({ emailId, onClose, onChange }) {
 
           {/* Meta */}
           <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '6px 14px', fontSize: 13 }}>
-            <span className="t-eyebrow">From</span>
+            <span className="t-eyebrow">{tr('mailFrom')}</span>
             <span style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', wordBreak: 'break-all' }}>{email.sender || '—'}</span>
-            <span className="t-eyebrow">Mailbox</span>
+            <span className="t-eyebrow">{tr('mailMailboxLbl')}</span>
             <span style={{ color: 'var(--text-secondary)' }}>{email.mailbox_email || '—'}</span>
-            <span className="t-eyebrow">Received</span>
+            <span className="t-eyebrow">{tr('mailReceived')}</span>
             <span style={{ color: 'var(--text-secondary)' }}>{new Date(email.received_at || email.created_at).toLocaleString()}</span>
             {email.extracted_code && (<>
               <span className="t-eyebrow">Code</span>
@@ -151,7 +153,7 @@ export default function EmailDetailModal({ emailId, onClose, onChange }) {
           {/* Body */}
           <section style={{ background: 'var(--surface-alt)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 14 }}>
             <div className="t-eyebrow" style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Icon name="mail" size={11} /> Message
+              <Icon name="mail" size={11} /> {tr('mailMessageBody')}
             </div>
             <MessageBody body={email.body} />
           </section>
@@ -166,10 +168,10 @@ export default function EmailDetailModal({ emailId, onClose, onChange }) {
 
           {/* Comments */}
           <section style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <div className="t-eyebrow">Comments ({comments.length})</div>
+            <div className="t-eyebrow">{tr('tkComments')} ({comments.length})</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 200, overflowY: 'auto' }}>
               {comments.length === 0 ? (
-                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>No comments yet.</div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{tr('mailNoComments')}</div>
               ) : comments.map(c => (
                 <div key={c.id} style={{ padding: '8px 10px', background: 'var(--surface-alt)', borderRadius: 'var(--radius-xs)', border: '1px solid var(--border-light)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 4 }}>
@@ -184,14 +186,14 @@ export default function EmailDetailModal({ emailId, onClose, onChange }) {
               <input
                 value={commentText}
                 onChange={e => setCommentText(e.target.value)}
-                placeholder="Add a comment…"
+                placeholder={tr('mailWriteComment')}
                 style={{
                   flex: 1, padding: '8px 12px', fontSize: 13, fontFamily: 'inherit',
                   background: 'var(--surface)', border: '1px solid var(--border)',
                   borderRadius: 'var(--radius-sm)', color: 'var(--text)',
                 }}
               />
-              <Button type="submit" size="sm" disabled={!commentText.trim() || busy} icon="send">Post</Button>
+              <Button type="submit" size="sm" disabled={!commentText.trim() || busy} icon="send">{tr('mailPostComment')}</Button>
             </form>
           </section>
         </div>

@@ -2,6 +2,9 @@
 // Usage: <Icon name="user" size={18} color="currentColor" />
 
 const PATHS = {
+  filter: (
+    <path d="M2 3.5h14l-5.5 6.5v5l-3 1.5v-6.5L2 3.5z" strokeLinecap="round" strokeLinejoin="round" />
+  ),
   user: (
     <>
       <circle cx="9" cy="6" r="3.5" />

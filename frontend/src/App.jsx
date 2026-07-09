@@ -277,20 +277,45 @@ export default function App() {
     </>
   );
 
-  const nav = [
-    { id: 'home',      label: tr('home') },
-    { id: 'profile',   label: lang === 'ru' ? 'Профиль'  : 'My Profile' },
-    { id: 'schedule',  label: tr('schedule') },
-    { id: 'mail',      label: lang === 'ru' ? 'Почта'    : 'Mail' },
-    { id: 'tickets',   label: lang === 'ru' ? 'Тикеты'   : 'Tickets' },
-    { id: 'alerts',    label: lang === 'ru' ? 'Алерты'   : 'Alerts' },
-    { id: 'runbooks',  label: lang === 'ru' ? 'Рунбуки'  : 'Runbooks' },
-    { id: 'timeoff',   label: tr('timeOff') },
-    { id: 'reminders', label: tr('reminders') },
-    ...(auth.user.role === 'admin' ? [
-      { id: 'admin',      label: tr('admin') },
-    ] : []),
+  const navGroups = [
+    { id: 'top', items: [{ id: 'home', label: tr('home') }] },
+    {
+      id: 'ops', label: lang === 'ru' ? 'Операции' : 'Operations',
+      items: [
+        { id: 'mail',    label: lang === 'ru' ? 'Почта'  : 'Mail' },
+        { id: 'tickets', label: lang === 'ru' ? 'Тикеты' : 'Tickets' },
+        { id: 'alerts',  label: lang === 'ru' ? 'Алерты' : 'Alerts' },
+      ],
+    },
+    {
+      id: 'team', label: lang === 'ru' ? 'Команда' : 'Team',
+      items: [
+        { id: 'schedule',  label: tr('schedule') },
+        { id: 'timeoff',   label: tr('timeOff') },
+        { id: 'reminders', label: tr('reminders') },
+      ],
+    },
+    {
+      id: 'knowledge', label: lang === 'ru' ? 'База знаний' : 'Knowledge',
+      items: [{ id: 'runbooks', label: lang === 'ru' ? 'Рунбуки' : 'Runbooks' }],
+    },
+    {
+      id: 'bottom', divider: true,
+      items: [
+        { id: 'profile', label: lang === 'ru' ? 'Профиль' : 'My Profile' },
+        ...(auth.user.role === 'admin' ? [{ id: 'admin', label: tr('admin') }] : []),
+      ],
+    },
   ];
+
+  const [collapsedGroups, setCollapsedGroups] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('navCollapsed') || '[]'); } catch { return []; }
+  });
+  const toggleGroup = (gid) => setCollapsedGroups(prev => {
+    const next = prev.includes(gid) ? prev.filter(g => g !== gid) : [...prev, gid];
+    localStorage.setItem('navCollapsed', JSON.stringify(next));
+    return next;
+  });
 
   const isRail   = bp === 'rail';
   const isMobile = bp === 'mobile';
@@ -350,26 +375,49 @@ export default function App() {
       )}
       {isRail && <div style={{ marginBottom: 12 }} />}
 
-      {/* Primary nav */}
+      {/* Primary nav — grouped sections with collapse */}
       <nav style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 1 }}>
-        {nav.map(item => (
-          <button
-            key={item.id}
-            onClick={() => navigate(item.id)}
-            title={isRail ? item.label : undefined}
-            className={`nav-item${page === item.id ? ' active' : ''}`}
-            style={{
-              marginBottom: 1,
-              color: page === item.id ? 'var(--accent)' : 'var(--text-secondary)',
-              background: page === item.id ? 'var(--accent-light)' : 'transparent',
-              justifyContent: isRail ? 'center' : 'flex-start',
-              padding: isRail ? '9px' : '7px 10px 7px 14px',
-            }}
-          >
-            <Icon name={NAV_ICONS[item.id]} size={15} color="currentColor" />
-            {!isRail && <span style={{ flex: 1 }}>{item.label}</span>}
-          </button>
-        ))}
+        {navGroups.map(group => {
+          const hasActive = group.items.some(it => it.id === page);
+          const collapsed = !isRail && group.label && collapsedGroups.includes(group.id) && !hasActive;
+          return (
+            <div key={group.id} style={group.divider ? { marginTop: 'auto', paddingTop: 10, borderTop: '1px solid var(--border-light)' } : undefined}>
+              {group.label && !isRail && (
+                <button
+                  onClick={() => toggleGroup(group.id)}
+                  className="t-eyebrow"
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 5, width: '100%',
+                    background: 'none', border: 'none', cursor: 'pointer',
+                    padding: '9px 10px 4px 14px', color: 'var(--text-muted)',
+                    fontFamily: 'inherit', textAlign: 'left',
+                  }}
+                >
+                  <Icon name={collapsed ? 'chevronRight' : 'chevronDown'} size={10} color="var(--text-muted)" />
+                  {group.label}
+                </button>
+              )}
+              {!collapsed && group.items.map(item => (
+                <button
+                  key={item.id}
+                  onClick={() => navigate(item.id)}
+                  title={isRail ? item.label : undefined}
+                  className={`nav-item${page === item.id ? ' active' : ''}`}
+                  style={{
+                    marginBottom: 1, width: '100%',
+                    color: page === item.id ? 'var(--accent)' : 'var(--text-secondary)',
+                    background: page === item.id ? 'var(--accent-light)' : 'transparent',
+                    justifyContent: isRail ? 'center' : 'flex-start',
+                    padding: isRail ? '9px' : '7px 10px 7px 14px',
+                  }}
+                >
+                  <Icon name={NAV_ICONS[item.id]} size={15} color="currentColor" />
+                  {!isRail && <span style={{ flex: 1 }}>{item.label}</span>}
+                </button>
+              ))}
+            </div>
+          );
+        })}
       </nav>
 
       {/* User profile + logout */}
