@@ -5,6 +5,7 @@ SMTP server (Yandex by default; same login works for both protocols). Sync
 smtplib is run in a worker thread to stay off the event loop.
 """
 import asyncio
+import html as html_mod
 import logging
 import smtplib
 from email.message import EmailMessage
@@ -15,6 +16,18 @@ from app.core.encryption import decrypt
 from app.models.models import MailboxConfig
 
 logger = logging.getLogger(__name__)
+
+# Team signature — mirrors the webmail one (logo image omitted: needs a hosted asset).
+SIGNATURE_TEXT = (
+    "\n\n--\nBest regards,\n\n"
+    "IT Support  |  viory.video  |  Telegram: @itsupport_viory"
+)
+SIGNATURE_HTML = (
+    "<br><br>--<br>Best regards,<br><br>"
+    "<b>IT Support</b>&nbsp;&nbsp;|&nbsp;&nbsp;"
+    '<a href="https://viory.video">viory.video</a>&nbsp;&nbsp;|&nbsp;&nbsp;'
+    'Telegram: <a href="https://t.me/itsupport_viory">@itsupport_viory</a>'
+)
 
 
 class SmtpError(Exception):
@@ -30,15 +43,22 @@ def extract_address(sender: str) -> str:
 def _send_sync(
     host: str, port: int, login: str, password: str,
     to_addr: str, subject: str, body: str, in_reply_to: str | None,
+    from_name: str,
 ) -> None:
     msg = EmailMessage()
-    msg["From"] = formataddr(("1stline Support", login))
+    msg["From"] = formataddr((from_name, login))
     msg["To"] = to_addr
     msg["Subject"] = subject
     if in_reply_to:
         msg["In-Reply-To"] = in_reply_to
         msg["References"] = in_reply_to
-    msg.set_content(body)
+    # Plain + HTML alternative, both carrying the team signature.
+    msg.set_content(body + SIGNATURE_TEXT)
+    body_html = html_mod.escape(body).replace("\n", "<br>")
+    msg.add_alternative(
+        f'<div style="font-family:sans-serif;font-size:14px;line-height:1.5">{body_html}{SIGNATURE_HTML}</div>',
+        subtype="html",
+    )
 
     # Port 465 = implicit SSL; anything else (587) = STARTTLS.
     # (The VPS provider blocks outbound 465, so 587 is the default.)
@@ -74,6 +94,7 @@ async def send_reply(
             _send_sync,
             settings.MAIL_SMTP_SERVER, settings.MAIL_SMTP_PORT,
             mailbox.email, password, to_addr, subject, body, in_reply_to,
+            settings.MAIL_FROM_NAME,
         )
     except smtplib.SMTPAuthenticationError as exc:
         raise SmtpError(f"SMTP authentication failed for {mailbox.email} — check the mailbox password / app password") from exc
