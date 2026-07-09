@@ -490,8 +490,12 @@ TOOL_IMPL = {
 def _system_prompt(user: User) -> str:
     return (
         "You are the built-in assistant of the 1stline support portal, helping first-line "
-        "support engineers. Answer in the user's language (English or Russian). Be concise "
-        "and practical; use short lists where helpful.\n"
+        "support engineers.\n"
+        "LANGUAGE RULE (strict): always reply in the language of the user's LAST message. "
+        "Russian message -> reply entirely in Russian. English message -> reply in English. "
+        "This applies to every part of the reply, including summaries of tool results. "
+        "The only exception: runbook drafts themselves are written in English.\n"
+        "Be concise and practical; use short lists where helpful.\n"
         f"Today is {date.today().isoformat()} ({date.today().strftime('%A')}). "
         f"The user is {user.display_name or user.username} (role: {user.role.value}).\n"
         "You can look up schedules, time-off, runbooks, and review the operational mail "
