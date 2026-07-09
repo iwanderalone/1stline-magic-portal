@@ -367,6 +367,7 @@ export default function SchedulePage({ user }) {
         <ShiftDetailModal
           shift={selectedShift}
           configs={configs}
+          fmtTime={fmtTime}
           onClose={() => setSelectedShift(null)}
           onSave={data => handleEditShift(selectedShift.id, data)}
           onDelete={() => {
@@ -490,7 +491,7 @@ function TimeOffModal({ onClose, onSubmit }) {
   );
 }
 
-function ShiftDetailModal({ shift, configs, onClose, onSave, onDelete }) {
+function ShiftDetailModal({ shift, configs, onClose, onSave, onDelete, fmtTime }) {
   const { t: tr } = useLang();
   const [shiftType, setShiftType] = useState(shift.shift_type);
   const [location, setLocation] = useState(shift.location || '');
@@ -507,7 +508,7 @@ function ShiftDetailModal({ shift, configs, onClose, onSave, onDelete }) {
           </div>
           <div>
             <div style={{ fontWeight: 600 }}>{shift.user?.display_name || '—'}</div>
-            <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{shift.date} · {shift.start_time?.slice(0,5) || '—'}–{shift.end_time?.slice(0,5) || '—'}</div>
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{shift.date} · {fmtTime ? fmtTime(shift.start_time, shift.date) : shift.start_time?.slice(0,5)}–{fmtTime ? fmtTime(shift.end_time, shift.date) : shift.end_time?.slice(0,5)}</div>
           </div>
           <Badge color={shift.pending_delete ? 'red' : (isPublished ? 'green' : 'yellow')} style={{ marginLeft: 'auto' }}>
             {shift.pending_delete ? tr('scheduleStagedForRemoval') : (isPublished ? tr('schedulePublished') : tr('scheduleDraft'))}
@@ -654,7 +655,7 @@ function WeeklyScheduleBoard({ weekDates, shiftTypes, shifts, timeOff, isAdmin, 
             <Icon name={cfg.shift_type === 'night' ? 'moon' : cfg.shift_type === 'office' ? 'workspace' : 'sun'} size={18} color={cfg.color || 'var(--accent)'} />
             <div style={{ fontSize: 16, fontWeight: 700 }}>{shiftLabel(tr, cfg.shift_type)}</div>
             <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-              {cfg.default_start_time?.slice(0,5)} – {cfg.default_end_time?.slice(0,5)}
+              {fmtTime(cfg.default_start_time, fmt(weekDates[0]))} – {fmtTime(cfg.default_end_time, fmt(weekDates[0]))}
             </div>
           </div>
 

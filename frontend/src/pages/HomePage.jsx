@@ -46,9 +46,14 @@ function greetingFor(date, lang) {
   return 'Good evening';
 }
 
-function fmtTime(value) {
+function fmtShiftTime(value, date, tz) {
   if (!value) return '';
-  return String(value).slice(0, 5);
+  try {
+    const d = new Date(`${date}T${value}${String(value).length === 5 ? ':00' : ''}Z`);
+    return d.toLocaleTimeString('en-GB', { timeZone: tz || 'UTC', hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return String(value).slice(0, 5);
+  }
 }
 
 function fmtSince(dt) {
@@ -68,13 +73,13 @@ function plural(count, one, many) {
 
 function shiftStartMs(shift) {
   const start = shift.start_time || '00:00';
-  return new Date(`${shift.date}T${start}`).getTime();
+  return new Date(`${shift.date}T${start}${String(start).length === 5 ? ':00' : ''}Z`).getTime();
 }
 
 function shiftEndMs(shift) {
   const start = shift.start_time || '00:00';
   const end = shift.end_time || start;
-  const base = new Date(`${shift.date}T${end}`);
+  const base = new Date(`${shift.date}T${end}${String(end).length === 5 ? ':00' : ''}Z`);
   if (shift.end_time && shift.start_time && shift.end_time <= shift.start_time) {
     base.setDate(base.getDate() + 1);
   }
@@ -238,7 +243,7 @@ export default function HomePage({ user, unread = 0, onNavigate }) {
   const displayName = user?.display_name || user?.username || tr('homeEngineerFallback');
 
   const shiftDetail = currentShift
-    ? `${tr(`shift_${currentShift.shift_type}`)}${currentShift.start_time ? ` · ${fmtTime(currentShift.start_time)}-${fmtTime(currentShift.end_time)}` : ''}`
+    ? `${tr(`shift_${currentShift.shift_type}`)}${currentShift.start_time ? ` · ${fmtShiftTime(currentShift.start_time, currentShift.date, user?.timezone)}-${fmtShiftTime(currentShift.end_time, currentShift.date, user?.timezone)}` : ''}`
     : tr('homeNoActiveShift');
   const mailAttention = unresolvedEmails.length > 0
     ? `${unresolvedEmails.length} ${plural(unresolvedEmails.length, tr('homeMailItem'), tr('homeMailItems'))} ${tr('homeNeedAttention')}`
@@ -285,7 +290,7 @@ export default function HomePage({ user, unread = 0, onNavigate }) {
         <span style={{ flex: 1 }} />
         <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
           {tr('homeNextEngineer')}: <b style={{ color: 'var(--text-secondary)' }}>{nextShift ? nextEngineer.split(' ')[0] : '—'}</b>
-          {nextShift ? ` · ${nextShift.date} ${fmtTime(nextShift.start_time)}` : ''}
+          {nextShift ? ` · ${nextShift.date} ${fmtShiftTime(nextShift.start_time, nextShift.date, user?.timezone)}` : ''}
         </span>
       </section>
 
@@ -404,7 +409,7 @@ export default function HomePage({ user, unread = 0, onNavigate }) {
                     <Avatar name={nextShift.user?.display_name || nextEngineer} color={nextShift.user?.name_color || 'var(--accent)'} />
                     <div>
                       <div style={{ fontWeight: 700 }}>{nextEngineer}</div>
-                      <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>{nextShift.date} · {tr(`shift_${nextShift.shift_type}`)} {fmtTime(nextShift.start_time)}</div>
+                      <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>{nextShift.date} · {tr(`shift_${nextShift.shift_type}`)} {fmtShiftTime(nextShift.start_time, nextShift.date, user?.timezone)}</div>
                     </div>
                   </div>
                 ) : (
