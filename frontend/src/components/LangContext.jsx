@@ -110,7 +110,7 @@ const translations = {
     homeShowAll: 'Show all',
     aiTitle: 'Assistant',
     aiScope: 'schedule · time off · runbooks · mail review',
-    aiHello: 'Meow! I\'m the portal assistant. I can:\n* **Schedule** — your shifts and who\'s on duty\n* **Time off** — check requests or file a vacation/day-off (goes to admin approval)\n* **Runbooks** — find the right guide for "how do I…" questions\n* **Mail review** — paused or onboarding emails, “did we miss anything this week?”\n\nAsk me in English or Russian!',
+    aiHello: 'Meow! I\'m the portal assistant. I can:\n* **Schedule** — your shifts and who\'s on duty\n* **Time off** — check requests or file a vacation/day-off (goes to admin approval)\n* **Runbooks** — find the right guide, or draft a new runbook: \"check ticket 82505 and make a runbook\"\n* **Mail review** — \"did we miss anything this week?\", paused or onboarding emails\n\nAsk me in English or Russian!',
     aiPlaceholder: 'Ask about shifts, time off, runbooks…',
     aiThinking: 'Thinking…',
     // Mail page chrome
@@ -559,7 +559,7 @@ const translations = {
     homeShowAll: 'Показать все',
     aiTitle: 'Ассистент',
     aiScope: 'смены · отпуск · ранбуки · обзор почты',
-    aiHello: 'Мяу! Я ассистент портала. Умею:\n* **Расписание** — ваши смены и кто дежурит\n* **Отпуска** — проверить заявки или оформить отпуск/отгул (уйдёт на согласование админу)\n* **Ранбуки** — найти нужную инструкцию на вопрос «как сделать…»\n* **Обзор почты** — «что мы упустили за неделю?», письма на паузе, онбординги\n\nСпрашивайте на русском или английском!',
+    aiHello: 'Мяу! Я ассистент портала. Умею:\n* **Расписание** — ваши смены и кто дежурит\n* **Отпуска** — проверить заявки или оформить отпуск/отгул (уйдёт на согласование админу)\n* **Ранбуки** — найти нужную инструкцию или создать черновик: «проверь тикет 82505 и сделай ранбук»\n* **Обзор почты** — «что мы упустили за неделю?», письма на паузе, онбординги\n\nСпрашивайте на русском или английском!',
     aiPlaceholder: 'Спросите про смены, отпуск, ранбуки…',
     aiThinking: 'Думаю…',
     // Mail page chrome
