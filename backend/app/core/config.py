@@ -110,6 +110,7 @@ class Settings(BaseSettings):
     # 587 = STARTTLS (465 is blocked by the VPS provider).
     MAIL_SMTP_SERVER: str = "smtp.yandex.com"
     MAIL_SMTP_PORT: int = 587
+    MAIL_FROM_NAME: str = "Viory IT Support"
     MAIL_POLL_INTERVAL: int = 30          # seconds between email checks
     MAIL_DEFAULT_CHAT_ID: str = ""        # fallback Telegram chat_id if mailbox has no target
     MAIL_DEFAULT_THREAD_ID: str = ""      # fallback Telegram thread/topic id
