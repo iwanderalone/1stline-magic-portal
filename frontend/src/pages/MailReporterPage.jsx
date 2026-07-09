@@ -328,6 +328,7 @@ function EmailSidebar({ counts, activeFolder, onSelect, rules, mailboxes }) {
         <Item id="inbox" label="Inbox" icon="inbox" count={counts.inbox} />
         <Item id="unrouted" label="Unrouted" icon="filter" count={counts.unrouted} />
         <Item id="archive" label="Archive" icon="archive" />
+        <Item id="sent" label="Sent" icon="send" />
       </div>
 
       <div style={{ height: 1, background: 'var(--border-light)', margin: '4px 0' }} />
@@ -410,6 +411,15 @@ function EmailList({ emails, activeId, onSelect, loading, ruleMap }) {
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{em.last_comment}</span>
               </div>
             )}
+            {em.reply_count > 0 && (
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 5, marginBottom: 6,
+                fontSize: '11px', color: 'var(--success)', fontWeight: 600,
+              }}>
+                <Icon name="send" size={10} />
+                Replied{em.reply_count > 1 ? ` ×${em.reply_count}` : ''}
+              </div>
+            )}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               {rule ? <RuleBadge rule={rule} style={{ fontSize: '10px', padding: '0 8px' }} /> : <Badge tone="gray" style={{ fontSize: '10px' }}>General</Badge>}
               <span style={{ flex: 1 }} />
@@ -421,6 +431,49 @@ function EmailList({ emails, activeId, onSelect, loading, ruleMap }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function SentList({ replies, loading, activeId, onSelect }) {
+  if (loading) return <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>Loading…</div>;
+  if (replies.length === 0) return (
+    <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <EmptyState icon={<Icon name="send" size={32} />} title="Nothing sent yet" subtitle="Replies sent from the portal will appear here" />
+    </div>
+  );
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column' }}>
+      {replies.map(r => (
+        <div
+          key={r.id}
+          onClick={() => onSelect(r.email_id)}
+          style={{
+            padding: '12px 16px', borderBottom: '1px solid var(--border-light)', cursor: 'pointer',
+            background: activeId === r.email_id ? 'var(--surface-alt)' : 'transparent',
+            transition: 'background 0.1s ease', position: 'relative',
+          }}
+        >
+          {activeId === r.email_id && <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: 'var(--accent)' }} />}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+            <span style={{
+              fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em',
+              color: r.status === 'failed' ? 'var(--danger)' : 'var(--success)',
+              display: 'flex', alignItems: 'center', gap: 4,
+            }}>
+              <Icon name={r.status === 'failed' ? 'alertTriangle' : 'send'} size={10} />
+              {r.status === 'failed' ? 'Failed' : 'Sent'}
+            </span>
+            <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{fmtTime(r.created_at)}</span>
+          </div>
+          <div style={{ fontWeight: 600, fontSize: '13.5px', marginBottom: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-secondary)' }}>
+            {r.subject || '(no subject)'}
+          </div>
+          <div style={{ fontSize: '12px', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            → {r.to_addr} · {r.username || '—'}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -662,6 +715,18 @@ export default function MailReporterPage({ user }) {
     } catch (e) { showToast(e.message, 'error'); }
   };
 
+  // Sent view — outbound replies log
+  const [sentReplies, setSentReplies] = useState([]);
+  const [sentLoading, setSentLoading] = useState(false);
+  useEffect(() => {
+    if (activeFolder !== 'sent') return;
+    setSentLoading(true);
+    api('/mail-reporter/replies?limit=150')
+      .then(d => setSentReplies(d || []))
+      .catch(e => showToast(e.message, 'error'))
+      .finally(() => setSentLoading(false));
+  }, [activeFolder]);
+
   const handleStatusChange = async (email, status) => {
     try {
       const updated = await api(`/mail-reporter/emails/${email.id}`, { method: 'PATCH', body: JSON.stringify({ status }) });
@@ -714,7 +779,11 @@ export default function MailReporterPage({ user }) {
 
         {/* List */}
         <div style={{ width: 380, background: 'var(--bg)', overflowY: 'auto', borderRight: '1px solid var(--border-light)', display: 'flex', flexDirection: 'column' }}>
-          <EmailList emails={filteredEmails} activeId={selectedEmail?.id} onSelect={pickEmail} loading={loading} ruleMap={ruleMap} />
+          {activeFolder === 'sent' ? (
+            <SentList replies={sentReplies} loading={sentLoading} activeId={selectedEmail?.id} onSelect={(emailId) => pickEmail({ id: emailId })} />
+          ) : (
+            <EmailList emails={filteredEmails} activeId={selectedEmail?.id} onSelect={pickEmail} loading={loading} ruleMap={ruleMap} />
+          )}
         </div>
 
         {/* Detail */}
