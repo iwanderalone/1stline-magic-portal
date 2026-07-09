@@ -1,8 +1,9 @@
 """AI assistant — Gemini function-calling over team data.
 
-Privacy boundary (user-approved): only TEAM data is sent to the model —
-schedule, time-off, runbook content, and the user's own messages. Customer
-ticket/email content must NEVER be wired into these tools.
+Privacy boundary (user-approved, updated 2026-07-09): team data (schedule,
+time-off, runbooks) + email queue METADATA in bulk. Full email/ticket content
+is allowed only per-case, when the user explicitly references that case in
+chat (get_email_case / get_ticket_case) — never in bulk.
 """
 import asyncio
 import json
@@ -85,6 +86,64 @@ TOOL_DECLARATIONS = [
                 "only": {"type": "string", "enum": ["all", "unchecked", "on_pause", "unsolved"], "description": "Optional status focus, default all"},
             },
             "required": ["period"],
+        },
+    },
+    {
+        "name": "get_email_case",
+        "description": (
+            "Fetch one email case in full (subject, sender, body, engineer comments) by its id — "
+            "the number shown in the mail queue. Use when the user says 'check this email' or asks "
+            "to draft a runbook from an email case."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {"email_id": {"type": "integer"}},
+            "required": ["email_id"],
+        },
+    },
+    {
+        "name": "get_ticket_case",
+        "description": (
+            "Fetch one Zammad ticket in full (title, description, state, comment thread) by its "
+            "ticket number (e.g. 82505). Use when the user says 'check this ticket' or asks to "
+            "draft a runbook from a ticket."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {"number": {"type": "string", "description": "Ticket number, e.g. 82505"}},
+            "required": ["number"],
+        },
+    },
+    {
+        "name": "create_runbook_draft",
+        "description": (
+            "Create a runbook DRAFT in the library. Always show the user the proposed title and "
+            "steps in chat and get an explicit confirmation before calling this. The draft is "
+            "tagged 'ai-draft' and the engineer will fine-tune it on the Runbooks page. Write "
+            "runbooks in English."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string"},
+                "category": {"type": "string", "description": "e.g. access, services, network, general"},
+                "when_to_use": {"type": "string", "description": "1-2 sentences: when to reach for this runbook"},
+                "tags": {"type": "array", "items": {"type": "string"}},
+                "steps": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "title": {"type": "string"},
+                            "description": {"type": "string"},
+                            "code_block": {"type": "string"},
+                            "code_language": {"type": "string", "description": "shell, sql, python, yaml…"},
+                        },
+                        "required": ["title"],
+                    },
+                },
+            },
+            "required": ["title", "when_to_use", "steps"],
         },
     },
     {
@@ -245,6 +304,101 @@ async def _tool_review_emails(user: User, args: dict) -> dict:
     return {"since": since.strftime("%Y-%m-%d"), "counts": counts, "emails": emails}
 
 
+async def _tool_get_email_case(user: User, args: dict) -> dict:
+    """Full single-email case — body access is per-case and human-requested via chat."""
+    from app.models.models import EmailLog, EmailComment
+
+    email_id = args.get("email_id")
+    async with AsyncSessionFactory() as db:
+        e = await db.get(EmailLog, email_id)
+        if not e:
+            return {"error": f"No email with id {email_id}"}
+        comments = (await db.execute(
+            select(EmailComment).where(EmailComment.email_id == email_id).order_by(EmailComment.created_at)
+        )).scalars().all()
+    return {
+        "id": e.id,
+        "subject": e.subject,
+        "sender": e.sender,
+        "status": e.status,
+        "category": e.category,
+        "received": (e.received_at or e.created_at).isoformat()[:16] if (e.received_at or e.created_at) else None,
+        "body": (e.body or "")[:4000],
+        "comments": [{"by": c.username, "text": (c.text or "")[:500]} for c in comments[:15]],
+    }
+
+
+async def _tool_get_ticket_case(user: User, args: dict) -> dict:
+    """Full single-ticket case — content access is per-case and human-requested via chat."""
+    from app.models.models import ZammadTicket, ZammadComment
+
+    number = str(args.get("number") or "").strip().lstrip("#")
+    async with AsyncSessionFactory() as db:
+        t = (await db.execute(
+            select(ZammadTicket).where(ZammadTicket.number == number)
+        )).scalar_one_or_none()
+        if not t:
+            return {"error": f"No ticket with number {number}"}
+        comments = (await db.execute(
+            select(ZammadComment).where(ZammadComment.ticket_id == t.id)
+            .order_by(ZammadComment.zammad_created_at.nullslast(), ZammadComment.id)
+        )).scalars().all()
+    return {
+        "number": t.number,
+        "title": t.title,
+        "state": t.state,
+        "request_type": t.request_type,
+        "assignee": t.assignee,
+        "description": (t.description or "")[:2000],
+        "comments": [
+            {"by": c.author or c.sender, "internal": bool(c.portal_only), "text": (c.body or "")[:600]}
+            for c in comments[:15]
+        ],
+    }
+
+
+async def _tool_create_runbook_draft(user: User, args: dict) -> dict:
+    """Create an ai-draft runbook. The model must confirm content with the user first."""
+    from app.api.runbooks import _next_slug
+    from app.models.models import Runbook, RunbookStep
+
+    title = (args.get("title") or "").strip()
+    steps = args.get("steps") or []
+    if not title or not steps:
+        return {"error": "title and at least one step are required"}
+
+    tags = [t for t in (args.get("tags") or []) if isinstance(t, str)][:8]
+    if "ai-draft" not in tags:
+        tags.append("ai-draft")
+
+    async with AsyncSessionFactory() as db:
+        slug = await _next_slug(db)
+        rb = Runbook(
+            slug=slug,
+            title=title[:200],
+            category=(args.get("category") or "general")[:50],
+            tags=json.dumps(tags),
+            when_to_use=args.get("when_to_use"),
+            owner_id=user.id,
+        )
+        db.add(rb)
+        await db.flush()
+        for i, s in enumerate(steps[:20], start=1):
+            if not isinstance(s, dict) or not s.get("title"):
+                continue
+            db.add(RunbookStep(
+                runbook_id=rb.id,
+                order=i,
+                title=str(s["title"])[:200],
+                description=s.get("description"),
+                code_block=s.get("code_block"),
+                code_language=(s.get("code_language") or None),
+            ))
+        await db.commit()
+    logger.info("[assistant] %s created runbook draft %s — %s", user.username, slug, title[:80])
+    return {"ok": True, "slug": slug, "note": "Draft created (tagged ai-draft) — fine-tune it on the Runbooks page."}
+
+
 async def _tool_list_runbooks(user: User, args: dict) -> dict:
     async with AsyncSessionFactory() as db:
         rows = (await db.execute(select(Runbook).order_by(Runbook.category, Runbook.slug))).scalars().all()
@@ -312,6 +466,9 @@ TOOL_IMPL = {
     "get_my_timeoff": _tool_get_my_timeoff,
     "file_timeoff_request": _tool_file_timeoff_request,
     "review_emails": _tool_review_emails,
+    "get_email_case": _tool_get_email_case,
+    "get_ticket_case": _tool_get_ticket_case,
+    "create_runbook_draft": _tool_create_runbook_draft,
     "list_runbooks": _tool_list_runbooks,
     "search_runbooks": _tool_search_runbooks,
     "get_runbook": _tool_get_runbook,
@@ -330,9 +487,13 @@ def _system_prompt(user: User) -> str:
         "restate the dates and type and get an explicit confirmation from the user first. "
         "Time-off requests always require admin approval afterwards — mention that. "
         "For mail reviews, highlight what needs action: unchecked items first, then "
-        "long-paused ones; call out onboarding/offboarding category emails explicitly. "
-        "You only see email metadata (subject/sender/status), not bodies. If a question "
-        "is about Zammad tickets, say you don't have access and point to the Tickets page."
+        "long-paused ones; call out onboarding/offboarding category emails explicitly "
+        "(reviews show metadata only — fetch a specific case for full content). "
+        "RUNBOOK DRAFTING: when the user says 'check this ticket/email' or pastes case "
+        "material and asks for a runbook, fetch the case if referenced, propose a full "
+        "draft in chat (title + steps, in English), and only after the user confirms "
+        "call create_runbook_draft. Mention the draft is tagged ai-draft and can be "
+        "fine-tuned on the Runbooks page."
     )
 
 
