@@ -6,19 +6,21 @@ import { Button, Input, Select, Card, Overlay, Toast, EmptyState, Badge } from '
 import { Icon } from '../components/Icons';
 
 const CATEGORY_ICONS = {
-  access:  'key',
-  infra:   'server',
-  yandex:  'zap',
-  website: 'workspace',
-  office:  'inbox',
+  access:   'key',
+  infra:    'server',
+  yandex:   'zap',
+  website:  'workspace',
+  office:   'inbox',
+  services: 'settings',
 };
 
 const CATEGORY_LABEL_KEYS = {
-  access:  'rbCategoryAccess',
-  infra:   'rbCategoryInfra',
-  yandex:  'rbCategoryYandex',
-  website: 'rbCategoryWebsite',
-  office:  'rbCategoryOffice',
+  access:   'rbCategoryAccess',
+  infra:    'rbCategoryInfra',
+  yandex:   'rbCategoryYandex',
+  website:  'rbCategoryWebsite',
+  office:   'rbCategoryOffice',
+  services: 'rbCategoryServices',
 };
 
 const LANG_OPTIONS = ['shell', 'sql', 'python', 'yaml', 'ini', 'json', 'bash', 'text'];
@@ -145,9 +147,9 @@ function RunbookDetail({ runbook, isAdmin, onRun, onEdit, onDelete }) {
         <span style={{
           fontSize: 11, fontWeight: 600, padding: '2px 8px',
           borderRadius: 4, background: 'var(--surface-alt)', border: '1px solid var(--border)',
-          color: 'var(--text-secondary)', textTransform: 'lowercase',
+          color: 'var(--text-secondary)',
         }}>
-          {runbook.category}
+          {tr(CATEGORY_LABEL_KEYS[runbook.category]) || runbook.category}
         </span>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
           <button onClick={onEdit} style={{
@@ -348,7 +350,7 @@ function StepEditor({ steps, onChange }) {
 /* ─── Runbook Form Modal ─────────────────────────────────────── */
 function RunbookModal({ initial, users, onSave, onClose }) {
   const { t: tr } = useLang();
-  const CATEGORIES = ['access', 'infra', 'yandex', 'website', 'office'];
+  const CATEGORIES = ['access', 'infra', 'yandex', 'website', 'office', 'services'];
   const [form, setForm] = useState({
     title: initial?.title || '',
     category: initial?.category || 'access',
