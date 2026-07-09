@@ -9,10 +9,10 @@ import EmailReplies from '../components/EmailReplies';
 // --- Constants & Config ---
 
 const EMAIL_STATUS_CONFIG = {
-  unchecked: { label: 'Unchecked', color: 'yellow', icon: 'clock' },
-  solved:    { label: 'Solved',    color: 'green',  icon: 'checkCircle' },
-  on_pause:  { label: 'Paused',    color: 'blue',   icon: 'play' },
-  blocked:   { label: 'Blocked',   color: 'red',    icon: 'alertTriangle' },
+  unchecked: { key: 'mailStatusUnchecked', label: 'Unchecked', color: 'yellow', icon: 'clock' },
+  solved:    { key: 'mailStatusSolved',    label: 'Solved',    color: 'green',  icon: 'checkCircle' },
+  on_pause:  { key: 'mailStatusPaused',    label: 'Paused',    color: 'blue',   icon: 'play' },
+  blocked:   { key: 'mailStatusBlocked',   label: 'Blocked',   color: 'red',    icon: 'alertTriangle' },
 };
 
 const STATUS_CYCLE = ['unchecked', 'on_pause', 'blocked', 'solved'];
@@ -325,16 +325,16 @@ function EmailSidebar({ counts, activeFolder, onSelect, rules, mailboxes }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16, height: '100%' }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-        <Item id="inbox" label="Inbox" icon="inbox" count={counts.inbox} />
-        <Item id="unrouted" label="Unrouted" icon="filter" count={counts.unrouted} />
-        <Item id="archive" label="Archive" icon="archive" />
-        <Item id="sent" label="Sent" icon="send" />
+        <Item id="inbox" label={tr('mailInbox')} icon="inbox" count={counts.inbox} />
+        <Item id="unrouted" label={tr('mailUnrouted')} icon="filter" count={counts.unrouted} />
+        <Item id="archive" label={tr('mailArchive')} icon="archive" />
+        <Item id="sent" label={tr('mailSentFolder')} icon="send" />
       </div>
 
       <div style={{ height: 1, background: 'var(--border-light)', margin: '4px 0' }} />
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <div className="t-eyebrow" style={{ padding: '0 12px', marginBottom: 4 }}>Categories</div>
+        <div className="t-eyebrow" style={{ padding: '0 12px', marginBottom: 4 }}>{tr('mailCategories')}</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
           {rules.filter(r => r.builtin_key !== 'general').map(r => (
             <Item key={r.id} id={`rule:${r.id}`} label={r.label} icon="hash" color={r.color} count={counts[`rule:${r.id}`]} />
@@ -344,7 +344,7 @@ function EmailSidebar({ counts, activeFolder, onSelect, rules, mailboxes }) {
 
       {mailboxes.length > 0 && (
         <div style={{ marginTop: 'auto', paddingTop: 12 }}>
-          <div className="t-eyebrow" style={{ padding: '0 12px', marginBottom: 6 }}>Mailboxes</div>
+          <div className="t-eyebrow" style={{ padding: '0 12px', marginBottom: 6 }}>{tr('mailMailboxes')}</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: '0 12px' }}>
             {mailboxes.map(mb => (
               <div key={mb.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '11px', color: 'var(--text-muted)' }}>
@@ -360,10 +360,11 @@ function EmailSidebar({ counts, activeFolder, onSelect, rules, mailboxes }) {
 }
 
 function EmailList({ emails, activeId, onSelect, loading, ruleMap }) {
-  if (loading) return <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>Loading…</div>;
+  const { t: tr } = useLang();
+  if (loading) return <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>{tr('mailLoading')}</div>;
   if (emails.length === 0) return (
     <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <EmptyState icon={<Icon name="mail" size={32} />} title="No messages" subtitle="Try another folder or check back later" />
+      <EmptyState icon={<Icon name="mail" size={32} />} title={tr('mailNoMessages')} subtitle={tr('mailNoMessagesDesc')} />
     </div>
   );
 
@@ -417,15 +418,15 @@ function EmailList({ emails, activeId, onSelect, loading, ruleMap }) {
                 fontSize: '11px', color: 'var(--success)', fontWeight: 600,
               }}>
                 <Icon name="send" size={10} />
-                Replied{em.reply_count > 1 ? ` ×${em.reply_count}` : ''}
+                {tr('mailReplied')}{em.reply_count > 1 ? ` ×${em.reply_count}` : ''}
               </div>
             )}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              {rule ? <RuleBadge rule={rule} style={{ fontSize: '10px', padding: '0 8px' }} /> : <Badge tone="gray" style={{ fontSize: '10px' }}>General</Badge>}
+              {rule ? <RuleBadge rule={rule} style={{ fontSize: '10px', padding: '0 8px' }} /> : <Badge tone="gray" style={{ fontSize: '10px' }}>{tr('mailGeneral')}</Badge>}
               <span style={{ flex: 1 }} />
               <div style={{ display: 'flex', alignItems: 'center', gap: 4, color: `var(--${status.color})`, fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                 <Icon name={status.icon} size={10} />
-                {status.label}
+                {tr(status.key)}
               </div>
             </div>
           </div>
@@ -436,10 +437,11 @@ function EmailList({ emails, activeId, onSelect, loading, ruleMap }) {
 }
 
 function SentList({ replies, loading, activeId, onSelect }) {
-  if (loading) return <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>Loading…</div>;
+  const { t: tr } = useLang();
+  if (loading) return <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>{tr('mailLoading')}</div>;
   if (replies.length === 0) return (
     <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <EmptyState icon={<Icon name="send" size={32} />} title="Nothing sent yet" subtitle="Replies sent from the portal will appear here" />
+      <EmptyState icon={<Icon name="send" size={32} />} title={tr('mailSentNothing')} subtitle={tr('mailSentNothingDesc')} />
     </div>
   );
   return (
@@ -462,7 +464,7 @@ function SentList({ replies, loading, activeId, onSelect }) {
               display: 'flex', alignItems: 'center', gap: 4,
             }}>
               <Icon name={r.status === 'failed' ? 'alertTriangle' : 'send'} size={10} />
-              {r.status === 'failed' ? 'Failed' : 'Sent'}
+              {r.status === 'failed' ? tr('mailFailedTag') : tr('mailSentTag')}
             </span>
             <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{fmtTime(r.created_at)}</span>
           </div>
@@ -479,6 +481,7 @@ function SentList({ replies, loading, activeId, onSelect }) {
 }
 
 function EmailDetail({ email, ruleMap, onStatusChange, onAddComment }) {
+  const { t: tr } = useLang();
   const [commentText, setCommentText] = useState('');
   const [comments, setComments] = useState([]);
   const [loadingComments, setLoadingComments] = useState(false);
@@ -496,7 +499,7 @@ function EmailDetail({ email, ruleMap, onStatusChange, onAddComment }) {
 
   if (!email) return (
     <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <EmptyState icon={<Icon name="mail" size={48} />} title="Select an email" subtitle="Click on a message from the list to view its details and history" />
+      <EmptyState icon={<Icon name="mail" size={48} />} title={tr('mailSelectEmail')} subtitle={tr('mailSelectEmailDesc')} />
     </div>
   );
 
@@ -526,7 +529,7 @@ function EmailDetail({ email, ruleMap, onStatusChange, onAddComment }) {
       {/* Header */}
       <section>
         <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-          {email.rule_id ? <RuleBadge rule={ruleMap[email.rule_id]} /> : <Badge tone="gray">General</Badge>}
+          {email.rule_id ? <RuleBadge rule={ruleMap[email.rule_id]} /> : <Badge tone="gray">{tr('mailGeneral')}</Badge>}
           {email.extracted_code && <Tag>Code: {email.extracted_code}</Tag>}
           <span style={{ flex: 1 }} />
           <div style={{ display: 'flex', background: 'var(--surface-sunken)', padding: 2, borderRadius: 'var(--radius-sm)' }}>
@@ -548,7 +551,7 @@ function EmailDetail({ email, ruleMap, onStatusChange, onAddComment }) {
                   }}
                 >
                   <Icon name={cfg.icon} size={11} />
-                  {cfg.label}
+                  {tr(cfg.key)}
                 </button>
               );
             })}
@@ -558,11 +561,11 @@ function EmailDetail({ email, ruleMap, onStatusChange, onAddComment }) {
         <h2 style={{ fontSize: '20px', fontWeight: 700, lineHeight: 1.3, margin: '0 0 16px' }}>{email.subject || '(no subject)'}</h2>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '8px 16px', fontSize: '13px' }}>
-          <span className="t-eyebrow">From</span>
+          <span className="t-eyebrow">{tr('mailFrom')}</span>
           <span style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>{email.sender}</span>
-          <span className="t-eyebrow">Mailbox</span>
+          <span className="t-eyebrow">{tr('mailMailboxLbl')}</span>
           <span style={{ color: 'var(--text-secondary)' }}>{email.mailbox_email}</span>
-          <span className="t-eyebrow">Received</span>
+          <span className="t-eyebrow">{tr('mailReceived')}</span>
           <span style={{ color: 'var(--text-secondary)' }}>{new Date(email.received_at || email.created_at).toLocaleString()}</span>
         </div>
       </section>
@@ -570,7 +573,7 @@ function EmailDetail({ email, ruleMap, onStatusChange, onAddComment }) {
       {/* Message Body */}
       <section style={{ background: 'var(--surface-alt)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
         <div className="t-eyebrow" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <Icon name="mail" size={12} /> Message Body
+          <Icon name="mail" size={12} /> {tr('mailMessageBody')}
         </div>
         <MessageBody body={email.body} />
       </section>
@@ -590,15 +593,15 @@ function EmailDetail({ email, ruleMap, onStatusChange, onAddComment }) {
       {/* Internal Activity */}
       <section style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 16, minHeight: 0 }}>
         <div className="t-eyebrow" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <Icon name="message" size={12} /> Activity & Comments{comments.length > 0 ? ` (${comments.length})` : ''}
+          <Icon name="message" size={12} /> {tr('mailActivity')}{comments.length > 0 ? ` (${comments.length})` : ''}
         </div>
 
         <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10, paddingRight: 4 }}>
           {loadingComments ? (
-            <div style={{ color: 'var(--text-muted)', fontSize: '13px' }}>Loading history…</div>
+            <div style={{ color: 'var(--text-muted)', fontSize: '13px' }}>{tr('mailLoadingHistory')}</div>
           ) : comments.length === 0 ? (
             <div style={{ padding: '20px', background: 'var(--surface-alt)', borderRadius: 'var(--radius)', border: '1px dashed var(--border)', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
-              No comments yet.
+              {tr('mailNoComments')}
             </div>
           ) : (
             comments.map(c => (
@@ -617,7 +620,7 @@ function EmailDetail({ email, ruleMap, onStatusChange, onAddComment }) {
           <textarea
             value={commentText}
             onChange={e => setCommentText(e.target.value)}
-            placeholder="Write a comment…"
+            placeholder={tr('mailWriteComment')}
             style={{
               width: '100%', padding: '10px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)',
               background: 'var(--surface-alt)', color: 'var(--text)', fontSize: '13px', fontFamily: 'inherit',
@@ -626,7 +629,7 @@ function EmailDetail({ email, ruleMap, onStatusChange, onAddComment }) {
           />
           <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
             <Button type="submit" size="sm" disabled={savingComment || !commentText.trim()} icon="send">
-              {savingComment ? 'Saving…' : 'Post Comment'}
+              {savingComment ? tr('mailSaving') : tr('mailPostComment')}
             </Button>
           </div>
         </form>
