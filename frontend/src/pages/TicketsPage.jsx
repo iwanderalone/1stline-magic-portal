@@ -1,22 +1,24 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '../api';
 import { useTheme } from '../components/ThemeContext';
+import { useLang } from '../components/LangContext';
 import { Button, Badge, EmptyState, Toast, Overlay, Tabs } from '../components/UI';
 import { Icon } from '../components/Icons';
-import TicketDetailModal, { BUCKET_COLOR, EVENT_META, formatTime } from '../components/TicketDetailModal';
+import TicketDetailModal, { BUCKET_COLOR, EVENT_META, eventLabel, formatTime } from '../components/TicketDetailModal';
 
 const ALL_TYPES = Object.keys(EVENT_META);
 
 const BUCKETS = [
-  { id: '', label: 'All' },
-  { id: 'open', label: 'Open' },
-  { id: 'paused', label: 'Paused' },
-  { id: 'closed', label: 'Closed' },
+  { id: '', key: 'tpAll' },
+  { id: 'open', key: 'tpOpen' },
+  { id: 'paused', key: 'tpPaused' },
+  { id: 'closed', key: 'tpClosed' },
 ];
 
 /* ─── Ticket board ─────────────────────────────────────── */
 function TicketBoardView({ onError }) {
   const { theme: t } = useTheme();
+  const { t: tr } = useLang();
   const [tickets, setTickets] = useState([]);
   const [counts, setCounts] = useState({ all: 0, open: 0, paused: 0, closed: 0 });
   const [loading, setLoading] = useState(true);
@@ -69,14 +71,14 @@ function TicketBoardView({ onError }) {
               border: `1px solid ${active ? t.accent : t.border}`,
               background: active ? t.accent : 'transparent',
               color: active ? '#fff' : t.textSecondary,
-            }}>{b.label} ({n ?? 0})</button>
+            }}>{tr(b.key)} ({n ?? 0})</button>
           );
         })}
         <span style={{ flex: 1 }} />
         <input
           value={search}
           onChange={e => setSearch(e.target.value)}
-          placeholder="Search #, title, assignee, customer…"
+          placeholder={tr('tpSearch')}
           style={{
             padding: '6px 12px', borderRadius: t.radius, fontSize: 13,
             border: `1px solid ${t.border}`, background: t.surface, color: t.text, minWidth: 260,
@@ -85,9 +87,9 @@ function TicketBoardView({ onError }) {
       </div>
 
       {loading ? (
-        <div style={{ textAlign: 'center', padding: 40, color: t.textMuted }}>Loading…</div>
+        <div style={{ textAlign: 'center', padding: 40, color: t.textMuted }}>{tr('mailLoading')}</div>
       ) : tickets.length === 0 ? (
-        <EmptyState icon={<Icon name="inbox" size={36} />} title="No tickets" subtitle="Tickets appear here from Zammad webhooks and periodic sync" />
+        <EmptyState icon={<Icon name="inbox" size={36} />} title={tr('tpNoTickets')} subtitle={tr('tpNoTicketsDesc')} />
       ) : (
         <div style={{ border: `1px solid ${t.border}`, borderRadius: t.radius, overflow: 'hidden' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
@@ -98,7 +100,7 @@ function TicketBoardView({ onError }) {
             </colgroup>
             <thead>
               <tr style={{ background: t.surfaceAlt || t.surface, borderBottom: `1px solid ${t.border}` }}>
-                {['Ticket', 'Title', 'State', 'Assignee', 'Customer', 'Cmts', 'Updated'].map(h => (
+                {[tr('tpColTicket'), tr('tpColTitle'), tr('tpColState'), tr('tpColAssignee'), tr('tpColCustomer'), tr('tpColComments'), tr('tpColUpdated')].map(h => (
                   <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</th>
                 ))}
               </tr>
@@ -131,6 +133,7 @@ function TicketBoardView({ onError }) {
 /* ─── Event log (raw webhook feed, for debugging) ──────── */
 function EventLogView({ onError }) {
   const { theme: t } = useTheme();
+  const { t: tr } = useLang();
   const [events, setEvents] = useState([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -175,7 +178,7 @@ function EventLogView({ onError }) {
           padding: '4px 14px', borderRadius: 20, fontSize: 13, cursor: 'pointer',
           border: `1px solid ${filter === '' ? t.accent : t.border}`,
           background: filter === '' ? t.accent : 'transparent', color: filter === '' ? '#fff' : t.textSecondary,
-        }}>All ({total})</button>
+        }}>{tr('tpAll')} ({total})</button>
         {ALL_TYPES.map(type => {
           const active = filter === type;
           return (
@@ -183,15 +186,15 @@ function EventLogView({ onError }) {
               padding: '4px 14px', borderRadius: 20, fontSize: 13, cursor: 'pointer',
               border: `1px solid ${active ? t.accent : t.border}`,
               background: active ? t.accent : 'transparent', color: active ? '#fff' : t.textSecondary,
-            }}>{EVENT_META[type].label}</button>
+            }}>{eventLabel(EVENT_META[type], tr)}</button>
           );
         })}
       </div>
 
       {loading ? (
-        <div style={{ textAlign: 'center', padding: 40, color: t.textMuted }}>Loading…</div>
+        <div style={{ textAlign: 'center', padding: 40, color: t.textMuted }}>{tr('mailLoading')}</div>
       ) : events.length === 0 ? (
-        <EmptyState icon={<Icon name="inbox" size={36} />} title="No events yet" subtitle="Events appear once Zammad sends webhooks" />
+        <EmptyState icon={<Icon name="inbox" size={36} />} title={tr('tpNoEvents')} subtitle={tr('tpNoEventsDesc')} />
       ) : (
         <>
           <div style={{ border: `1px solid ${t.border}`, borderRadius: t.radius, overflow: 'hidden' }}>
@@ -202,7 +205,7 @@ function EventLogView({ onError }) {
               </colgroup>
               <thead>
                 <tr style={{ background: t.surfaceAlt || t.surface, borderBottom: `1px solid ${t.border}` }}>
-                  {['Event', 'Ticket', 'Title', 'Assignee', 'State', 'Received', ''].map(h => (
+                  {[tr('tpColEvent'), tr('tpColTicket'), tr('tpColTitle'), tr('tpColAssignee'), tr('tpColState'), tr('tpColReceived'), ''].map(h => (
                     <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</th>
                   ))}
                 </tr>
@@ -215,13 +218,13 @@ function EventLogView({ onError }) {
                       style={{ borderTop: i === 0 ? 'none' : `1px solid ${t.border}`, cursor: 'pointer' }}
                       onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-alt)'}
                       onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                      <td style={{ padding: '10px 12px' }}><Badge color={m.color}>{m.label}</Badge></td>
+                      <td style={{ padding: '10px 12px' }}><Badge color={m.color}>{eventLabel(m, tr)}</Badge></td>
                       <td style={{ padding: '10px 12px', fontFamily: 'var(--font-mono)', fontSize: 13, color: t.textMuted }}>{ev.ticket_number ? `#${ev.ticket_number}` : '—'}</td>
                       <td style={{ padding: '10px 12px', color: t.text, fontSize: 14 }}>{ev.ticket_title || '—'}</td>
                       <td style={{ padding: '10px 12px', fontSize: 13, color: t.textSecondary }}>{ev.assignee || '—'}</td>
                       <td style={{ padding: '10px 12px', fontSize: 13, color: t.textSecondary }}>{ev.ticket_state || '—'}</td>
                       <td style={{ padding: '10px 12px', fontSize: 12, color: t.textMuted, whiteSpace: 'nowrap' }}>{formatTime(ev.received_at)}</td>
-                      <td style={{ padding: '10px 12px', textAlign: 'right', fontSize: 12, color: t.textMuted }}>View JSON →</td>
+                      <td style={{ padding: '10px 12px', textAlign: 'right', fontSize: 12, color: t.textMuted }}>{tr('tpViewJson')}</td>
                     </tr>
                   );
                 })}
@@ -230,10 +233,10 @@ function EventLogView({ onError }) {
           </div>
           {total > LIMIT && (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12 }}>
-              <span style={{ fontSize: 13, color: t.textMuted }}>Showing {offset + 1}–{Math.min(offset + LIMIT, total)} of {total}</span>
+              <span style={{ fontSize: 13, color: t.textMuted }}>{tr('tpShowing')} {offset + 1}–{Math.min(offset + LIMIT, total)} {tr('tpOf')} {total}</span>
               <div style={{ display: 'flex', gap: 8 }}>
-                <Button size="sm" variant="ghost" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - LIMIT))}>← Prev</Button>
-                <Button size="sm" variant="ghost" disabled={offset + LIMIT >= total} onClick={() => setOffset(offset + LIMIT)}>Next →</Button>
+                <Button size="sm" variant="ghost" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - LIMIT))}>{tr('tpPrev')}</Button>
+                <Button size="sm" variant="ghost" disabled={offset + LIMIT >= total} onClick={() => setOffset(offset + LIMIT)}>{tr('tpNext')}</Button>
               </div>
             </div>
           )}
@@ -246,6 +249,7 @@ function EventLogView({ onError }) {
 /* ─── Page ─────────────────────────────────────────────── */
 export default function TicketsPage() {
   const { theme: t } = useTheme();
+  const { t: tr } = useLang();
   const [tab, setTab] = useState('board');
   const [toast, setToast] = useState(null);
   const onError = useCallback((message) => setToast({ message, tone: 'error' }), []);
@@ -256,13 +260,13 @@ export default function TicketsPage() {
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
         <div>
-          <h2 style={{ margin: 0, color: t.text, fontSize: 20, fontWeight: 700 }}>Tickets</h2>
+          <h2 style={{ margin: 0, color: t.text, fontSize: 20, fontWeight: 700 }}>{tr('tpTabBoard')}</h2>
           <p style={{ margin: '4px 0 0', color: t.textMuted, fontSize: 13 }}>
-            Zammad tickets, statuses and comments — synced live via webhooks
+            {tr('tpSubtitle')}
           </p>
         </div>
         <Tabs
-          tabs={[{ id: 'board', label: 'Tickets' }, { id: 'events', label: 'Event log' }]}
+          tabs={[{ id: 'board', label: tr('tpTabBoard') }, { id: 'events', label: tr('tpTabEvents') }]}
           active={tab}
           onChange={setTab}
         />

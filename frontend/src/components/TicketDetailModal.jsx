@@ -9,14 +9,18 @@ const TELEGRAM_BOT_URL = 'https://t.me/sd_viory_video_bot';
 export const BUCKET_COLOR = { open: 'blue', paused: 'orange', closed: 'green' };
 
 export const EVENT_META = {
-  ticket_opened:   { label: 'Opened',   color: 'blue'   },
-  ticket_assigned: { label: 'Assigned', color: 'yellow' },
-  comment_added:   { label: 'Comment',  color: 'gray'   },
-  ticket_closed:   { label: 'Closed',   color: 'green'  },
-  ticket_paused:   { label: 'Paused',   color: 'orange' },
-  ticket_status_changed: { label: 'Status', color: 'blue' },
-  ticket_sync:     { label: 'Sync',     color: 'gray'   },
+  ticket_opened:   { label: 'Opened',   key: 'tkEvOpened',   color: 'blue'   },
+  ticket_assigned: { label: 'Assigned', key: 'tkEvAssigned', color: 'yellow' },
+  comment_added:   { label: 'Comment',  key: 'tkEvComment',  color: 'gray'   },
+  ticket_closed:   { label: 'Closed',   key: 'tkEvClosed',   color: 'green'  },
+  ticket_paused:   { label: 'Paused',   key: 'tkEvPaused',   color: 'orange' },
+  ticket_status_changed: { label: 'Status', key: 'tkEvStatus', color: 'blue' },
+  ticket_sync:     { label: 'Sync',     key: 'tkEvSync',     color: 'gray'   },
 };
+
+export function eventLabel(meta, tr) {
+  return meta.key ? tr(meta.key) : meta.label;
+}
 
 const STATE_KEY = {
   new: 'tkStateNew', open: 'tkStateOpen', in_progress: 'tkStateInProgress',
@@ -171,7 +175,7 @@ export default function TicketDetailModal({ ticketId, onClose, onError, onChange
                   const m = EVENT_META[ev.event_type] || { label: ev.event_type, color: 'gray' };
                   return (
                     <div key={ev.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
-                      <Badge color={m.color}>{m.label}</Badge>
+                      <Badge color={m.color}>{eventLabel(m, tr)}</Badge>
                       <span style={{ color: t.textMuted }}>{formatTime(ev.received_at)}</span>
                     </div>
                   );

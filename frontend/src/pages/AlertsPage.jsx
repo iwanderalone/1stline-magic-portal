@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '../api';
 import { useTheme } from '../components/ThemeContext';
+import { useLang } from '../components/LangContext';
 import { Badge, EmptyState, Toast } from '../components/UI';
 import { Icon } from '../components/Icons';
 
@@ -25,6 +26,7 @@ function fmtSince(iso) {
 
 export default function AlertsPage() {
   const { theme: t } = useTheme();
+  const { t: tr } = useLang();
   const [alerts, setAlerts] = useState([]);
   const [counts, setCounts] = useState({ firing: 0, resolved: 0, total: 0 });
   const [filter, setFilter] = useState('');   // '' | firing | resolved
@@ -56,9 +58,9 @@ export default function AlertsPage() {
   }, [filter, load]);
 
   const pills = [
-    { id: '', label: `All (${counts.total})` },
-    { id: 'firing', label: `Firing (${counts.firing})` },
-    { id: 'resolved', label: `Resolved (${counts.resolved})` },
+    { id: '', label: `${tr('alAll')} (${counts.total})` },
+    { id: 'firing', label: `${tr('alFiring')} (${counts.firing})` },
+    { id: 'resolved', label: `${tr('alResolved')} (${counts.resolved})` },
   ];
 
   return (
@@ -66,9 +68,9 @@ export default function AlertsPage() {
       {toast && <Toast message={toast.message} tone={toast.tone} onClose={() => setToast(null)} />}
 
       <div style={{ marginBottom: 20 }}>
-        <h2 style={{ margin: 0, color: t.text, fontSize: 20, fontWeight: 700 }}>Alerts</h2>
+        <h2 style={{ margin: 0, color: t.text, fontSize: 20, fontWeight: 700 }}>{tr('alTitle')}</h2>
         <p style={{ margin: '4px 0 0', color: t.textMuted, fontSize: 13 }}>
-          Grafana alerts — delivered live via the alerting webhook
+          {tr('alSubtitle')}
         </p>
       </div>
 
@@ -87,12 +89,12 @@ export default function AlertsPage() {
       </div>
 
       {loading ? (
-        <div style={{ textAlign: 'center', padding: 40, color: t.textMuted }}>Loading…</div>
+        <div style={{ textAlign: 'center', padding: 40, color: t.textMuted }}>{tr('mailLoading')}</div>
       ) : alerts.length === 0 ? (
         <EmptyState
           icon={<Icon name="siren" size={36} />}
-          title="No alerts"
-          subtitle="Alerts appear here once Grafana's webhook contact point is configured"
+          title={tr('alNoAlerts')}
+          subtitle={tr('alNoAlertsDesc')}
         />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -105,15 +107,15 @@ export default function AlertsPage() {
                 background: firing ? 'rgba(217,83,79,0.06)' : (t.surfaceAlt || t.surface),
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                  <Badge color={firing ? 'red' : 'green'}>{firing ? 'FIRING' : 'Resolved'}</Badge>
+                  <Badge color={firing ? 'red' : 'green'}>{firing ? tr('alFiring').toUpperCase() : tr('alResolved')}</Badge>
                   {a.severity && <Badge color={SEVERITY_COLOR[a.severity] || 'gray'}>{a.severity}</Badge>}
                   <span style={{ fontWeight: 700, fontSize: 14, color: t.text }}>{a.alertname || '(unnamed alert)'}</span>
-                  {a.fire_count > 1 && <span style={{ fontSize: 11, color: t.textMuted }}>fired ×{a.fire_count}</span>}
+                  {a.fire_count > 1 && <span style={{ fontSize: 11, color: t.textMuted }}>{tr('alFiredTimes')} ×{a.fire_count}</span>}
                   <span style={{ flex: 1 }} />
                   <span style={{ fontSize: 12, color: t.textMuted, whiteSpace: 'nowrap' }}>
                     {firing
-                      ? `firing for ${fmtSince(a.starts_at || a.received_at)}`
-                      : `resolved ${formatTime(a.ends_at || a.updated_at)}`}
+                      ? `${tr('alFiringFor')} ${fmtSince(a.starts_at || a.received_at)}`
+                      : `${tr('alResolvedAt')} ${formatTime(a.ends_at || a.updated_at)}`}
                   </span>
                   {a.generator_url && (
                     <a href={a.generator_url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: t.accent, textDecoration: 'none', whiteSpace: 'nowrap' }}>
