@@ -454,6 +454,7 @@ class EmailLogResponse(BaseOrmModel):
     solved_at: Optional[datetime] = None
     comment_count: int = 0
     last_comment: Optional[str] = None   # "username: text" preview of the newest comment
+    reply_count: int = 0                 # sent SMTP replies (replied marker)
 
 class EmailLogDetailResponse(EmailLogResponse):
     body: Optional[str] = None

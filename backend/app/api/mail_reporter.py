@@ -140,6 +140,14 @@ async def list_email_logs(
     )
     latest_comments = {row.email_id: f"{row.username}: {row.text}" for row in latest_result}
 
+    # Sent-reply counts (replied marker)
+    reply_counts_result = await db.execute(
+        select(EmailReply.email_id, func.count(EmailReply.id).label("cnt"))
+        .where(EmailReply.status == "sent")
+        .group_by(EmailReply.email_id)
+    )
+    reply_counts = {row.email_id: row.cnt for row in reply_counts_result}
+
     # Attach mailbox_email for display
     mailbox_cache: dict[int, str] = {}
     out = []
@@ -151,8 +159,25 @@ async def list_email_logs(
         data.mailbox_email = mailbox_cache[log.mailbox_id]
         data.comment_count = comment_counts.get(log.id, 0)
         data.last_comment = latest_comments.get(log.id)
+        data.reply_count = reply_counts.get(log.id, 0)
         out.append(data)
     return out
+
+
+@router.get(
+    "/replies",
+    response_model=list[EmailReplyResponse],
+    summary="List recent outbound replies (Sent view)",
+)
+async def list_all_replies(
+    limit: int = Query(default=100, ge=1, le=300),
+    db: AsyncSession = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    result = await db.execute(
+        select(EmailReply).order_by(desc(EmailReply.created_at)).limit(limit)
+    )
+    return result.scalars().all()
 
 
 @router.get("/emails/{email_id}", response_model=EmailLogDetailResponse)
