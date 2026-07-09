@@ -126,7 +126,19 @@ TOOL_DECLARATIONS = [
             "type": "object",
             "properties": {
                 "title": {"type": "string"},
-                "category": {"type": "string", "description": "e.g. access, services, network, general"},
+                "category": {
+                    "type": "string",
+                    "enum": ["access", "infra", "yandex", "website", "office", "services", "general"],
+                    "description": (
+                        "Runbook section: access = accounts/permissions/credentials; "
+                        "infra = servers, network, proxies, deployments; "
+                        "yandex = Yandex 360 services (mail, disk, tracker, wiki); "
+                        "website = the public site / CMS; "
+                        "office = physical office, equipment, meeting rooms; "
+                        "services = internal tools (e.g. LinkScout, portal); "
+                        "general = anything that fits nowhere else"
+                    ),
+                },
                 "when_to_use": {"type": "string", "description": "1-2 sentences: when to reach for this runbook"},
                 "tags": {"type": "array", "items": {"type": "string"}},
                 "steps": {
@@ -493,7 +505,10 @@ def _system_prompt(user: User) -> str:
         "material and asks for a runbook, fetch the case if referenced, propose a full "
         "draft in chat (title + steps, in English), and only after the user confirms "
         "call create_runbook_draft. Mention the draft is tagged ai-draft and can be "
-        "fine-tuned on the Runbooks page."
+        "fine-tuned on the Runbooks page. SECTION CHOICE: pick the best-fitting section "
+        "and state it explicitly in the proposal (e.g. 'I would put this under Services'). "
+        "If no section clearly fits, ask the engineer which one to use instead of "
+        "guessing. If the engineer names a different section, use exactly that one."
     )
 
 
