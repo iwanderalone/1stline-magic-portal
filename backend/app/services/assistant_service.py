@@ -70,6 +70,24 @@ TOOL_DECLARATIONS = [
         },
     },
     {
+        "name": "review_emails",
+        "description": (
+            "Review the operational mail queue for a period: counts by status plus a compact list "
+            "(subject, sender, status, category, replied?). Use for questions like 'did we miss "
+            "anything today/this week?', 'what is on pause?', 'were there onboarding requests?'. "
+            "Categories come from routing rules (e.g. onboarding, adobe). Statuses: unchecked = "
+            "nobody looked at it yet, on_pause = waiting, blocked, solved."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "period": {"type": "string", "enum": ["today", "week", "month"], "description": "How far back to look"},
+                "only": {"type": "string", "enum": ["all", "unchecked", "on_pause", "unsolved"], "description": "Optional status focus, default all"},
+            },
+            "required": ["period"],
+        },
+    },
+    {
         "name": "list_runbooks",
         "description": "List all runbooks in the library (slug, title, category). Use when the user asks what runbooks/guides exist.",
         "parameters": {"type": "object", "properties": {}},
@@ -181,6 +199,52 @@ async def _tool_file_timeoff_request(user: User, args: dict) -> dict:
     return {"ok": True, "status": "pending", "note": "Request filed — awaiting admin approval."}
 
 
+async def _tool_review_emails(user: User, args: dict) -> dict:
+    """Email-queue review. Privacy: metadata only (subject/sender/status/category) — never bodies."""
+    from app.models.models import EmailLog, EmailReply
+
+    days = {"today": 1, "week": 7, "month": 30}.get(args.get("period"), 7)
+    since = datetime.now().astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
+    if days > 1:
+        since = since - timedelta(days=days - 1)
+    only = args.get("only") or "all"
+
+    async with AsyncSessionFactory() as db:
+        q = select(EmailLog).where(
+            EmailLog.created_at >= since,
+            or_(EmailLog.skip_reason.is_(None), EmailLog.skip_reason.notin_(["filter"])),
+        ).order_by(EmailLog.created_at.desc())
+        rows = (await db.execute(q)).scalars().all()
+
+        replied_ids = set((await db.execute(
+            select(EmailReply.email_id).where(EmailReply.status == "sent")
+        )).scalars().all())
+
+    counts = {"total": len(rows), "unchecked": 0, "on_pause": 0, "blocked": 0, "solved": 0, "replied": 0}
+    emails = []
+    for e in rows:
+        counts[e.status] = counts.get(e.status, 0) + 1
+        if e.id in replied_ids:
+            counts["replied"] += 1
+        if only == "unchecked" and e.status != "unchecked":
+            continue
+        if only == "on_pause" and e.status != "on_pause":
+            continue
+        if only == "unsolved" and e.status == "solved":
+            continue
+        if len(emails) < 60:
+            emails.append({
+                "subject": (e.subject or "")[:120],
+                "sender": (e.sender or "")[:80],
+                "status": e.status,
+                "category": e.category,
+                "received": (e.received_at or e.created_at).strftime("%m-%d %H:%M") if (e.received_at or e.created_at) else None,
+                "replied": e.id in replied_ids,
+                "comments": None,  # kept out to stay compact
+            })
+    return {"since": since.strftime("%Y-%m-%d"), "counts": counts, "emails": emails}
+
+
 async def _tool_list_runbooks(user: User, args: dict) -> dict:
     async with AsyncSessionFactory() as db:
         rows = (await db.execute(select(Runbook).order_by(Runbook.category, Runbook.slug))).scalars().all()
@@ -247,6 +311,7 @@ TOOL_IMPL = {
     "get_team_schedule": _tool_get_team_schedule,
     "get_my_timeoff": _tool_get_my_timeoff,
     "file_timeoff_request": _tool_file_timeoff_request,
+    "review_emails": _tool_review_emails,
     "list_runbooks": _tool_list_runbooks,
     "search_runbooks": _tool_search_runbooks,
     "get_runbook": _tool_get_runbook,
@@ -260,11 +325,14 @@ def _system_prompt(user: User) -> str:
         "and practical; use short lists where helpful.\n"
         f"Today is {date.today().isoformat()} ({date.today().strftime('%A')}). "
         f"The user is {user.display_name or user.username} (role: {user.role.value}).\n"
-        "You can look up schedules, time-off, and runbooks via tools — prefer tools over "
-        "guessing. When filing a time-off request, restate the dates and type and get an "
-        "explicit confirmation from the user first. Time-off requests always require admin "
-        "approval afterwards — mention that. If a question is about customer tickets or "
-        "emails, say you don't have access to that data and point to the Tickets/Mail pages."
+        "You can look up schedules, time-off, runbooks, and review the operational mail "
+        "queue via tools — prefer tools over guessing. When filing a time-off request, "
+        "restate the dates and type and get an explicit confirmation from the user first. "
+        "Time-off requests always require admin approval afterwards — mention that. "
+        "For mail reviews, highlight what needs action: unchecked items first, then "
+        "long-paused ones; call out onboarding/offboarding category emails explicitly. "
+        "You only see email metadata (subject/sender/status), not bodies. If a question "
+        "is about Zammad tickets, say you don't have access and point to the Tickets page."
     )
 
 
