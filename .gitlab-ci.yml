@@ -10,7 +10,7 @@ stages: [deploy]
 
 variables:
   GIT_STRATEGY: none        # deploy in-place in /opt — no separate runner checkout
-  REPO_URL: "https://gitlab-ci-token:${CI_JOB_TOKEN}@git.shitnsticks.productions/greenberry/it-portal.git"
+  REPO_URL: "https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
 
 .health_check: &health_check |
   for i in $(seq 1 24); do
