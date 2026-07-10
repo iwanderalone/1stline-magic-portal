@@ -1,6 +1,6 @@
 # User Guide — 1line Portal
 
-Internal operations portal for first-line support teams. Covers shift scheduling, time-off management, email monitoring, Telegram notifications, and team management.
+Internal operations portal for first-line support teams. Covers shift scheduling, time-off management, email monitoring with reply-from-portal, Zammad ticket tracking, Grafana alerts, runbooks, an AI assistant, Telegram notifications, and team management.
 
 ---
 
@@ -16,17 +16,26 @@ If your account has **two-factor authentication (2FA)** enabled, you will be pro
 
 ## Navigation
 
-The sidebar contains:
+The sidebar is organised into collapsible groups (click a group header to fold it — the state is remembered):
 
-| Item | Description |
+| Group / Item | Description |
 |------|-------------|
-| 🏠 Home | Greeting, today's shift, mail queue, active reminders |
-| 👤 My Profile | Personal settings, timezone, Telegram linking, 2FA |
+| 🏠 Home | Greeting, "Needs attention" hub, today's shift |
+| **Operations** | |
+| 🎫 Tickets | Zammad ticket board and event feed |
+| 📧 Mail | Email monitoring, replies, routing rules |
+| 🚨 Alerts | Grafana alert feed |
+| **Team** | |
 | 📅 Schedule | Shift calendar (weekly/monthly view) |
-| 📧 Mail | Email monitoring and routing rules |
 | 🌴 Time Off | Submit and track time-off requests |
 | 🔔 Reminders | Personal reminders (in-app + Telegram) |
+| **Knowledge** | |
+| 📚 Runbooks | Step-by-step playbook library |
+| | |
+| 👤 My Profile | Personal settings, timezone, Telegram linking, 2FA |
 | ⚙️ Admin | Team and system administration *(admin only)* |
+
+A floating **AI assistant** button (=^.^=) sits in the bottom-right corner on every page (when enabled by your admin).
 
 The top bar shows multi-timezone clocks (Mexico City / Berlin / Moscow / Abu Dhabi), language toggle (EN / RU), theme toggle (light / dark), and a bell icon for unread in-app notifications.
 
@@ -51,7 +60,7 @@ The schedule page shows shifts for the current week or month.
 | Night shift | 20:00 – 08:00 | 🌙 |
 | Office shift | 09:00 – 17:00 | 🏢 |
 
-Times are in your admin's configured portal timezone. Telegram notifications you receive will show times converted to **your own profile timezone**.
+Shift times are stored in the portal's canonical timezone (UTC) but are **always displayed converted to your own profile timezone** — on the calendar, on the home page, in Telegram notifications, and in AI assistant answers. Set your timezone in Profile → Timezone.
 
 ---
 
@@ -60,9 +69,10 @@ Times are in your admin's configured portal timezone. Telegram notifications you
 The home page is the first thing you see after login. It surfaces:
 
 - **Greeting band** with today's date and your current/next shift.
-- **Stat cards** — open mail queue, active reminders, unread notifications, next on-shift engineer.
-- **Operational mail** — your most recent unresolved emails. **Click any row to open a detail modal** where you can read the message body, change its status, and post comments without leaving the home page.
-- **Shift context** — your current/upcoming shift and the next engineer on rotation.
+- **Needs attention** — the main hub: firing Grafana alerts, unsolved Zammad tickets, and unchecked emails, each clickable straight into a detail view.
+- **Slim stat strip** — compact counters (mail queue, reminders, notifications).
+- **Operational mail** — recent unresolved emails. **Click any row to open a detail modal** where you can read the message body, change its status, and post comments without leaving the home page.
+- **Shift context** — your current/upcoming shift and the next engineer on rotation (times in your profile timezone).
 
 ---
 
@@ -85,7 +95,18 @@ Approved time-off days are shown on the schedule calendar and are respected by t
 
 ## Mail
 
-The Mail page shows incoming emails captured from monitored mailboxes and forwarded to Telegram. All authenticated users can view the email log and mark emails as solved.
+The Mail page shows incoming emails captured from monitored mailboxes and forwarded to Telegram. All authenticated users can view the email log, mark emails as solved, comment, and reply.
+
+### Folders
+
+| Folder | Contents |
+|--------|----------|
+| Inbox | Routed incoming emails |
+| Unrouted | Emails that matched no routing rule |
+| Archive | Solved / closed items |
+| Sent | All replies sent from the portal |
+
+Emails you have replied to get a green **Replied** marker in the list.
 
 ### Email log
 
@@ -117,6 +138,60 @@ Long messages collapse to the first ~12 lines with a **Show full message** butto
 Each email has a comment thread visible to all authenticated users. Use comments to coordinate on an issue without leaving the portal.
 
 You can also access the email detail in modal form by clicking a row in the **Operational mail** card on the Home page — useful if you don't want to leave your shift dashboard.
+
+### Replying
+
+Open an email's detail view and use the **Reply** composer to answer the original sender directly from the portal. The reply is sent from the monitored mailbox itself, signed as your team's support identity with the standard signature, and threads correctly in the recipient's mail client. Sent replies appear under the email and in the **Sent** folder.
+
+---
+
+## Tickets (Zammad)
+
+The Tickets page mirrors your Zammad helpdesk in real time.
+
+- **Board view** — tickets grouped by status (New / Open / In progress / Pending / Paused / Closed) with time-in-status, assignee, and priority. Use the search box to filter.
+- **Ticket detail** — click a ticket to open the full view: description, customer, state history, and the comment thread from Zammad.
+- **Internal notes** — post a **portal-only note** on any ticket. These notes stay in the portal and are *never* sent to Zammad (customers see Zammad notes through the support bot, so anything you need to keep internal goes here).
+- **Statuses are read-only** — change ticket states in Zammad itself; the portal reflects them within seconds via webhooks.
+- **Events tab** — the raw feed of webhook events with payloads, useful for debugging.
+
+If configured by your admin, ticket alerts also go to Telegram: new ticket opened, ticket solved, and escalation pings when a ticket sits in Open for 15/30/60 minutes.
+
+---
+
+## Alerts (Grafana)
+
+The Alerts page shows monitoring alerts pushed from Grafana.
+
+- **Firing alerts** are listed first with severity badges; resolved alerts follow.
+- Each alert shows its name, summary, labels, and how many times it has fired.
+- The list auto-refreshes every 30 seconds; firing alerts also appear in the Home **Needs attention** hub.
+
+---
+
+## Runbooks
+
+The Runbooks page is the team's playbook library.
+
+- Browse by **category** in the left sidebar (Access, Infra, Yandex, Website, Office, Services, General) or search by title/tags.
+- Each runbook is a numbered sequence of steps; steps can include copy-ready code blocks with syntax highlighting.
+- A **run counter** tracks how often each runbook is used.
+- Admins can create and edit runbooks directly; anyone can ask the **AI assistant** to draft one from a solved ticket or email (see below). AI drafts are tagged `ai-draft` and should be reviewed before relying on them.
+
+---
+
+## AI Assistant
+
+Click the cat button (=^.^=) in the bottom-right corner to open the assistant. It understands English and Russian and replies in the language you write in. Enter sends, Shift+Enter makes a new line.
+
+What it can do:
+
+- **Schedule** — "when is my next shift?", "who works nights this week?" (times shown in your timezone)
+- **Time off** — check your requests or file a new one; the assistant confirms dates first, and requests still land as *pending* for normal admin approval
+- **Runbooks** — list, search, and read runbooks; or say "check ticket #123 and make a runbook" / "make a runbook from that Adobe email" to get a draft
+- **Mail review** — "did we miss anything today/this week?" — reviews the queue and highlights unchecked or long-paused items
+
+Privacy: the assistant sees team schedule data and email metadata (subjects/senders/statuses). Full email or ticket content is only read when you explicitly point it at a specific case.
 
 ---
 
@@ -159,7 +234,7 @@ Change your **display name**, **name colour** (used in shift cards and the sideb
 
 ### Timezone
 
-Set your IANA timezone (e.g. `Europe/Moscow`, `Asia/Dubai`). This affects how shift start times are displayed in your Telegram notifications. It does not change how shifts appear on the calendar — the calendar always uses the portal's configured timezone.
+Set your IANA timezone (e.g. `Europe/Moscow`, `Asia/Dubai`). All shift times across the portal — the schedule calendar, home page, Telegram notifications, and AI assistant answers — are displayed converted to this timezone.
 
 ### Telegram notifications
 
