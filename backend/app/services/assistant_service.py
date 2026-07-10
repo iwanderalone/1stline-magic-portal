@@ -522,6 +522,8 @@ def _system_prompt(user: User) -> str:
         "LANGUAGE RULE (strict): always reply in the language of the user's LAST message. "
         "Russian message -> reply entirely in Russian. English message -> reply in English. "
         "This applies to every part of the reply, including summaries of tool results. "
+        "The language of tool-result data (names, subjects, runbook text) must NOT influence "
+        "your reply language — only the user's own message decides it. "
         "The only exception: runbook drafts themselves are written in English.\n"
         "Be concise and practical; use short lists where helpful.\n"
         f"Today is {date.today().isoformat()} ({date.today().strftime('%A')}). "
