@@ -3,6 +3,7 @@ import { api } from '../api';
 import { useTheme } from './ThemeContext';
 import { useLang } from './LangContext';
 import { Button, Badge, Overlay, Tabs } from './UI';
+import { Icon } from './Icons';
 
 const TELEGRAM_BOT_URL = 'https://t.me/sd_viory_video_bot';
 
@@ -56,7 +57,7 @@ export function fmtDuration(iso, lang) {
   return `${days}${u.d}${h % 24 ? ` ${h % 24}${u.h}` : ''}`;
 }
 
-export default function TicketDetailModal({ ticketId, onClose, onError, onChanged }) {
+export default function TicketDetailModal({ ticketId, onClose, onError, onChanged, user }) {
   const { theme: t } = useTheme();
   const { t: tr } = useLang();
   const [data, setData] = useState(null);
@@ -64,6 +65,9 @@ export default function TicketDetailModal({ ticketId, onClose, onError, onChange
   const [tab, setTab] = useState('comments');
   const [reply, setReply] = useState('');
   const [sending, setSending] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [editDraft, setEditDraft] = useState('');
+  const [noteBusy, setNoteBusy] = useState(false);
 
   const reload = useCallback(() => {
     return api(`/tickets/board/${ticketId}`)
@@ -87,6 +91,39 @@ export default function TicketDetailModal({ ticketId, onClose, onError, onChange
     } finally {
       setSending(false);
     }
+  };
+
+  const saveNote = async (id) => {
+    const text = editDraft.trim();
+    if (!text || noteBusy) return;
+    setNoteBusy(true);
+    try {
+      await api(`/tickets/board/${ticketId}/notes/${id}`, { method: 'PATCH', body: JSON.stringify({ body: text }) });
+      setEditingId(null);
+      await reload();
+    } catch (e) {
+      onError?.(e.message || 'Failed to save note');
+    } finally {
+      setNoteBusy(false);
+    }
+  };
+
+  const deleteNote = async (id) => {
+    if (noteBusy || !window.confirm(tr('cmDeleteConfirm'))) return;
+    setNoteBusy(true);
+    try {
+      await api(`/tickets/board/${ticketId}/notes/${id}`, { method: 'DELETE' });
+      await reload();
+    } catch (e) {
+      onError?.(e.message || 'Failed to delete note');
+    } finally {
+      setNoteBusy(false);
+    }
+  };
+
+  const noteIconBtn = {
+    border: 'none', background: 'transparent', cursor: 'pointer', padding: 2,
+    color: t.textMuted, display: 'flex', alignItems: 'center',
   };
 
   const meta = (label, value) => (
@@ -144,13 +181,17 @@ export default function TicketDetailModal({ ticketId, onClose, onError, onChange
               <div style={{ fontSize: 13, color: t.textMuted }}>{tr('tkNoComments')}</div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {data.comments.map(c => (
+                {data.comments.map(c => {
+                  const canEdit = c.portal_only && !!user?.id && c.user_id === user.id;
+                  const canDelete = c.portal_only && user?.role === 'admin';
+                  const isEditing = editingId === c.id;
+                  return (
                   <div key={c.id} style={{
                     border: `1px solid ${c.portal_only ? (t.warning || '#caa024') : t.border}`,
                     borderRadius: t.radius, padding: '8px 12px',
                     background: c.portal_only ? 'rgba(202,160,36,0.07)' : (t.surfaceAlt || t.surface),
                   }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                       <span style={{ fontSize: 12, fontWeight: 600, color: t.text }}>
                         {c.author || c.sender || 'Unknown'}
                         {c.portal_only
@@ -158,12 +199,45 @@ export default function TicketDetailModal({ ticketId, onClose, onError, onChange
                           : (c.sender === 'Customer'
                               ? <span style={{ marginLeft: 6, fontSize: 10, color: t.textMuted }}>{tr('tkCustomerTag')}</span>
                               : null)}
+                        {c.updated_at && <span style={{ marginLeft: 6, fontSize: 10, fontStyle: 'italic', color: t.textMuted }}>{tr('cmEdited')}</span>}
                       </span>
+                      <span style={{ flex: 1 }} />
                       <span style={{ fontSize: 11, color: t.textMuted, whiteSpace: 'nowrap' }}>{formatTime(c.zammad_created_at || c.created_at)}</span>
+                      {canEdit && !isEditing && (
+                        <button onClick={() => { setEditDraft(c.body || ''); setEditingId(c.id); }} title={tr('edit')} style={noteIconBtn}>
+                          <Icon name="edit" size={12} />
+                        </button>
+                      )}
+                      {canDelete && !isEditing && (
+                        <button onClick={() => deleteNote(c.id)} title={tr('delete')} style={{ ...noteIconBtn, color: t.danger || '#d33' }}>
+                          <Icon name="trash" size={12} />
+                        </button>
+                      )}
                     </div>
-                    <div style={{ fontSize: 13, color: t.textSecondary, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{c.body}</div>
+                    {isEditing ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        <textarea
+                          value={editDraft}
+                          onChange={e => setEditDraft(e.target.value)}
+                          rows={3}
+                          autoFocus
+                          style={{
+                            width: '100%', boxSizing: 'border-box', padding: '6px 10px', fontSize: 13,
+                            borderRadius: t.radius, border: `1px solid ${t.border}`,
+                            background: t.surface, color: t.text, resize: 'vertical', fontFamily: 'inherit',
+                          }}
+                        />
+                        <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                          <Button size="sm" onClick={() => setEditingId(null)}>{tr('cancel')}</Button>
+                          <Button size="sm" variant="primary" disabled={!editDraft.trim() || noteBusy} onClick={() => saveNote(c.id)}>{tr('save')}</Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: 13, color: t.textSecondary, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{c.body}</div>
+                    )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )
           ) : (

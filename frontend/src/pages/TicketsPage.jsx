@@ -16,7 +16,7 @@ const BUCKETS = [
 ];
 
 /* ─── Ticket board ─────────────────────────────────────── */
-function TicketBoardView({ onError }) {
+function TicketBoardView({ onError, user }) {
   const { theme: t } = useTheme();
   const { t: tr } = useLang();
   const [tickets, setTickets] = useState([]);
@@ -58,7 +58,7 @@ function TicketBoardView({ onError }) {
 
   return (
     <div>
-      {selected && <TicketDetailModal ticketId={selected} onClose={() => setSelected(null)} onError={onError} onChanged={() => load(bucket, search)} />}
+      {selected && <TicketDetailModal ticketId={selected} onClose={() => setSelected(null)} onError={onError} onChanged={() => load(bucket, search)} user={user} />}
 
       {/* filters + search */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16, alignItems: 'center' }}>
@@ -247,7 +247,7 @@ function EventLogView({ onError }) {
 }
 
 /* ─── Page ─────────────────────────────────────────────── */
-export default function TicketsPage() {
+export default function TicketsPage({ user }) {
   const { theme: t } = useTheme();
   const { t: tr } = useLang();
   const [tab, setTab] = useState('board');
@@ -272,7 +272,7 @@ export default function TicketsPage() {
         />
       </div>
 
-      {tab === 'board' ? <TicketBoardView onError={onError} /> : <EventLogView onError={onError} />}
+      {tab === 'board' ? <TicketBoardView onError={onError} user={user} /> : <EventLogView onError={onError} />}
     </div>
   );
 }

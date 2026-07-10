@@ -389,6 +389,43 @@ async def add_comment(
     return comment
 
 
+@router.patch("/emails/{email_id}/comments/{comment_id}", response_model=EmailCommentResponse)
+async def edit_comment(
+    email_id: int,
+    comment_id: int,
+    body: EmailCommentCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Edit a comment — only its author may edit."""
+    comment = await get_or_404(db, EmailComment, comment_id)
+    if comment.email_id != email_id:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    if comment.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the author can edit this comment")
+    comment.text = body.text
+    comment.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(comment)
+    return comment
+
+
+@router.delete("/emails/{email_id}/comments/{comment_id}", status_code=204)
+async def delete_comment(
+    email_id: int,
+    comment_id: int,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """Delete a comment — admins only."""
+    comment = await get_or_404(db, EmailComment, comment_id)
+    if comment.email_id != email_id:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    await db.delete(comment)
+    await db.commit()
+    logger.info("[mail] admin %s deleted comment %s on email %s", admin.username, comment_id, email_id)
+
+
 # ─── Outbound replies (SMTP) ─────────────────────────────────────────
 
 @router.get("/emails/{email_id}/replies", response_model=list[EmailReplyResponse])

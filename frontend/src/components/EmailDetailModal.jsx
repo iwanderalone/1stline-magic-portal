@@ -48,7 +48,79 @@ export function MessageBody({ body }) {
   );
 }
 
-export default function EmailDetailModal({ emailId, onClose, onChange }) {
+const ICON_BTN = {
+  border: 'none', background: 'transparent', cursor: 'pointer', padding: 2,
+  color: 'var(--text-muted)', display: 'flex', alignItems: 'center',
+};
+
+/** Shared comment row with author-only edit and admin-only delete. */
+export function CommentItem({ c, me, onSave, onDelete }) {
+  const { t: tr } = useLang();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [busy, setBusy] = useState(false);
+  const canEdit = !!me?.id && c.user_id === me.id;
+  const canDelete = me?.role === 'admin';
+
+  const save = async () => {
+    const text = draft.trim();
+    if (!text || busy) return;
+    setBusy(true);
+    try { await onSave(c.id, text); setEditing(false); }
+    catch { /* toast raised by caller */ }
+    finally { setBusy(false); }
+  };
+
+  const remove = async () => {
+    if (busy || !window.confirm(tr('cmDeleteConfirm'))) return;
+    setBusy(true);
+    try { await onDelete(c.id); } finally { setBusy(false); }
+  };
+
+  return (
+    <div style={{ padding: '8px 10px', background: 'var(--surface-alt)', borderRadius: 'var(--radius-xs)', border: '1px solid var(--border-light)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, marginBottom: 4 }}>
+        <span style={{ fontWeight: 600 }}>{c.username}</span>
+        {c.updated_at && <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>{tr('cmEdited')}</span>}
+        <span style={{ flex: 1 }} />
+        <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{new Date(c.created_at).toLocaleString()}</span>
+        {canEdit && !editing && (
+          <button onClick={() => { setDraft(c.text); setEditing(true); }} title={tr('edit')} style={ICON_BTN}>
+            <Icon name="edit" size={12} />
+          </button>
+        )}
+        {canDelete && !editing && (
+          <button onClick={remove} title={tr('delete')} style={{ ...ICON_BTN, color: 'var(--danger)' }}>
+            <Icon name="trash" size={12} />
+          </button>
+        )}
+      </div>
+      {editing ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <textarea
+            value={draft}
+            onChange={e => setDraft(e.target.value)}
+            rows={2}
+            autoFocus
+            style={{
+              width: '100%', boxSizing: 'border-box', padding: '6px 10px', fontSize: 13,
+              fontFamily: 'inherit', background: 'var(--surface)', border: '1px solid var(--border)',
+              borderRadius: 'var(--radius-xs)', color: 'var(--text)', resize: 'vertical',
+            }}
+          />
+          <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+            <Button size="sm" onClick={() => setEditing(false)}>{tr('cancel')}</Button>
+            <Button size="sm" variant="primary" disabled={!draft.trim() || busy} onClick={save}>{tr('save')}</Button>
+          </div>
+        </div>
+      ) : (
+        <div style={{ fontSize: 13, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>{c.text}</div>
+      )}
+    </div>
+  );
+}
+
+export default function EmailDetailModal({ emailId, onClose, onChange, user }) {
   const { t: tr } = useLang();
   const [email, setEmail] = useState(null);
   const [comments, setComments] = useState([]);
@@ -105,6 +177,27 @@ export default function EmailDetailModal({ emailId, onClose, onChange }) {
       setToast({ message: err.message, type: 'error' });
     } finally {
       setBusy(false);
+    }
+  };
+
+  const saveComment = async (id, text) => {
+    try {
+      const updated = await api(`/mail-reporter/emails/${email.id}/comments/${id}`, {
+        method: 'PATCH', body: JSON.stringify({ text }),
+      });
+      setComments(prev => prev.map(c => (c.id === id ? updated : c)));
+    } catch (err) {
+      setToast({ message: err.message, type: 'error' });
+      throw err;
+    }
+  };
+
+  const deleteComment = async (id) => {
+    try {
+      await api(`/mail-reporter/emails/${email.id}/comments/${id}`, { method: 'DELETE' });
+      setComments(prev => prev.filter(c => c.id !== id));
+    } catch (err) {
+      setToast({ message: err.message, type: 'error' });
     }
   };
 
@@ -173,13 +266,7 @@ export default function EmailDetailModal({ emailId, onClose, onChange }) {
               {comments.length === 0 ? (
                 <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{tr('mailNoComments')}</div>
               ) : comments.map(c => (
-                <div key={c.id} style={{ padding: '8px 10px', background: 'var(--surface-alt)', borderRadius: 'var(--radius-xs)', border: '1px solid var(--border-light)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 4 }}>
-                    <span style={{ fontWeight: 600 }}>{c.username}</span>
-                    <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{new Date(c.created_at).toLocaleString()}</span>
-                  </div>
-                  <div style={{ fontSize: 13, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>{c.text}</div>
-                </div>
+                <CommentItem key={c.id} c={c} me={user} onSave={saveComment} onDelete={deleteComment} />
               ))}
             </div>
             <form onSubmit={addComment} style={{ display: 'flex', gap: 8 }}>

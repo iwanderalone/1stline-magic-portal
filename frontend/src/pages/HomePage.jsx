@@ -429,6 +429,7 @@ export default function HomePage({ user, unread = 0, onNavigate }) {
           emailId={openEmailId}
           onClose={() => setOpenEmailId(null)}
           onChange={(updated) => setEmails(prev => prev.map(e => e.id === updated.id ? { ...e, ...updated } : e))}
+          user={user}
         />
       )}
 
@@ -438,6 +439,7 @@ export default function HomePage({ user, unread = 0, onNavigate }) {
           onClose={() => setOpenTicketId(null)}
           onError={(message) => setError(message)}
           onChanged={loadTickets}
+          user={user}
         />
       )}
     </div>

@@ -419,6 +419,7 @@ class EmailCommentResponse(BaseOrmModel):
     username: str
     text: str
     created_at: datetime
+    updated_at: Optional[datetime] = None
 
 class EmailReplyCreate(BaseModel):
     body: str = Field(..., min_length=1, max_length=20000)
@@ -659,8 +660,10 @@ class ZammadCommentResponse(BaseOrmModel):
     body: Optional[str]
     internal: Optional[bool]
     portal_only: bool = False
+    user_id: Optional[UUID] = None
     zammad_created_at: Optional[datetime]
     created_at: datetime
+    updated_at: Optional[datetime] = None
 
 
 class ZammadTicketResponse(BaseModel):

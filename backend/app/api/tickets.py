@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.database import get_db
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, require_admin
 from app.models.models import ZammadEvent, ZammadTicket, ZammadComment, User, utcnow
 from app.schemas.schemas import (
     ZammadWebhookPayload, ZammadEventResponse,
@@ -578,6 +578,7 @@ async def reply_to_ticket(
         body=payload.body[:8000],
         internal=True,
         portal_only=True,
+        user_id=user.id,
         zammad_created_at=utcnow(),
     )
     db.add(comment)
@@ -586,3 +587,52 @@ async def reply_to_ticket(
     await db.refresh(comment)
     logger.info("[tickets] %s added portal-only note to ticket %s", user.username, ticket_id)
     return ZammadCommentResponse.model_validate(comment)
+
+
+async def _get_portal_note(db: AsyncSession, ticket_id: int, comment_id: int) -> ZammadComment:
+    """Portal-only notes only — Zammad-mirrored comments must never be touched."""
+    comment = await db.get(ZammadComment, comment_id)
+    if not comment or comment.ticket_id != ticket_id:
+        raise HTTPException(status_code=404, detail="Note not found")
+    if not comment.portal_only:
+        raise HTTPException(status_code=403, detail="Only portal-only notes can be modified")
+    return comment
+
+
+@router.patch(
+    "/board/{ticket_id}/notes/{comment_id}",
+    response_model=ZammadCommentResponse,
+    summary="Edit a portal-only note (author only)",
+)
+async def edit_portal_note(
+    ticket_id: int,
+    comment_id: int,
+    payload: ZammadReplyCreate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    comment = await _get_portal_note(db, ticket_id, comment_id)
+    if comment.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Only the author can edit this note")
+    comment.body = payload.body[:8000]
+    comment.updated_at = utcnow()
+    await db.commit()
+    await db.refresh(comment)
+    return ZammadCommentResponse.model_validate(comment)
+
+
+@router.delete(
+    "/board/{ticket_id}/notes/{comment_id}",
+    status_code=204,
+    summary="Delete a portal-only note (admins only)",
+)
+async def delete_portal_note(
+    ticket_id: int,
+    comment_id: int,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    comment = await _get_portal_note(db, ticket_id, comment_id)
+    await db.delete(comment)
+    await db.commit()
+    logger.info("[tickets] admin %s deleted portal note %s on ticket %s", admin.username, comment_id, ticket_id)
