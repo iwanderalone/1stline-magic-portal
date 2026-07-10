@@ -8,7 +8,7 @@ chat (get_email_case / get_ticket_case) — never in bulk.
 import asyncio
 import json
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone as dt_timezone
 
 import httpx
 from sqlalchemy import select, or_
@@ -191,12 +191,28 @@ def _d(value: str | None, default: date) -> date:
         return default
 
 
-def _shift_dict(s: Shift, with_user: bool) -> dict:
+def _user_tz(user: User):
+    from zoneinfo import ZoneInfo
+    try:
+        return ZoneInfo(user.timezone or "UTC")
+    except Exception:
+        return dt_timezone.utc
+
+
+def _local_time(shift_date, t, tz) -> str | None:
+    """Shift times are stored in UTC — convert to the user's timezone for display."""
+    if not t:
+        return None
+    dt = datetime.combine(shift_date, t, tzinfo=dt_timezone.utc).astimezone(tz)
+    return dt.strftime("%H:%M")
+
+
+def _shift_dict(s: Shift, with_user: bool, tz) -> dict:
     out = {
         "date": s.date.isoformat(),
         "shift_type": s.shift_type.value if hasattr(s.shift_type, "value") else str(s.shift_type),
-        "start_time": s.start_time.isoformat()[:5] if s.start_time else None,
-        "end_time": s.end_time.isoformat()[:5] if s.end_time else None,
+        "start_time": _local_time(s.date, s.start_time, tz),
+        "end_time": _local_time(s.date, s.end_time, tz),
         "location": s.location.value if s.location else None,
     }
     if with_user:
@@ -215,7 +231,13 @@ async def _tool_get_my_schedule(user: User, args: dict) -> dict:
                 Shift.is_published.is_(True), Shift.pending_delete.is_(False),
             ).order_by(Shift.date)
         )).scalars().all()
-    return {"shifts": [_shift_dict(s, False) for s in rows], "range": f"{start} — {end}"}
+    tz = _user_tz(user)
+    return {
+        "shifts": [_shift_dict(s, False, tz) for s in rows],
+        "range": f"{start} — {end}",
+        "times_timezone": str(tz),
+        "note": "start_time/end_time are already converted to the user's local timezone — report them as-is",
+    }
 
 
 async def _tool_get_team_schedule(user: User, args: dict) -> dict:
@@ -228,8 +250,14 @@ async def _tool_get_team_schedule(user: User, args: dict) -> dict:
                 Shift.is_published.is_(True), Shift.pending_delete.is_(False),
             ).order_by(Shift.date, Shift.shift_type)
         )).scalars().all()
-        out = [_shift_dict(s, True) for s in rows]
-    return {"shifts": out, "range": f"{start} — {end}"}
+        tz = _user_tz(user)
+        out = [_shift_dict(s, True, tz) for s in rows]
+    return {
+        "shifts": out,
+        "range": f"{start} — {end}",
+        "times_timezone": str(tz),
+        "note": "start_time/end_time are already converted to the user's local timezone — report them as-is",
+    }
 
 
 async def _tool_get_my_timeoff(user: User, args: dict) -> dict:

@@ -115,11 +115,16 @@ const RECURRENCE_OPTIONS = [
   { label: 'Monthly',     value: 43200 },
 ];
 
+function toLocalInput(d) {
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
 function ReminderModal({ initial, onClose, onSubmit }) {
   const { t: tr } = useLang();
   const isEdit = Boolean(initial);
   const initialAt = initial?.remind_at
-    ? new Date(initial.remind_at).toISOString().slice(0, 16)
+    ? toLocalInput(new Date(initial.remind_at))
     : '';
   const [title, setTitle] = useState(initial?.title || '');
   const [desc, setDesc] = useState(initial?.description || '');
@@ -130,10 +135,10 @@ function ReminderModal({ initial, onClose, onSubmit }) {
 
   const setQuick = m => {
     if (m) {
-      setAt(new Date(Date.now() + m * 60000).toISOString().slice(0, 16));
+      setAt(toLocalInput(new Date(Date.now() + m * 60000)));
     } else {
       const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0);
-      setAt(d.toISOString().slice(0, 16));
+      setAt(toLocalInput(d));
     }
   };
 

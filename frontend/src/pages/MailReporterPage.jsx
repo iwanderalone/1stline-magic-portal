@@ -525,7 +525,7 @@ function EmailDetail({ email, ruleMap, onStatusChange, onAddComment }) {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 20 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       {/* Header */}
       <section>
         <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
@@ -591,12 +591,12 @@ function EmailDetail({ email, ruleMap, onStatusChange, onAddComment }) {
       <div style={{ height: 1, background: 'var(--border-light)' }} />
 
       {/* Internal Activity */}
-      <section style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 16, minHeight: 0 }}>
+      <section style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <div className="t-eyebrow" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <Icon name="message" size={12} /> {tr('mailActivity')}{comments.length > 0 ? ` (${comments.length})` : ''}
         </div>
 
-        <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10, paddingRight: 4 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {loadingComments ? (
             <div style={{ color: 'var(--text-muted)', fontSize: '13px' }}>{tr('mailLoadingHistory')}</div>
           ) : comments.length === 0 ? (

@@ -219,7 +219,20 @@ export default function AssistantChat() {
                 e.target.style.height = Math.min(e.target.scrollHeight, 110) + 'px';
               }}
               onKeyDown={e => {
-                if (e.key === 'Enter' && !e.shiftKey) {
+                if (e.key !== 'Enter') return;
+                if (e.shiftKey) {
+                  // insert newline explicitly — some browsers/layouts swallow the default
+                  e.preventDefault();
+                  const el = e.target;
+                  const { selectionStart: a, selectionEnd: b, value } = el;
+                  const next = value.slice(0, a) + '\n' + value.slice(b);
+                  setInput(next);
+                  requestAnimationFrame(() => {
+                    el.selectionStart = el.selectionEnd = a + 1;
+                    el.style.height = 'auto';
+                    el.style.height = Math.min(el.scrollHeight, 110) + 'px';
+                  });
+                } else {
                   e.preventDefault();
                   send();
                   e.target.style.height = 'auto';
