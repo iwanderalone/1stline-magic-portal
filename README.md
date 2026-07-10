@@ -1,6 +1,6 @@
 # 1line-portal — Support Team Internal Portal
 
-A lightweight internal operations portal for first-line support teams. Provides shift scheduling, time-off management, IMAP email monitoring with Telegram delivery, and an in-app notification centre.
+A lightweight internal operations portal for first-line support teams. Provides shift scheduling, time-off management, IMAP email monitoring with Telegram delivery and SMTP replies, Zammad ticket tracking, Grafana alert ingestion, a runbook library, an AI assistant, and an in-app notification centre.
 
 ## Architecture
 
@@ -20,8 +20,13 @@ A lightweight internal operations portal for first-line support teams. Provides 
 │  · Groups        (team groupings)             │
 │  · Schedule      (shifts + auto-generation)  │
 │  · Time Off      (requests + approval)        │
-│  · Mail Reporter (IMAP → classify → Telegram) │
-│  · Tickets       (Zammad webhooks + sync)     │
+│  · Mail Reporter (IMAP → classify → Telegram, │
+│                   SMTP replies from portal)   │
+│  · Tickets       (Zammad webhooks + sync,     │
+│                   board + portal-only notes)  │
+│  · Alerts        (Grafana webhook ingestion)  │
+│  · Runbooks      (playbook library)           │
+│  · AI Assistant  (Gemini function calling)    │
 │  · Notifications (in-app + Telegram)          │
 │  · Admin config  (shift types, Telegram chats)│
 └────────────┬──────────────────────────────────┘
@@ -130,11 +135,30 @@ npm run dev      # Vite dev server on :5173 — proxies /api to :8000
 - OTP setup/disable via self-service profile page
 
 ### Tickets / Zammad
-- Receives Zammad webhooks at `POST /api/tickets/webhook`
-- Supports explicit `?event=` values and auto-detection when `event` is omitted
-- Stores `ticket_opened`, `ticket_assigned`, `comment_added`, `ticket_closed`, `ticket_paused`, `ticket_status_changed`, and `ticket_sync`
+- Ticket-centric board: current state per ticket (status buckets, time-in-status, search, detail modal with comment thread) — a **read-only mirror** of Zammad; the portal never writes state or replies back
+- Portal-only internal notes per ticket (stored locally, never sent to Zammad — the customer UI is a Telegram Mini App where Zammad notes are customer-visible)
+- Receives Zammad webhooks at `POST /api/tickets/webhook` — explicit `?event=` values or auto-detection; redundant events (duplicate opens, no-op status changes, re-sent comments) are suppressed
+- Stores `ticket_opened`, `ticket_assigned`, `comment_added`, `ticket_closed`, `ticket_paused`, `ticket_status_changed`, and `ticket_sync` in an append-only event log
 - Validates `X-Hub-Signature` when `ZAMMAD_WEBHOOK_SECRET` is set
-- Imports active Zammad tickets on backend startup when `ZAMMAD_URL` and `ZAMMAD_API_TOKEN` are configured
+- Periodic sync backstop (every 5 min + startup import) when `ZAMMAD_URL` and `ZAMMAD_API_TOKEN` are configured; also backfills article threads
+- Optional Telegram alerts: ticket opened / solved + open-overdue escalations at 15/30/60 min (`ZAMMAD_TELEGRAM_CHAT_ID`)
+
+### Alerts / Grafana
+- Receives Grafana webhook notifications at `POST /api/alerts/grafana/webhook` (bearer-token gated via `GRAFANA_WEBHOOK_TOKEN`)
+- One row per alert fingerprint, upserted firing → resolved, with fire counts
+- Alerts page: firing-first feed with severity badges, auto-refresh
+- Firing alerts surface in the Home "Needs attention" hub
+
+### Runbooks
+- Playbook library with categories (Access, Infra, Yandex, Website, Office, Services, General), tags, and step-by-step instructions with syntax-highlighted code blocks
+- Run-count tracking; admin CRUD
+- The AI assistant can draft runbooks from tickets/emails on request (drafts tagged `ai-draft`, human review before publish)
+
+### AI Assistant
+- Floating chat (bottom-right) powered by Google Gemini function calling; hidden entirely when `GEMINI_API_KEY` is unset
+- Tools: my/team schedule (times converted to the viewer's timezone), time-off status + filing requests (lands as *pending* — normal admin approval applies), runbook search/read/drafting, mail-queue review (today/week/month)
+- Privacy boundary: team data and email *metadata* only; full email/ticket content is fetched per-case only when the engineer explicitly references it in chat
+- Replies in the language of the user's last message (EN/RU)
 
 ### Schedule
 - Weekly and monthly calendar views
@@ -160,6 +184,8 @@ npm run dev      # Vite dev server on :5173 — proxies /api to :8000
 - Custom rules: keyword, subject keyword, sender address, or sender domain matching
 - Deduplication by message fingerprint — each email is processed exactly once
 - Solve workflow: team members can mark emails as solved and add a comment from the UI
+- **Reply from the portal**: send an SMTP reply to the original sender using the mailbox's own credentials (STARTTLS :587 by default), with configurable From name and team signature; proper `In-Reply-To` threading
+- Sent folder shows all outbound replies; replied emails get a green marker in the list
 - Per-mailbox subject filter, Telegram target (chat_id:thread_id), enable/disable toggle
 - Per-rule Telegram target override (route different categories to different channels/topics)
 - Admin can trigger an immediate poll or test IMAP connection from the UI
@@ -275,12 +301,34 @@ PATCH  /api/mail-reporter/rules/:id          # Update rule (admin)
 DELETE /api/mail-reporter/rules/:id          # Delete custom rule (admin)
 GET    /api/mail-reporter/emails/:id/comments # List comments
 POST   /api/mail-reporter/emails/:id/comments # Add comment
+GET    /api/mail-reporter/emails/:id/replies  # Outbound replies for one email
+POST   /api/mail-reporter/emails/:id/reply    # Send SMTP reply to original sender
+GET    /api/mail-reporter/replies             # Recent outbound replies (Sent view)
 
 POST   /api/tickets/webhook                 # Zammad webhook receiver, auto-detects event(s)
 POST   /api/tickets/webhook?event=:type     # Zammad webhook receiver with explicit event type
 GET    /api/tickets/events                  # Recent Zammad ticket events
 GET    /api/tickets/events/count            # Count Zammad ticket events
 GET    /api/tickets/events/:id              # Single Zammad event with raw payload
+GET    /api/tickets/board                   # Ticket board — current state per ticket
+GET    /api/tickets/board/counts            # Counts per status bucket
+GET    /api/tickets/board/:ticket_id        # Ticket detail with comment thread
+POST   /api/tickets/board/:ticket_id/reply  # Add portal-only internal note (never sent to Zammad)
+
+POST   /api/alerts/grafana/webhook          # Grafana webhook receiver (Bearer GRAFANA_WEBHOOK_TOKEN)
+GET    /api/alerts                          # List Grafana alerts (firing first)
+GET    /api/alerts/counts                   # Alert counts (home banner)
+
+GET    /api/runbooks/                       # List runbooks (filter by category/search)
+GET    /api/runbooks/categories             # Categories with counts
+GET    /api/runbooks/:id                    # Runbook with ordered steps
+POST   /api/runbooks/                       # Create runbook (admin; note trailing slash)
+PUT    /api/runbooks/:id                    # Update runbook + steps (admin)
+DELETE /api/runbooks/:id                    # Delete runbook (admin)
+POST   /api/runbooks/:id/run                # Increment run counter
+
+GET    /api/assistant/status                # Is the AI assistant configured?
+POST   /api/assistant/chat                  # Chat with the assistant (function-calling loop)
 
 GET    /api/health                           # Health check — includes DB connectivity
 GET    /api/config                           # Public config (Telegram bot username, portal timezone)
@@ -308,9 +356,14 @@ PostgreSQL in Docker (named volume `postgres_data`). Schema managed by Alembic �
 | `shift_notification_logs` | Deduplication log — one row per (date, shift_type) prevents duplicate shift notifications |
 | `mailbox_configs` | IMAP mailbox credentials (password encrypted at rest), poll settings, Telegram target, last-poll status |
 | `mail_routing_rules` | Categorisation rules (built-in + user-defined) — match conditions, display config, Telegram target override; `mailbox_id = NULL` means global |
-| `email_logs` | Processed email history — category, status (unchecked/solved/on_pause/blocked), Telegram delivery, extracted codes, body (capped at 64 KB) |
+| `email_logs` | Processed email history — category, status (unchecked/solved/on_pause/blocked), Telegram delivery, extracted codes, RFC 5322 message id (for reply threading), body (capped at 64 KB) |
 | `email_comments` | Per-email thread of comments from team members |
+| `email_replies` | Outbound SMTP replies — sender user, recipient, subject, body, sent/failed status |
 | `zammad_events` | Zammad webhook and startup-sync event log with extracted ticket fields and raw payload |
+| `zammad_tickets` | Current state per Zammad ticket — number, title, state, group, priority, assignee, customer, time-in-status, escalation level |
+| `zammad_comments` | Ticket comment threads (deduped by Zammad article id) + portal-only internal notes |
+| `grafana_alerts` | One row per alert fingerprint — alertname, severity, summary, labels, firing/resolved, fire count |
+| `runbooks` / `runbook_steps` | Playbook library — slug, category, tags, owner, run count; ordered steps with code blocks |
 
 ## Security
 
@@ -363,6 +416,18 @@ PostgreSQL in Docker (named volume `postgres_data`). Schema managed by Alembic �
 | `MAIL_POLL_INTERVAL`    | no       | `30`                                 | Seconds between mailbox polls                  |
 | `MAIL_DEFAULT_CHAT_ID`  | no       | *(empty)*                            | Fallback Telegram chat_id if mailbox has no target |
 | `MAIL_DEFAULT_THREAD_ID`| no       | *(empty)*                            | Fallback Telegram thread/topic id              |
+| `MAIL_SMTP_SERVER`      | no       | `smtp.yandex.com`                    | SMTP server for outbound replies               |
+| `MAIL_SMTP_PORT`        | no       | `587`                                | 587 = STARTTLS, 465 = implicit SSL             |
+| `MAIL_FROM_NAME`        | no       | `Viory IT Support`                   | Display name on outbound replies               |
+| `ZAMMAD_URL`            | no       | *(empty)*                            | Zammad base URL — enables sync + article backfill |
+| `ZAMMAD_API_TOKEN`      | no       | *(empty)*                            | Zammad API token for the sync backstop         |
+| `ZAMMAD_WEBHOOK_SECRET` | no       | *(empty)*                            | HMAC SHA1 secret for inbound webhook signatures |
+| `ZAMMAD_SYNC_ON_STARTUP`| no       | `true`                               | Import active tickets on backend startup       |
+| `ZAMMAD_TELEGRAM_CHAT_ID` | no     | *(empty)*                            | Ticket alert destination; empty = alerts off   |
+| `ZAMMAD_TELEGRAM_THREAD_ID` | no   | *(empty)*                            | Optional forum topic for ticket alerts         |
+| `GRAFANA_WEBHOOK_TOKEN` | no       | *(empty)*                            | Bearer token required on `/api/alerts/grafana/webhook`; empty = endpoint rejects all |
+| `GEMINI_API_KEY`        | no       | *(empty)*                            | Google Gemini key; empty = AI assistant hidden |
+| `GEMINI_MODEL`          | no       | `gemini-flash-latest`                | Pin a specific model (free-tier quotas are per model) |
 
 In Docker Compose `DATABASE_URL` is set to `postgresql+asyncpg://portal:<pw>@db:5432/portal`. For local development outside Docker, set `postgresql+asyncpg://portal:<password>@localhost:5432/portal` instead.
 
@@ -394,11 +459,19 @@ backend/
 │   │   ├── reminders.py            # Reminder CRUD for current user
 │   │   ├── notifications.py        # In-app notification feed
 │   │   ├── admin_config.py         # Shift configs, Telegram chats/templates, audit logs
-│   │   └── mail_reporter.py        # Mailbox CRUD, email log, routing rules, manual poll trigger
+│   │   ├── mail_reporter.py        # Mailbox CRUD, email log, routing rules, comments, SMTP replies
+│   │   ├── runbooks.py             # Runbook CRUD, categories, run-count tracking
+│   │   ├── tickets.py              # Zammad webhook receiver, event log, ticket board, portal-only notes
+│   │   ├── alerts.py               # Grafana webhook receiver + alert list/counts
+│   │   └── assistant.py            # AI assistant chat + status
 │   ├── services/
 │   │   ├── schedule_service.py     # Greedy auto-generation algorithm with constraint satisfaction
 │   │   ├── telegram_service.py     # Shift start + office roster Telegram notifications
 │   │   ├── mail_reporter_service.py # IMAP polling, email classification, Telegram delivery
+│   │   ├── smtp_service.py         # Outbound SMTP replies (mailbox creds, STARTTLS, team signature)
+│   │   ├── zammad_sync_service.py  # Periodic Zammad ticket sync + article backfill
+│   │   ├── ticket_notifications.py # Telegram ticket alerts (opened/solved/escalation)
+│   │   ├── assistant_service.py    # Gemini function-calling loop + tool implementations
 │   │   └── audit.py                # log_action() helper for activity_logs table
 │   ├── workers/
 │   │   ├── reminder_worker.py      # Fires due reminders every 30s; advances recurring reminders
@@ -428,22 +501,28 @@ frontend/src/
 ├── components/
 │   ├── UI.jsx                # Shared primitives: Button, Input, Card, Badge, Avatar, Bar, Sparkline, Tag, StatusDot, Kbd, SLAGauge, Overlay, etc.
 │   ├── Icons.jsx             # Inline SVG icon set (no emoji in JSX)
-│   ├── EmailDetailModal.jsx  # Reusable email viewer (used by Home and Mail pages); includes MessageBody (collapsible)
+│   ├── EmailDetailModal.jsx  # Reusable email viewer (body, comments, status, replies)
+│   ├── EmailReplies.jsx      # SMTP reply thread + confirm-guarded composer
+│   ├── TicketDetailModal.jsx # Zammad ticket modal: state, meta, comments/events tabs, note composer
+│   ├── AssistantChat.jsx     # Floating AI chat (cat avatar, markdown rendering)
+│   ├── CommandPalette.jsx    # Ctrl/Cmd-K quick navigation
 │   ├── ThemeContext.jsx      # ThemeProvider + useTheme() hook (persists to localStorage)
 │   ├── LangContext.jsx       # Language/i18n context (EN/RU)
 │   └── NotificationsPanel.jsx # Bell dropdown with unread count and per-item mark-read
 └── pages/
-    ├── HomePage.jsx          # Engineer dashboard: greeting, metrics, mail queue (clickable rows), shift context
+    ├── HomePage.jsx          # Dashboard: greeting, stat strip, "Needs attention" hub, shift context
     ├── LoginPage.jsx         # Login form + OTP step
     ├── SchedulePage.jsx      # Weekly/monthly calendar, shift assignment, time-off
     ├── TimeOffPage.jsx       # Time-off request submission and status tracking
-    ├── MailReporterPage.jsx  # IMAP email log (list + detail with collapsible body), mailbox config, routing rules (admin)
+    ├── MailReporterPage.jsx  # Folders (Inbox/Unrouted/Archive/Sent), email log, reply composer, mailbox config, routing rules (admin)
+    ├── TicketsPage.jsx       # Zammad ticket board + raw event log
+    ├── AlertsPage.jsx        # Grafana alert feed (firing first, severity badges)
+    ├── RunbooksPage.jsx      # Runbook library: category sidebar, step detail, admin CRUD
     ├── RemindersPage.jsx     # Reminder CRUD (create/edit/cancel; recurring; Telegram targets)
     ├── AdminPage.jsx         # Users, Groups, Shift config, Telegram, Telegram Templates, Audit Logs tabs
     └── ProfilePage.jsx       # Self-service profile, timezone, 2FA, Telegram link/unlink
 ```
 
-**Navigation (sidebar):** Home · My Profile · Schedule · Mail · Time Off · Reminders · Admin *(admin only)*
+**Navigation (sidebar):** grouped, collapsible sections — Home · **Operations** (Tickets, Mail, Alerts) · **Team** (Schedule, Time Off, Reminders) · **Knowledge** (Runbooks) · Profile · Admin *(admin only)*. Collapse state persists in localStorage.
 
 **Routing:** No React Router. `page` state in `App.jsx` synced with `window.location.hash` (with a path-segment fallback for direct URL loads). All admin route gating is enforced in both the `useState` initializer and the `navigate()` function — both must be updated when adding new admin pages.
-current page.
