@@ -366,6 +366,7 @@ class EmailComment(Base):
     username = Column(String(100), nullable=False)  # denormalised — survives user deletion
     text = Column(Text, nullable=False)
     created_at = Column(DateTime(timezone=True), default=utcnow)
+    updated_at = Column(DateTime(timezone=True), nullable=True)  # set only when edited
 
     email_log = relationship("EmailLog", back_populates="comments")
 
@@ -568,6 +569,8 @@ class ZammadComment(Base):
     body              = Column(Text, nullable=True)
     internal          = Column(Boolean, default=False)
     portal_only       = Column(Boolean, default=False, nullable=False)  # true = website-only note, never sent to Zammad
+    user_id           = Column(Uuid(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)  # author of portal-only notes
     zammad_created_at = Column(DateTime(timezone=True), nullable=True)
     created_at        = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at        = Column(DateTime(timezone=True), nullable=True)  # set only when edited
 

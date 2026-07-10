@@ -3,7 +3,7 @@ import { api } from '../api';
 import { useLang } from '../components/LangContext';
 import { Button, Card, Badge, Input, Overlay, Toast, EmptyState, Tag } from '../components/UI';
 import { Icon } from '../components/Icons';
-import { MessageBody } from '../components/EmailDetailModal';
+import { MessageBody, CommentItem } from '../components/EmailDetailModal';
 import EmailReplies from '../components/EmailReplies';
 
 // --- Constants & Config ---
@@ -480,7 +480,7 @@ function SentList({ replies, loading, activeId, onSelect }) {
   );
 }
 
-function EmailDetail({ email, ruleMap, onStatusChange, onAddComment }) {
+function EmailDetail({ email, ruleMap, onStatusChange, onAddComment, onCommentDeleted, onError, user }) {
   const { t: tr } = useLang();
   const [commentText, setCommentText] = useState('');
   const [comments, setComments] = useState([]);
@@ -496,6 +496,23 @@ function EmailDetail({ email, ruleMap, onStatusChange, onAddComment }) {
   }, [email]);
 
   useEffect(() => { loadComments(); }, [loadComments]);
+
+  const saveComment = async (id, text) => {
+    try {
+      const updated = await api(`/mail-reporter/emails/${email.id}/comments/${id}`, {
+        method: 'PATCH', body: JSON.stringify({ text }),
+      });
+      setComments(prev => prev.map(c => (c.id === id ? updated : c)));
+    } catch (e) { onError?.(e.message); throw e; }
+  };
+
+  const deleteComment = async (id) => {
+    try {
+      await api(`/mail-reporter/emails/${email.id}/comments/${id}`, { method: 'DELETE' });
+      setComments(prev => prev.filter(c => c.id !== id));
+      onCommentDeleted?.(email);
+    } catch (e) { onError?.(e.message); }
+  };
 
   if (!email) return (
     <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -605,13 +622,7 @@ function EmailDetail({ email, ruleMap, onStatusChange, onAddComment }) {
             </div>
           ) : (
             comments.map(c => (
-              <div key={c.id} style={{ background: 'var(--surface-alt)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '10px 12px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                  <span style={{ fontWeight: 700, fontSize: '12px', color: 'var(--accent)' }}>{c.username}</span>
-                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{fmtSince(c.created_at)}</span>
-                </div>
-                <div style={{ fontSize: '13px', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{c.text}</div>
-              </div>
+              <CommentItem key={c.id} c={c} me={user} onSave={saveComment} onDelete={deleteComment} />
             ))
           )}
         </div>
@@ -796,6 +807,9 @@ export default function MailReporterPage({ user }) {
             ruleMap={ruleMap}
             onStatusChange={handleStatusChange}
             onAddComment={handleAddComment}
+            onCommentDeleted={(em) => setEmails(prev => prev.map(e => e.id === em.id ? { ...e, comment_count: Math.max(0, (e.comment_count || 1) - 1) } : e))}
+            onError={(m) => showToast(m, 'error')}
+            user={user}
           />
         </div>
       </div>
