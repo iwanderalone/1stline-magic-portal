@@ -715,3 +715,31 @@ class GrafanaAlertResponse(BaseOrmModel):
     ends_at: Optional[datetime]
     received_at: datetime
     updated_at: datetime
+
+
+# ─── Tools: Mailbox Backup ───────────────────────────────
+
+class MailboxBackupStart(BaseModel):
+    email: str = Field(..., max_length=320, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+    password: str = Field(..., min_length=1, max_length=200)
+
+
+class MailboxBackupJobResponse(BaseOrmModel):
+    id: int
+    email: str
+    requested_by: str
+    status: str
+    phase: Optional[str] = None
+    folders_total: Optional[int] = None
+    folders_done: Optional[int] = None
+    messages_total: Optional[int] = None
+    messages_done: Optional[int] = None
+    current_folder: Optional[str] = None
+    archive_size: Optional[int] = None
+    sha256: Optional[str] = None
+    s3_url: Optional[str] = None
+    mbox_count: Optional[int] = None
+    error: Optional[str] = None
+    created_at: datetime
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None

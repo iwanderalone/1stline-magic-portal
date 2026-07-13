@@ -102,6 +102,18 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str = ""
     GEMINI_MODEL: str = "gemini-flash-latest"
 
+    # Mailbox Backup tool (Tools section). Backs up a Yandex mailbox over IMAP
+    # into a .tar.zst on S3-compatible storage. Empty S3 creds = tool disabled.
+    S3_BUCKET: str = ""
+    S3_ACCESS_KEY_ID: str = ""
+    S3_SECRET_ACCESS_KEY: str = ""
+    S3_ENDPOINT_URL: str = "https://storage.yandexcloud.net"
+    S3_REGION: str = "ru-central1"
+    S3_STORAGE_CLASS: str = "GLACIER"
+    S3_PREFIX: str = "Backups/Yandex Mailboxes"
+    MAILBOX_BACKUP_IMAP_HOST: str = "imap.yandex.ru"
+    MAILBOX_BACKUP_ZSTD_LEVEL: int = 10  # 19 is very slow in-container; 10 is a good tradeoff
+
     # Mail Reporter
     MAIL_IMAP_SERVER: str = "imap.yandex.com"
     MAIL_IMAP_PORT: int = 993
