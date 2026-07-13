@@ -196,7 +196,7 @@ export default function ToolsPage() {
                 value={batchText}
                 onChange={e => setBatchText(e.target.value)}
                 rows={4}
-                placeholder={'user@viory.video:app-password\n# more lines = more mailboxes, backed up one by one'}
+                placeholder={tr('toolBatchPlaceholder')}
                 spellCheck={false}
                 autoComplete="off"
                 style={{ ...inputStyle, fontFamily: 'var(--font-mono)', resize: 'vertical', lineHeight: 1.6 }}
