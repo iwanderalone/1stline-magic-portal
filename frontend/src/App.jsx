@@ -521,8 +521,8 @@ export default function App() {
               {page === 'timeoff'    && <TimeOffPage user={auth.user} />}
               {page === 'profile'    && <ProfilePage user={auth.user} onUserUpdate={onUserUpdate} />}
               {page === 'admin'      && isAdmin(auth.user) && <AdminPage />}
-              {page === 'mail'       && <MailReporterPage user={auth.user} />}
-              {page === 'tickets'    && <TicketsPage user={auth.user} />}
+              {page === 'mail'       && <MailReporterPage user={auth.user} initialEmailId={subPath} />}
+              {page === 'tickets'    && <TicketsPage user={auth.user} initialTicket={subPath} />}
               {page === 'alerts'     && <AlertsPage />}
               {page === 'runbooks'   && <RunbooksPage user={auth.user} initialRunbookId={initialRunbookId} initialSlug={subPath} />}
               {page === 'reminders'  && <RemindersPage user={auth.user} />}
