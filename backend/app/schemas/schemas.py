@@ -724,6 +724,10 @@ class MailboxBackupStart(BaseModel):
     password: str = Field(..., min_length=1, max_length=200)
 
 
+class MailboxBackupBatchStart(BaseModel):
+    entries: list[MailboxBackupStart] = Field(..., min_length=1, max_length=50)
+
+
 class MailboxBackupJobResponse(BaseOrmModel):
     id: int
     email: str

@@ -63,6 +63,7 @@ class JobProgress:
 
 JOBS: dict[int, JobProgress] = {}       # job_id → live progress (this process only)
 _RUNNING_EMAILS: set[str] = set()       # concurrency guard
+_GLOBAL_LOCK: asyncio.Lock = asyncio.Lock()  # one pipeline at a time — batch jobs run sequentially
 
 
 def is_email_busy(email: str) -> bool:
@@ -362,20 +363,22 @@ async def run_backup_job(job_id: int, email_addr: str, password: str) -> None:
     prog = JOBS.setdefault(job_id, JobProgress())
     _RUNNING_EMAILS.add(email_key)
     try:
-        async with AsyncSessionFactory() as db:
-            job = await db.get(MailboxBackupJob, job_id)
-            if not job:
-                return
-            job.status = "running"
-            job.started_at = utcnow()
-            await db.commit()
+        # Serialize pipelines: batch submissions queue up and run one at a time.
+        async with _GLOBAL_LOCK:
+            async with AsyncSessionFactory() as db:
+                job = await db.get(MailboxBackupJob, job_id)
+                if not job:
+                    return
+                job.status = "running"
+                job.started_at = utcnow()
+                await db.commit()
 
-        try:
-            result = await asyncio.to_thread(_run_pipeline, email_addr, password, prog)
-            status, error = "success", None
-        except Exception as e:  # noqa: BLE001
-            logger.exception("[mbbackup] job %s for %s failed", job_id, email_addr)
-            result, status, error = {}, "failed", str(e)[:2000]
+            try:
+                result = await asyncio.to_thread(_run_pipeline, email_addr, password, prog)
+                status, error = "success", None
+            except Exception as e:  # noqa: BLE001
+                logger.exception("[mbbackup] job %s for %s failed", job_id, email_addr)
+                result, status, error = {}, "failed", str(e)[:2000]
 
         async with AsyncSessionFactory() as db:
             job = await db.get(MailboxBackupJob, job_id)
