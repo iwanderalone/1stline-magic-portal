@@ -587,7 +587,7 @@ class MailboxBackupJob(Base):
     id             = Column(Integer, primary_key=True, autoincrement=True)
     email          = Column(String(320), nullable=False, index=True)
     requested_by   = Column(String(100), nullable=False)  # denormalised username
-    status         = Column(String(20), nullable=False, default="queued")  # queued|running|success|failed
+    status         = Column(String(20), nullable=False, default="queued")  # queued|running|success|failed|canceled
     phase          = Column(String(30), nullable=True)    # connecting|listing|fetching|archiving|uploading|verifying|mbox
     folders_total  = Column(Integer, nullable=True)
     folders_done   = Column(Integer, nullable=True)

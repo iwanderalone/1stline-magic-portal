@@ -24,7 +24,7 @@ function duration(a, b) {
   return `${m}m ${sec % 60}s`;
 }
 
-const STATUS_COLOR = { success: 'green', failed: 'red', running: 'blue', queued: 'gray' };
+const STATUS_COLOR = { success: 'green', failed: 'red', running: 'blue', queued: 'gray', canceled: 'yellow' };
 
 function ProgressBar({ job, tr }) {
   const phaseKey = {
@@ -64,7 +64,7 @@ function ProgressBar({ job, tr }) {
   );
 }
 
-function JobRow({ job, tr }) {
+function JobRow({ job, tr, onCancel, cancelling }) {
   const [open, setOpen] = useState(false);
   const active = RUNNING.includes(job.status);
   return (
@@ -73,6 +73,14 @@ function JobRow({ job, tr }) {
         <Badge color={STATUS_COLOR[job.status] || 'gray'}>{tr(`toolSt_${job.status}`) || job.status}</Badge>
         <span style={{ fontWeight: 600, fontSize: 13 }}>{job.email}</span>
         <span style={{ flex: 1 }} />
+        {active && (
+          <Button
+            variant="danger" size="sm" disabled={cancelling}
+            onClick={(e) => { e.stopPropagation(); onCancel(job); }}
+          >
+            {tr('toolCancel')}
+          </Button>
+        )}
         <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
           {job.requested_by} · {new Date(job.created_at).toLocaleString()}
         </span>
@@ -122,6 +130,7 @@ export default function ToolsPage() {
   const [batchText, setBatchText] = useState('');
   const [jobs, setJobs] = useState([]);
   const [busy, setBusy] = useState(false);
+  const [cancellingId, setCancellingId] = useState(null);
   const [toast, setToast] = useState(null);
   const pollRef = useRef(null);
 
@@ -164,6 +173,21 @@ export default function ToolsPage() {
       setToast({ message: err.message, type: 'error' });
     } finally {
       setBusy(false);
+    }
+  };
+
+  const cancelJob = async (job) => {
+    if (cancellingId) return;
+    if (!window.confirm(tr('toolCancelConfirm').replace('{email}', job.email))) return;
+    setCancellingId(job.id);
+    try {
+      await api(`/tools/mailbox-backup/jobs/${job.id}/cancel`, { method: 'POST' });
+      setToast({ message: tr('toolCanceled'), type: 'success' });
+      await loadJobs();
+    } catch (err) {
+      setToast({ message: err.message, type: 'error' });
+    } finally {
+      setCancellingId(null);
     }
   };
 
@@ -224,7 +248,9 @@ export default function ToolsPage() {
             <div className="t-eyebrow">{tr('toolJobs')} ({jobs.length})</div>
             {jobs.length === 0
               ? <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>{tr('toolNoJobs')}</div>
-              : jobs.map(j => <JobRow key={j.id} job={j} tr={tr} />)}
+              : jobs.map(j => (
+                  <JobRow key={j.id} job={j} tr={tr} onCancel={cancelJob} cancelling={cancellingId === j.id} />
+                ))}
           </div>
         </>
       )}
