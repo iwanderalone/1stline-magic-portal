@@ -25,6 +25,7 @@ import shutil
 import socket
 import tarfile
 import tempfile
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -62,12 +63,31 @@ class JobProgress:
 
 
 JOBS: dict[int, JobProgress] = {}       # job_id → live progress (this process only)
+_CANCELS: dict[int, threading.Event] = {}  # job_id → cancel flag (set from the API, read in the worker thread)
 _RUNNING_EMAILS: set[str] = set()       # concurrency guard
 _GLOBAL_LOCK: asyncio.Lock = asyncio.Lock()  # one pipeline at a time — batch jobs run sequentially
 
 
+class BackupCancelled(Exception):
+    """Raised inside the pipeline when the job's cancel flag is set."""
+
+
 def is_email_busy(email: str) -> bool:
     return email.lower() in _RUNNING_EMAILS
+
+
+def request_cancel(job_id: int) -> bool:
+    """Flag a live job for cancellation. Returns False if the job is not
+    tracked by this process (e.g. orphaned by a restart)."""
+    if job_id not in JOBS:
+        return False
+    _CANCELS.setdefault(job_id, threading.Event()).set()
+    return True
+
+
+def _check_cancel(cancel: threading.Event):
+    if cancel.is_set():
+        raise BackupCancelled()
 
 
 # ─── modified UTF-7 (RFC 3501) folder names ──────────────────────────
@@ -128,7 +148,8 @@ def _imap_quote(value: bytes) -> bytes:
 
 # ─── blocking pipeline (runs in a worker thread) ─────────────────────
 
-def _imap_pull(email_addr: str, password: str, maildir: Path, prog: JobProgress) -> int:
+def _imap_pull(email_addr: str, password: str, maildir: Path, prog: JobProgress,
+               cancel: threading.Event) -> int:
     """Fetch every message from every folder into a Maildir layout."""
     s = get_settings()
     prog.phase = "connecting"
@@ -150,6 +171,7 @@ def _imap_pull(email_addr: str, password: str, maildir: Path, prog: JobProgress)
         # First pass: count messages per folder so the progress bar has a total.
         folder_infos: list[tuple[bytes, str, int]] = []
         for folder_bytes in folders_encoded:
+            _check_cancel(cancel)
             try:
                 display = imap_utf7_decode(folder_bytes)
             except Exception:
@@ -174,6 +196,7 @@ def _imap_pull(email_addr: str, password: str, maildir: Path, prog: JobProgress)
         total = 0
 
         for folder_bytes, display, count in folder_infos:
+            _check_cancel(cancel)
             prog.current_folder = display
             prog.touch()
             sel_typ, _ = imap.select(_imap_quote(folder_bytes), readonly=True)
@@ -191,6 +214,7 @@ def _imap_pull(email_addr: str, password: str, maildir: Path, prog: JobProgress)
                 (folder_path / sub).mkdir(parents=True, exist_ok=True)
 
             for seq, uid in enumerate(uids, 1):
+                _check_cancel(cancel)
                 fetch_typ, fetched = imap.uid("fetch", uid, "(RFC822)")
                 if fetch_typ != "OK":
                     continue
@@ -297,17 +321,19 @@ def _s3_upload(s3, local: Path, key: str, metadata: Optional[dict] = None) -> di
         return {}
 
 
-def _run_pipeline(email_addr: str, password: str, prog: JobProgress) -> dict:
+def _run_pipeline(email_addr: str, password: str, prog: JobProgress,
+                  cancel: threading.Event) -> dict:
     """Full blocking pipeline. Returns result fields for the DB row."""
     s = get_settings()
     workdir = Path(tempfile.mkdtemp(prefix="mbbackup-"))
     try:
         maildir = workdir / "Maildir"
-        total = _imap_pull(email_addr, password, maildir, prog)
+        total = _imap_pull(email_addr, password, maildir, prog, cancel)
         if total == 0:
             raise RuntimeError("mailbox produced 0 messages — nothing to back up "
                                "(is IMAP access enabled for this account?)")
 
+        _check_cancel(cancel)
         prog.phase = "archiving"
         prog.touch()
         ts = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -319,6 +345,7 @@ def _run_pipeline(email_addr: str, password: str, prog: JobProgress) -> dict:
         sha_file = workdir / f"{archive_name}.sha256"
         sha_file.write_text(f"{local_sha}  {archive_name}\n", encoding="utf-8")
 
+        _check_cancel(cancel)
         prog.phase = "uploading"
         prog.touch()
         s3 = _make_s3_client()
@@ -361,10 +388,16 @@ async def run_backup_job(job_id: int, email_addr: str, password: str) -> None:
     """Execute one backup job; updates the DB row at start and finish."""
     email_key = email_addr.lower()
     prog = JOBS.setdefault(job_id, JobProgress())
+    cancel = _CANCELS.setdefault(job_id, threading.Event())
     _RUNNING_EMAILS.add(email_key)
     try:
         # Serialize pipelines: batch submissions queue up and run one at a time.
         async with _GLOBAL_LOCK:
+            # Canceled while still queued — the API already marked the DB row.
+            if cancel.is_set():
+                logger.info("[mbbackup] job %s for %s canceled while queued", job_id, email_addr)
+                return
+
             async with AsyncSessionFactory() as db:
                 job = await db.get(MailboxBackupJob, job_id)
                 if not job:
@@ -374,8 +407,10 @@ async def run_backup_job(job_id: int, email_addr: str, password: str) -> None:
                 await db.commit()
 
             try:
-                result = await asyncio.to_thread(_run_pipeline, email_addr, password, prog)
+                result = await asyncio.to_thread(_run_pipeline, email_addr, password, prog, cancel)
                 status, error = "success", None
+            except BackupCancelled:
+                result, status, error = {}, "canceled", None
             except Exception as e:  # noqa: BLE001
                 logger.exception("[mbbackup] job %s for %s failed", job_id, email_addr)
                 result, status, error = {}, "failed", str(e)[:2000]
@@ -386,7 +421,7 @@ async def run_backup_job(job_id: int, email_addr: str, password: str) -> None:
                 return
             job.status = status
             job.error = error
-            job.phase = "done" if status == "success" else prog.phase
+            job.phase = "done" if status in ("success", "canceled") else prog.phase
             job.finished_at = utcnow()
             job.folders_total = prog.folders_total
             job.folders_done = prog.folders_done
@@ -400,6 +435,7 @@ async def run_backup_job(job_id: int, email_addr: str, password: str) -> None:
     finally:
         _RUNNING_EMAILS.discard(email_key)
         JOBS.pop(job_id, None)
+        _CANCELS.pop(job_id, None)
 
 
 async def fail_stale_jobs() -> None:

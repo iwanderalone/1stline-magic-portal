@@ -3,6 +3,7 @@
 POST /tools/mailbox-backup        start a backup job (email + app password)
 GET  /tools/mailbox-backup/jobs   recent jobs (passwords are never stored)
 GET  /tools/mailbox-backup/jobs/{id}   one job with live progress
+POST /tools/mailbox-backup/jobs/{id}/cancel   cancel a queued/running job
 GET  /tools/status                which tools are configured
 """
 import asyncio
@@ -14,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import get_current_user, get_or_404
-from app.models.models import MailboxBackupJob, User
+from app.models.models import MailboxBackupJob, User, utcnow
 from app.schemas.schemas import MailboxBackupBatchStart, MailboxBackupJobResponse
 from app.services import mailbox_backup_service as mbs
 from app.services.audit import log_action
@@ -103,4 +104,31 @@ async def get_backup_job(
     _: User = Depends(get_current_user),
 ):
     job = await get_or_404(db, MailboxBackupJob, job_id)
+    return _overlay_progress(job)
+
+
+@router.post("/mailbox-backup/jobs/{job_id}/cancel", response_model=MailboxBackupJobResponse)
+async def cancel_backup_job(
+    job_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Cancel a queued or running backup job. A running pipeline stops at its
+    next checkpoint (cooperative), so the status may flip a moment later."""
+    job = await get_or_404(db, MailboxBackupJob, job_id)
+    if job.status not in ("queued", "running"):
+        raise HTTPException(status_code=400, detail=f"Job is already {job.status} — nothing to cancel")
+
+    live = mbs.request_cancel(job_id)
+    if job.status == "queued" or not live:
+        # Queued jobs never reach the pipeline (it skips them), and jobs not
+        # tracked by this process are orphans — finalize the row here.
+        job.status = "canceled"
+        job.phase = "done"
+        job.finished_at = utcnow()
+    await log_action(db, user, "mailbox_backup_canceled",
+                     f"Mailbox backup canceled for {job.email}")
+    await db.commit()
+    await db.refresh(job)
+    logger.info("[tools] %s canceled mailbox backup job %s (%s)", user.username, job_id, job.email)
     return _overlay_progress(job)

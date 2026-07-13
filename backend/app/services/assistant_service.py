@@ -89,6 +89,22 @@ TOOL_DECLARATIONS = [
         },
     },
     {
+        "name": "get_activity_recap",
+        "description": (
+            "Recap of what the team did in the portal over a period: emails received/solved, "
+            "SMTP replies sent, Zammad tickets opened/closed, mailbox backups completed, "
+            "runbooks created. Use for 'what did we do today / this week / this month?', "
+            "daily/weekly/monthly summaries and stats questions."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "period": {"type": "string", "enum": ["today", "week", "month"], "description": "How far back to look"},
+            },
+            "required": ["period"],
+        },
+    },
+    {
         "name": "get_email_case",
         "description": (
             "Fetch one email case in full (subject, sender, body, engineer comments) by its id — "
@@ -344,6 +360,88 @@ async def _tool_review_emails(user: User, args: dict) -> dict:
     return {"since": since.strftime("%Y-%m-%d"), "counts": counts, "emails": emails}
 
 
+async def _tool_get_activity_recap(user: User, args: dict) -> dict:
+    """Team activity recap — counts and compact metadata lists only (no bodies)."""
+    from sqlalchemy import func
+    from app.api.tickets import state_bucket
+    from app.models.models import EmailLog, EmailReply, MailboxBackupJob, ZammadTicket
+
+    period = args.get("period") or "week"
+    days = {"today": 1, "week": 7, "month": 30}.get(period, 7)
+    tz = _user_tz(user)
+    since = datetime.now(tz).replace(hour=0, minute=0, second=0, microsecond=0)
+    if days > 1:
+        since -= timedelta(days=days - 1)
+
+    async with AsyncSessionFactory() as db:
+        emails = (await db.execute(
+            select(EmailLog).where(
+                EmailLog.created_at >= since,
+                or_(EmailLog.skip_reason.is_(None), EmailLog.skip_reason.notin_(["filter"])),
+            )
+        )).scalars().all()
+        solved = (await db.execute(
+            select(EmailLog).where(EmailLog.status == "solved", EmailLog.solved_at >= since)
+        )).scalars().all()
+        replies = (await db.execute(
+            select(EmailReply.username).where(
+                EmailReply.status == "sent", EmailReply.created_at >= since)
+        )).scalars().all()
+
+        tickets_opened = (await db.execute(
+            select(func.count()).select_from(ZammadTicket).where(
+                func.coalesce(ZammadTicket.zammad_created_at, ZammadTicket.created_at) >= since)
+        )).scalar() or 0
+        state_changed = (await db.execute(
+            select(ZammadTicket).where(ZammadTicket.state_changed_at >= since)
+        )).scalars().all()
+        tickets_closed = [t for t in state_changed if state_bucket(t.state) == "closed"]
+
+        backups = (await db.execute(
+            select(MailboxBackupJob).where(MailboxBackupJob.created_at >= since)
+        )).scalars().all()
+        runbooks = (await db.execute(
+            select(Runbook).where(Runbook.created_at >= since).order_by(Runbook.created_at)
+        )).scalars().all()
+
+    by_category: dict[str, int] = {}
+    for e in emails:
+        by_category[e.category] = by_category.get(e.category, 0) + 1
+    replies_by_user: dict[str, int] = {}
+    for u in replies:
+        key = u or "unknown"
+        replies_by_user[key] = replies_by_user.get(key, 0) + 1
+    backups_ok = [b for b in backups if b.status == "success"]
+
+    return {
+        "period": period,
+        "since": since.strftime("%Y-%m-%d"),
+        "timezone": str(tz),
+        "emails": {
+            "received": len(emails),
+            "solved": len(solved),
+            "still_unchecked": sum(1 for e in emails if e.status == "unchecked"),
+            "replies_sent": len(replies),
+            "replies_by_engineer": replies_by_user,
+            "received_by_category": dict(sorted(by_category.items(), key=lambda kv: -kv[1])[:10]),
+        },
+        "tickets": {
+            "opened": tickets_opened,
+            "closed": len(tickets_closed),
+            "closed_list": [{"number": t.number, "title": (t.title or "")[:100]} for t in tickets_closed[:15]],
+        },
+        "mailbox_backups": {
+            "completed": len(backups_ok),
+            "failed": sum(1 for b in backups if b.status == "failed"),
+            "canceled": sum(1 for b in backups if b.status == "canceled"),
+            "in_progress": sum(1 for b in backups if b.status in ("queued", "running")),
+            "mailboxes_backed_up": [b.email for b in backups_ok][:20],
+            "total_archive_bytes": sum(b.archive_size or 0 for b in backups_ok),
+        },
+        "runbooks_created": [{"slug": r.slug, "title": r.title, "category": r.category} for r in runbooks[:15]],
+    }
+
+
 async def _tool_get_email_case(user: User, args: dict) -> dict:
     """Full single-email case — body access is per-case and human-requested via chat."""
     from app.models.models import EmailLog, EmailComment
@@ -506,6 +604,7 @@ TOOL_IMPL = {
     "get_my_timeoff": _tool_get_my_timeoff,
     "file_timeoff_request": _tool_file_timeoff_request,
     "review_emails": _tool_review_emails,
+    "get_activity_recap": _tool_get_activity_recap,
     "get_email_case": _tool_get_email_case,
     "get_ticket_case": _tool_get_ticket_case,
     "create_runbook_draft": _tool_create_runbook_draft,
@@ -524,7 +623,8 @@ def _system_prompt(user: User) -> str:
         "This applies to every part of the reply, including summaries of tool results. "
         "The language of tool-result data (names, subjects, runbook text) must NOT influence "
         "your reply language — only the user's own message decides it. "
-        "The only exception: runbook drafts themselves are written in English.\n"
+        "The only exceptions: runbook drafts and the final handover post are always written "
+        "in English.\n"
         "Be concise and practical; use short lists where helpful.\n"
         f"Today is {date.today().isoformat()} ({date.today().strftime('%A')}). "
         f"The user is {user.display_name or user.username} (role: {user.role.value}).\n"
@@ -535,6 +635,11 @@ def _system_prompt(user: User) -> str:
         "For mail reviews, highlight what needs action: unchecked items first, then "
         "long-paused ones; call out onboarding/offboarding category emails explicitly "
         "(reviews show metadata only — fetch a specific case for full content). "
+        "ACTIVITY RECAP: for 'what did we do today/this week/this month' or any "
+        "summary/stats question, call get_activity_recap and present a tight digest "
+        "with real numbers (e.g. 'backed up 3 mailboxes, solved 10 emails, closed "
+        "4 tickets'); lead with the headline counts, then notable details; skip "
+        "zero sections. "
         "RUNBOOK DRAFTING: when the user says 'check this ticket/email' or pastes case "
         "material and asks for a runbook, fetch the case if referenced, propose a full "
         "draft in chat (title + steps, in English), and only after the user confirms "
@@ -549,15 +654,25 @@ def _system_prompt(user: User) -> str:
         "engineer which one to use instead of guessing. If the engineer names a "
         "different section, use exactly that one.\n"
         "SHIFT HANDOVER: when the user sends '/handover' or asks for a shift handover, "
-        "collect three things — (1) today's solved issues, (2) ongoing/open issues with "
-        "current state and next action, (3) personal tasks or notes for the next shift. "
-        "If the user hasn't provided them yet, ask for all three in ONE short message "
-        "(numbered, so they can answer in one go); if their message already contains the "
-        "material, don't ask — just compose. Then produce a structured handover post, "
+        "collect three things — (1) solved tasks: issues resolved during the shift, "
+        "(2) ongoing/open tasks with current state and next action, (3) personal tasks: "
+        "tracker tasks assigned to the engineer that they worked on during the shift "
+        "(NOT personal notes — these are their assigned tracker tasks). "
+        "Collect them ONE AT A TIME: first ask only for the solved tasks (question 1/3) "
+        "and wait for the answer; then ask only for ongoing tasks (2/3); then only for "
+        "personal tasks (3/3). Keep each question to one short line; the user may answer "
+        "'none' or '-' to skip a section. EXCEPTION: if any user message already contains "
+        "material for several sections at once (e.g. they pasted everything in one text), "
+        "don't re-ask for what you already have — fill those sections and only ask for "
+        "what's still missing, or compose immediately if nothing is. After the third "
+        "answer, produce the structured handover post without asking anything else, "
         "ready to copy: a header line with the date and the engineer's name, then the "
         "three sections with tight bullets ('- item — state — next step'). Skip empty "
-        "sections. Unlike runbooks, write the handover in the language of the user's "
-        "last message. You have no tool for posting it — the engineer copies it."
+        "sections. The handover post is ALWAYS written in English, even if the "
+        "conversation is in Russian (the questions follow the normal language rule; "
+        "only the final post is forced to English). Translate any Russian input material "
+        "into English in the post. You have no tool for posting it — the engineer "
+        "copies it."
     )
 
 
