@@ -30,6 +30,7 @@ export default function CommandPalette({ open, onClose, navigate, user }) {
     { id: 'runbooks',  label: tr('cmdRunbooksSection'), icon: 'bookmark', hint: tr('cmdHintRunbooks') },
     { id: 'timeoff',   label: tr('timeOff'),      icon: 'sun',     hint: tr('cmdHintTimeoff') },
     { id: 'reminders', label: tr('reminders'),    icon: 'bell',    hint: tr('cmdHintReminders') },
+    { id: 'tools',     label: tr('toolMailboxBackup'), icon: 'archive', hint: 'Tools' },
     { id: 'profile',   label: tr('myProfile'),    icon: 'user',    hint: tr('cmdHintProfile') },
     { id: 'admin',     label: tr('admin'),        icon: 'shield',  hint: tr('cmdHintAdmin'), adminOnly: true },
   ];

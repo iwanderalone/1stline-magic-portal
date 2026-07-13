@@ -2,7 +2,7 @@
 import uuid
 from datetime import datetime, timezone
 from sqlalchemy import (
-    Column, String, Boolean, DateTime, Integer, ForeignKey,
+    Column, String, Boolean, DateTime, Integer, BigInteger, ForeignKey,
     Text, Enum as SAEnum, Date, Time, UniqueConstraint, Table, Float, Uuid, Index,
 )
 from sqlalchemy.orm import relationship
@@ -574,3 +574,31 @@ class ZammadComment(Base):
     created_at        = Column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at        = Column(DateTime(timezone=True), nullable=True)  # set only when edited
 
+
+
+class MailboxBackupJob(Base):
+    """One run of the Mailbox Backup tool (IMAP → tar.zst → S3).
+
+    The mailbox password is used in memory for the duration of the job and is
+    NEVER stored. Progress fields are updated live while the job runs.
+    """
+    __tablename__ = "mailbox_backup_jobs"
+
+    id             = Column(Integer, primary_key=True, autoincrement=True)
+    email          = Column(String(320), nullable=False, index=True)
+    requested_by   = Column(String(100), nullable=False)  # denormalised username
+    status         = Column(String(20), nullable=False, default="queued")  # queued|running|success|failed
+    phase          = Column(String(30), nullable=True)    # connecting|listing|fetching|archiving|uploading|verifying|mbox
+    folders_total  = Column(Integer, nullable=True)
+    folders_done   = Column(Integer, nullable=True)
+    messages_total = Column(Integer, nullable=True)
+    messages_done  = Column(Integer, nullable=True)
+    current_folder = Column(String(255), nullable=True)
+    archive_size   = Column(BigInteger, nullable=True)
+    sha256         = Column(String(64), nullable=True)
+    s3_url         = Column(String(1000), nullable=True)
+    mbox_count     = Column(Integer, nullable=True)
+    error          = Column(Text, nullable=True)
+    created_at     = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    started_at     = Column(DateTime(timezone=True), nullable=True)
+    finished_at    = Column(DateTime(timezone=True), nullable=True)

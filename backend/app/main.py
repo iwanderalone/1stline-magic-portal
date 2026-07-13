@@ -24,6 +24,7 @@ from app.core.scheduler import scheduler
 from app.api import auth, users, groups, schedule, reminders, notifications, admin_config
 from app.api import mail_reporter
 from app.api import runbooks
+from app.api import tools
 from app.api import tickets
 from app.api import alerts
 from app.api import assistant
@@ -195,6 +196,10 @@ async def lifespan(app: FastAPI):
     await _migrate_avatar_urls()
     await sync_active_zammad_tickets()
 
+    # Mailbox backup jobs don't survive restarts — mark orphans as failed.
+    from app.services.mailbox_backup_service import fail_stale_jobs
+    await fail_stale_jobs()
+
     # Reminder worker
     scheduler.add_job(check_and_fire_reminders, "interval", seconds=30)
 
@@ -336,6 +341,7 @@ app.include_router(runbooks.router, prefix="/api")
 app.include_router(tickets.router, prefix="/api")
 app.include_router(alerts.router, prefix="/api")
 app.include_router(assistant.router, prefix="/api")
+app.include_router(tools.router, prefix="/api")
 
 
 @app.exception_handler(Exception)
