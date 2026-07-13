@@ -127,6 +127,8 @@ export default function ToolsPage() {
 
   useEffect(() => {
     api('/tools/status').then(d => setEnabled(!!d?.mailbox_backup)).catch(() => setEnabled(false));
+    // Normalize the URL to the tool's own route (only one tool so far)
+    window.history.replaceState(null, '', '/#tools/backup');
   }, []);
 
   const loadJobs = useCallback(async () => {

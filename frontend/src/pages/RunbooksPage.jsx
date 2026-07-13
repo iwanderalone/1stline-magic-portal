@@ -470,7 +470,7 @@ function RunbookModal({ initial, users, onSave, onClose }) {
 }
 
 /* ─── Main Page ──────────────────────────────────────────────── */
-export default function RunbooksPage({ user, initialRunbookId }) {
+export default function RunbooksPage({ user, initialRunbookId, initialSlug }) {
   const isAdmin = user?.role === 'admin';
   const { t: tr } = useLang();
 
@@ -498,14 +498,21 @@ export default function RunbooksPage({ user, initialRunbookId }) {
       ]);
       setRunbooks(rbs || []);
       setCategories(cats || { total: 0, categories: [] });
-      // If an initialRunbookId was passed, select it; otherwise default to first
-      setSelectedId(prev => prev || (rbs?.length > 0 ? rbs[0].id : null));
+      // Selection priority: current selection → deep-linked slug (#runbooks/rb-NNN) → first
+      setSelectedId(prev => {
+        if (prev) return prev;
+        if (initialSlug) {
+          const bySlug = rbs?.find(r => r.slug === initialSlug);
+          if (bySlug) return bySlug.id;
+        }
+        return rbs?.length > 0 ? rbs[0].id : null;
+      });
     } catch (e) {
       console.error(e);
     } finally {
       setLoading(false);
     }
-  }, [activeCategory, search]);
+  }, [activeCategory, search, initialSlug]);
 
   useEffect(() => { loadRunbooks(); }, [loadRunbooks]);
 
@@ -518,11 +525,26 @@ export default function RunbooksPage({ user, initialRunbookId }) {
     setSelectedId(initialRunbookId);
   }, [initialRunbookId]);
 
+  /* Hash changed while the page is open (pasted/bookmarked deep link) */
+  useEffect(() => {
+    if (!initialSlug) return;
+    const rb = runbooks.find(r => r.slug === initialSlug);
+    if (rb) setSelectedId(rb.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialSlug]);
+
   useEffect(() => {
     api('/users/').then(d => setUsers(d || [])).catch(() => {});
   }, []);
 
   const selectedRunbook = runbooks.find(r => r.id === selectedId) || null;
+
+  /* Keep the URL shareable: #runbooks/<slug> follows the open runbook */
+  useEffect(() => {
+    if (selectedRunbook?.slug) {
+      window.history.replaceState(null, '', `/#runbooks/${selectedRunbook.slug}`);
+    }
+  }, [selectedRunbook?.slug]);
 
   const handleRun = async (id) => {
     try {

@@ -187,12 +187,15 @@ export default function App() {
 
   const isAdmin = (u) => u?.role === 'admin';
   const PAGES = ['home', 'schedule', 'timeoff', 'profile', 'admin', 'mail', 'reminders', 'runbooks', 'tickets', 'alerts', 'tools'];
-  const pageFromLocation = () => {
+  // Hash routes are '#page' or '#page/sub' — e.g. '#runbooks/rb-003', '#tools/backup'.
+  const parseLocation = () => {
     const rawHash = window.location.hash.replace(/^#\/?/, '');
-    const rawPath = window.location.pathname.replace(/^\/+|\/+$/g, '').split('/')[0];
-    const candidate = rawHash || rawPath;
-    return PAGES.includes(candidate) ? candidate : 'home';
+    const rawPath = window.location.pathname.replace(/^\/+|\/+$/g, '');
+    const raw = rawHash || rawPath;
+    const [p, ...rest] = raw.split('/');
+    return { page: PAGES.includes(p) ? p : 'home', sub: rest.join('/') || null };
   };
+  const pageFromLocation = () => parseLocation().page;
 
   const [page, setPage] = useState(() => {
     const initialPage = pageFromLocation();
@@ -208,6 +211,7 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [initialRunbookId, setInitialRunbookId] = useState(null);
+  const [subPath, setSubPath] = useState(() => parseLocation().sub);
 
   const navigate = useCallback((p, runbookId = null) => {
     if (p === 'admin' && !isAdmin(auth.user)) return;
@@ -239,13 +243,14 @@ export default function App() {
 
   useEffect(() => {
     const syncRoute = () => {
-      const nextPage = pageFromLocation();
+      const { page: nextPage, sub } = parseLocation();
       if (nextPage === 'admin' && !isAdmin(auth.user)) {
         setPage('home');
         window.history.replaceState(null, '', '/#home');
         return;
       }
       setPage(nextPage);
+      setSubPath(sub);
     };
 
     window.addEventListener('hashchange', syncRoute);
@@ -519,7 +524,7 @@ export default function App() {
               {page === 'mail'       && <MailReporterPage user={auth.user} />}
               {page === 'tickets'    && <TicketsPage user={auth.user} />}
               {page === 'alerts'     && <AlertsPage />}
-              {page === 'runbooks'   && <RunbooksPage user={auth.user} initialRunbookId={initialRunbookId} />}
+              {page === 'runbooks'   && <RunbooksPage user={auth.user} initialRunbookId={initialRunbookId} initialSlug={subPath} />}
               {page === 'reminders'  && <RemindersPage user={auth.user} />}
               {page === 'tools'      && <ToolsPage />}
             </div>
