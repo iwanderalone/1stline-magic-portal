@@ -38,6 +38,9 @@ from app.models.models import MailboxBackupJob, utcnow
 logger = logging.getLogger(__name__)
 
 IMAP_TIMEOUT = 120
+# Yandex drops long IMAP sessions — reconnect and resume; give up only after
+# this many consecutive drops with no fetched message in between.
+MAX_DROPS_WITHOUT_PROGRESS = 3
 _FS_INVALID = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
 
 
@@ -152,15 +155,20 @@ def _imap_pull(email_addr: str, password: str, maildir: Path, prog: JobProgress,
                cancel: threading.Event) -> int:
     """Fetch every message from every folder into a Maildir layout."""
     s = get_settings()
-    prog.phase = "connecting"
-    prog.touch()
-    imap = imaplib.IMAP4_SSL(s.MAILBOX_BACKUP_IMAP_HOST, 993, timeout=IMAP_TIMEOUT)
-    try:
+
+    def _connect() -> imaplib.IMAP4_SSL:
+        conn = imaplib.IMAP4_SSL(s.MAILBOX_BACKUP_IMAP_HOST, 993, timeout=IMAP_TIMEOUT)
         try:
-            imap.login(email_addr, password)
+            conn.login(email_addr, password)
         except imaplib.IMAP4.error as e:
             raise RuntimeError(f"IMAP login failed — check the address and app password ({e})") from e
+        return conn
 
+    prog.phase = "connecting"
+    prog.touch()
+    imap = _connect()
+    drops = 0  # consecutive connection drops with no progress in between
+    try:
         prog.phase = "listing"
         prog.touch()
         typ, list_raw = imap.list()
@@ -199,43 +207,76 @@ def _imap_pull(email_addr: str, password: str, maildir: Path, prog: JobProgress,
             _check_cancel(cancel)
             prog.current_folder = display
             prog.touch()
-            sel_typ, _ = imap.select(_imap_quote(folder_bytes), readonly=True)
-            if sel_typ != "OK":
-                prog.folders_done += 1
-                continue
-            search_typ, search_data = imap.uid("search", None, "ALL")
-            if search_typ != "OK" or not search_data or not search_data[0]:
-                prog.folders_done += 1
-                continue
-            uids = search_data[0].split()
 
             folder_path = maildir / _sanitize_filename(display)
-            for sub in ("new", "cur", "tmp"):
-                (folder_path / sub).mkdir(parents=True, exist_ok=True)
+            uids: Optional[list[bytes]] = None
+            next_idx = 0  # resume point within the folder after a reconnect
 
-            for seq, uid in enumerate(uids, 1):
+            while True:  # retry loop: reconnect + resume on connection drops
                 _check_cancel(cancel)
-                fetch_typ, fetched = imap.uid("fetch", uid, "(RFC822)")
-                if fetch_typ != "OK":
-                    continue
-                body: Optional[bytes] = None
-                for piece in fetched:
-                    if isinstance(piece, tuple) and len(piece) >= 2 and piece[1]:
-                        body = piece[1]
+                try:
+                    sel_typ, _ = imap.select(_imap_quote(folder_bytes), readonly=True)
+                    if sel_typ != "OK":
+                        logger.warning("[mbbackup] SELECT failed for %r — skipping", display)
                         break
-                if not body:
-                    continue
-                ts_us = int(time.time() * 1_000_000)
-                uid_str = uid.decode("ascii", errors="replace")
-                (folder_path / "new" / f"{ts_us}.{seq}_{uid_str}.{hostname}").write_bytes(body)
-                total += 1
-                prog.messages_done += 1
-                if seq % 25 == 0:
+                    if uids is None:
+                        search_typ, search_data = imap.uid("search", None, "ALL")
+                        if search_typ != "OK" or not search_data or not search_data[0]:
+                            break
+                        uids = search_data[0].split()
+                        for sub in ("new", "cur", "tmp"):
+                            (folder_path / sub).mkdir(parents=True, exist_ok=True)
+
+                    while next_idx < len(uids):
+                        _check_cancel(cancel)
+                        uid = uids[next_idx]
+                        seq = next_idx + 1
+                        fetch_typ, fetched = imap.uid("fetch", uid, "(RFC822)")
+                        next_idx += 1
+                        drops = 0  # fetched something since the last drop
+                        if fetch_typ != "OK":
+                            continue
+                        body: Optional[bytes] = None
+                        for piece in fetched:
+                            if isinstance(piece, tuple) and len(piece) >= 2 and piece[1]:
+                                body = piece[1]
+                                break
+                        if not body:
+                            continue
+                        ts_us = int(time.time() * 1_000_000)
+                        uid_str = uid.decode("ascii", errors="replace")
+                        (folder_path / "new" / f"{ts_us}.{seq}_{uid_str}.{hostname}").write_bytes(body)
+                        total += 1
+                        prog.messages_done += 1
+                        if seq % 25 == 0:
+                            prog.touch()
+                    try:
+                        imap.close()
+                    except (imaplib.IMAP4.error, OSError):
+                        pass
+                    break  # folder complete
+                except (imaplib.IMAP4.abort, OSError) as e:
+                    drops += 1
+                    if drops > MAX_DROPS_WITHOUT_PROGRESS:
+                        raise RuntimeError(
+                            f"IMAP connection dropped {drops} times in a row without progress "
+                            f"in {display!r} (last error: {e})") from e
+                    logger.warning(
+                        "[mbbackup] IMAP connection lost (%s) — reconnect %d/%d, resuming %r at message %d/%d",
+                        e, drops, MAX_DROPS_WITHOUT_PROGRESS, display, next_idx, len(uids or []))
+                    try:
+                        imap.logout()
+                    except Exception:
+                        pass
+                    prog.phase = "reconnecting"
                     prog.touch()
-            try:
-                imap.close()
-            except imaplib.IMAP4.error:
-                pass
+                    for _ in range(min(30, 5 * drops)):  # backoff, still cancellable
+                        _check_cancel(cancel)
+                        time.sleep(1)
+                    imap = _connect()
+                    prog.phase = "fetching"
+                    prog.touch()
+
             prog.folders_done += 1
             prog.touch()
         return total
