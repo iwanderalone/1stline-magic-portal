@@ -90,8 +90,17 @@ function CatAvatar({ size = 30 }) {
   );
 }
 
-function Bubble({ from, children }) {
+function Bubble({ from, children, raw }) {
   const user = from === 'user';
+  const [copied, setCopied] = useState(false);
+
+  const copy = () => {
+    navigator.clipboard?.writeText(raw).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }).catch(() => {});
+  };
+
   return (
     <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexDirection: user ? 'row-reverse' : 'row' }}>
       {!user && <CatAvatar />}
@@ -102,7 +111,20 @@ function Bubble({ from, children }) {
         background: user ? 'var(--accent)' : 'var(--surface-alt)',
         color: user ? '#fff' : 'var(--text)',
         border: user ? 'none' : '1px solid var(--border-light)',
-      }}>{children}</div>
+      }}>
+        {children}
+        {!user && raw && (
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }}>
+            <button onClick={copy} title="Copy" style={{
+              border: 'none', background: 'transparent', cursor: 'pointer', padding: 2,
+              color: copied ? 'var(--success)' : 'var(--text-muted)',
+              display: 'flex', alignItems: 'center', gap: 3, fontSize: 10, fontFamily: 'inherit',
+            }}>
+              <Icon name={copied ? 'check' : 'copy'} size={11} />
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -193,7 +215,7 @@ export default function AssistantChat() {
           <div ref={listRef} style={{ flex: 1, overflowY: 'auto', padding: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
             <Bubble from="model"><Markdown text={tr('aiHello')} /></Bubble>
             {messages.map((m, i) => (
-              <Bubble key={i} from={m.role === 'user' ? 'user' : 'model'}>
+              <Bubble key={i} from={m.role === 'user' ? 'user' : 'model'} raw={m.role === 'user' ? undefined : m.text}>
                 {m.role === 'user' ? m.text : <Markdown text={m.text} />}
               </Bubble>
             ))}
