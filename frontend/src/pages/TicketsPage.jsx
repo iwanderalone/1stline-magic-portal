@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../api';
 import { useTheme } from '../components/ThemeContext';
 import { useLang } from '../components/LangContext';
@@ -16,7 +16,7 @@ const BUCKETS = [
 ];
 
 /* ─── Ticket board ─────────────────────────────────────── */
-function TicketBoardView({ onError, user }) {
+function TicketBoardView({ onError, user, initialTicket }) {
   const { theme: t } = useTheme();
   const { t: tr } = useLang();
   const [tickets, setTickets] = useState([]);
@@ -55,6 +55,32 @@ function TicketBoardView({ onError, user }) {
     const id = setInterval(() => load(bucket, search, true), 30000);
     return () => clearInterval(id);
   }, [bucket, search, load]);
+
+  /* Deep link #tickets/<number> — find the ticket by display number and open it */
+  useEffect(() => {
+    if (!initialTicket) return;
+    (async () => {
+      try {
+        const rows = await api(`/tickets/board?search=${encodeURIComponent(initialTicket)}`);
+        const hit = (rows || []).find(tk => String(tk.number) === String(initialTicket));
+        if (hit) setSelected(hit.id);
+        else onError?.(`Ticket #${initialTicket} not found`);
+      } catch { /* board error already surfaces elsewhere */ }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialTicket]);
+
+  /* Keep the URL shareable: #tickets/<number> follows the open ticket */
+  const hadSelection = useRef(false);
+  useEffect(() => {
+    if (selected) {
+      hadSelection.current = true;
+      const tk = tickets.find(x => x.id === selected);
+      if (tk?.number) window.history.replaceState(null, '', `/#tickets/${tk.number}`);
+    } else if (hadSelection.current) {
+      window.history.replaceState(null, '', '/#tickets');
+    }
+  }, [selected, tickets]);
 
   return (
     <div>
@@ -247,7 +273,7 @@ function EventLogView({ onError }) {
 }
 
 /* ─── Page ─────────────────────────────────────────────── */
-export default function TicketsPage({ user }) {
+export default function TicketsPage({ user, initialTicket }) {
   const { theme: t } = useTheme();
   const { t: tr } = useLang();
   const [tab, setTab] = useState('board');
@@ -272,7 +298,7 @@ export default function TicketsPage({ user }) {
         />
       </div>
 
-      {tab === 'board' ? <TicketBoardView onError={onError} user={user} /> : <EventLogView onError={onError} />}
+      {tab === 'board' ? <TicketBoardView onError={onError} user={user} initialTicket={initialTicket} /> : <EventLogView onError={onError} />}
     </div>
   );
 }

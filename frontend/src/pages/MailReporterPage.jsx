@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { api } from '../api';
 import { useLang } from '../components/LangContext';
 import { Button, Card, Badge, Input, Overlay, Toast, EmptyState, Tag } from '../components/UI';
@@ -651,7 +651,7 @@ function EmailDetail({ email, ruleMap, onStatusChange, onAddComment, onCommentDe
 
 // --- Main Page ---
 
-export default function MailReporterPage({ user }) {
+export default function MailReporterPage({ user, initialEmailId }) {
   const { t: tr } = useLang();
   const isAdmin = user?.role === 'admin';
 
@@ -728,6 +728,26 @@ export default function MailReporterPage({ user }) {
       setSelectedEmail(prev => prev?.id === full.id ? full : prev);
     } catch (e) { showToast(e.message, 'error'); }
   };
+
+  /* Deep link #mail/<id> — load that email straight into the detail pane */
+  useEffect(() => {
+    if (!initialEmailId || !/^\d+$/.test(String(initialEmailId))) return;
+    api(`/mail-reporter/emails/${initialEmailId}`)
+      .then(full => setSelectedEmail(full))
+      .catch(() => showToast(`Email #${initialEmailId} not found`, 'error'));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialEmailId]);
+
+  /* Keep the URL shareable: #mail/<id> follows the open email */
+  const hadEmail = useRef(false);
+  useEffect(() => {
+    if (selectedEmail?.id) {
+      hadEmail.current = true;
+      window.history.replaceState(null, '', `/#mail/${selectedEmail.id}`);
+    } else if (hadEmail.current) {
+      window.history.replaceState(null, '', '/#mail');
+    }
+  }, [selectedEmail?.id]);
 
   // Sent view — outbound replies log
   const [sentReplies, setSentReplies] = useState([]);
