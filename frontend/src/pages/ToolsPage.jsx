@@ -29,6 +29,7 @@ const STATUS_COLOR = { success: 'green', failed: 'red', running: 'blue', queued:
 function ProgressBar({ job, tr }) {
   const phaseKey = {
     connecting: 'toolPhConnecting', listing: 'toolPhListing', fetching: 'toolPhFetching',
+    reconnecting: 'toolPhReconnecting',
     archiving: 'toolPhArchiving', uploading: 'toolPhUploading', verifying: 'toolPhVerifying',
     mbox: 'toolPhMbox', queued: 'toolPhQueued',
   }[job.phase] || null;
