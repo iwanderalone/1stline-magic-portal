@@ -24,6 +24,27 @@ function duration(a, b) {
   return `${m}m ${sec % 60}s`;
 }
 
+function formatEta(sec) {
+  if (sec < 60) return '< 1m';
+  const h = Math.floor(sec / 3600);
+  const m = Math.round((sec % 3600) / 60);
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+// ETA from the average fetch rate so far — noisy early on (reconnects skew it
+// toward the slow side, which is fine: better to under-promise), so we only
+// show it once there's enough data to be meaningful.
+function estimateEta(job) {
+  if (job.phase !== 'fetching' || !job.started_at || !job.messages_total || !job.messages_done) return null;
+  const elapsedSec = (Date.now() - new Date(job.started_at)) / 1000;
+  if (elapsedSec < 8 || job.messages_done < 20) return null;
+  const remaining = job.messages_total - job.messages_done;
+  if (remaining <= 0) return null;
+  const rate = job.messages_done / elapsedSec;
+  if (rate <= 0) return null;
+  return formatEta(remaining / rate);
+}
+
 const STATUS_COLOR = { success: 'green', failed: 'red', running: 'blue', queued: 'gray', canceled: 'yellow' };
 
 function ProgressBar({ job, tr }) {
@@ -36,6 +57,7 @@ function ProgressBar({ job, tr }) {
   // fetching has a real total; later phases show an indeterminate sweep
   const determinate = job.phase === 'fetching' && job.messages_total > 0;
   const pct = determinate ? Math.min(100, Math.round((job.messages_done / job.messages_total) * 100)) : null;
+  const eta = determinate ? estimateEta(job) : null;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text-secondary)' }}>
@@ -45,7 +67,7 @@ function ProgressBar({ job, tr }) {
         </span>
         <span style={{ fontFamily: 'var(--font-mono)' }}>
           {determinate
-            ? `${job.messages_done}/${job.messages_total} · ${pct}%`
+            ? `${job.messages_done}/${job.messages_total} · ${pct}%${eta ? ` · ${tr('toolEtaLbl')} ${eta}` : ''}`
             : (job.messages_total ? `${job.messages_total} msg` : '')}
         </span>
       </div>
