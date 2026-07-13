@@ -119,9 +119,6 @@ function parseBatch(text) {
 export default function ToolsPage() {
   const { t: tr } = useLang();
   const [enabled, setEnabled] = useState(null);   // null = loading
-  const [mode, setMode] = useState('single');     // single | batch
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [batchText, setBatchText] = useState('');
   const [jobs, setJobs] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -146,24 +143,18 @@ export default function ToolsPage() {
     return () => clearInterval(pollRef.current);
   }, [jobs, loadJobs]);
 
-  const batchParsed = mode === 'batch' ? parseBatch(batchText) : null;
-  const canSubmit = mode === 'single'
-    ? !!(email.trim() && password)
-    : !!(batchParsed && batchParsed.entries.length > 0 && batchParsed.errors.length === 0);
+  const parsed = parseBatch(batchText);
+  const canSubmit = parsed.entries.length > 0 && parsed.errors.length === 0;
 
   const start = async (e) => {
     e.preventDefault();
     if (busy || !canSubmit) return;
-    const entries = mode === 'single'
-      ? [{ email: email.trim(), password }]
-      : batchParsed.entries;
     setBusy(true);
     try {
       await api('/tools/mailbox-backup', {
         method: 'POST',
-        body: JSON.stringify({ entries }),
+        body: JSON.stringify({ entries: parsed.entries }),
       });
-      setPassword('');
       setBatchText('');
       setToast({ message: tr('toolStarted'), type: 'success' });
       await loadJobs();
@@ -199,56 +190,29 @@ export default function ToolsPage() {
             display: 'flex', flexDirection: 'column', gap: 12, padding: 18,
             border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--surface-alt)',
           }}>
-            {/* mode toggle */}
-            <div style={{ display: 'flex', background: 'var(--surface-sunken)', padding: 2, borderRadius: 'var(--radius-sm)', alignSelf: 'flex-start' }}>
-              {['single', 'batch'].map(m => (
-                <button key={m} type="button" onClick={() => setMode(m)} style={{
-                  border: 'none', background: mode === m ? 'var(--surface)' : 'transparent',
-                  color: mode === m ? 'var(--text)' : 'var(--text-muted)',
-                  padding: '5px 14px', fontSize: 12, fontWeight: 700,
-                  borderRadius: 'var(--radius-xs)', cursor: 'pointer', fontFamily: 'inherit',
-                  boxShadow: mode === m ? 'var(--shadow-xs)' : 'none',
-                }}>
-                  {tr(m === 'single' ? 'toolModeSingle' : 'toolModeBatch')}
-                </button>
-              ))}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <label className="t-eyebrow">{tr('toolBatchLbl')}</label>
+              <textarea
+                value={batchText}
+                onChange={e => setBatchText(e.target.value)}
+                rows={4}
+                placeholder={'user@viory.video:app-password\n# more lines = more mailboxes, backed up one by one'}
+                spellCheck={false}
+                autoComplete="off"
+                style={{ ...inputStyle, fontFamily: 'var(--font-mono)', resize: 'vertical', lineHeight: 1.6 }}
+              />
+              <div style={{ fontSize: 12, color: parsed.errors.length ? 'var(--danger)' : 'var(--text-muted)' }}>
+                {parsed.errors.length
+                  ? `${tr('toolBatchBadLines')}: ${parsed.errors.join(', ')}`
+                  : (parsed.entries.length > 0 ? `${parsed.entries.length} ${tr('toolBatchParsed')}` : tr('toolBatchEmpty'))}
+              </div>
             </div>
-
-            {mode === 'single' ? (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <label className="t-eyebrow">{tr('toolEmailLbl')}</label>
-                  <input value={email} onChange={e => setEmail(e.target.value)} placeholder="user@viory.video" style={inputStyle} />
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <label className="t-eyebrow">{tr('toolPasswordLbl')}</label>
-                  <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" autoComplete="new-password" style={inputStyle} />
-                </div>
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <label className="t-eyebrow">{tr('toolBatchLbl')}</label>
-                <textarea
-                  value={batchText}
-                  onChange={e => setBatchText(e.target.value)}
-                  rows={6}
-                  placeholder={'user1@viory.video:app-password-1\nuser2@viory.video:app-password-2'}
-                  spellCheck={false}
-                  style={{ ...inputStyle, fontFamily: 'var(--font-mono)', resize: 'vertical', lineHeight: 1.6 }}
-                />
-                <div style={{ fontSize: 12, color: batchParsed?.errors.length ? 'var(--danger)' : 'var(--text-muted)' }}>
-                  {batchParsed?.errors.length
-                    ? `${tr('toolBatchBadLines')}: ${batchParsed.errors.join(', ')}`
-                    : `${batchParsed?.entries.length || 0} ${tr('toolBatchParsed')}`}
-                </div>
-              </div>
-            )}
 
             <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{tr('toolMbHint')}</div>
             <div>
               <Button type="submit" variant="primary" disabled={busy || !canSubmit} icon="archive">
-                {mode === 'batch' && batchParsed?.entries.length > 1
-                  ? `${tr('toolStartBackup')} (${batchParsed.entries.length})`
+                {parsed.entries.length > 1
+                  ? `${tr('toolStartBackup')} (${parsed.entries.length})`
                   : tr('toolStartBackup')}
               </Button>
             </div>
