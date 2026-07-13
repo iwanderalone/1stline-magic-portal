@@ -110,7 +110,7 @@ const translations = {
     homeShowAll: 'Show all',
     aiTitle: 'Assistant',
     aiScope: 'schedule · time off · runbooks · mail review',
-    aiHello: 'Meow! I\'m the portal assistant. I can:\n* **Schedule** — your shifts and who\'s on duty\n* **Time off** — check requests or file a vacation/day-off (goes to admin approval)\n* **Runbooks** — find the right guide, or draft a new runbook: \"check ticket 82505 and make a runbook\"\n* **Mail review** — \"did we miss anything this week?\", paused or onboarding emails\n\nAsk me in English or Russian!',
+    aiHello: 'Meow! I\'m the portal assistant. I can:\n* **Schedule** — your shifts and who\'s on duty\n* **Time off** — check requests or file a vacation/day-off (goes to admin approval)\n* **Runbooks** — find the right guide, or draft one from a case (\"check ticket 82505 and make a runbook\") or from scratch — just describe the problem you solved\n* **Mail review** — \"did we miss anything this week?\", paused or onboarding emails\n* **Handover** — type `/handover` and I\'ll help you build a structured shift handover post\n\nAsk me in English or Russian!',
     aiPlaceholder: 'Ask about shifts, time off, runbooks…',
     aiThinking: 'Thinking…',
     // Mail page chrome
@@ -562,7 +562,7 @@ const translations = {
     homeShowAll: 'Показать все',
     aiTitle: 'Ассистент',
     aiScope: 'смены · отпуск · ранбуки · обзор почты',
-    aiHello: 'Мяу! Я ассистент портала. Умею:\n* **Расписание** — ваши смены и кто дежурит\n* **Отпуска** — проверить заявки или оформить отпуск/отгул (уйдёт на согласование админу)\n* **Ранбуки** — найти нужную инструкцию или создать черновик: «проверь тикет 82505 и сделай ранбук»\n* **Обзор почты** — «что мы упустили за неделю?», письма на паузе, онбординги\n\nСпрашивайте на русском или английском!',
+    aiHello: 'Мяу! Я ассистент портала. Умею:\n* **Расписание** — ваши смены и кто дежурит\n* **Отпуска** — проверить заявки или оформить отпуск/отгул (уйдёт на согласование админу)\n* **Ранбуки** — найти инструкцию, создать черновик из кейса («проверь тикет 82505 и сделай ранбук») или с нуля — просто опишите решённую проблему\n* **Обзор почты** — «что мы упустили за неделю?», письма на паузе, онбординги\n* **Передача смены** — напишите `/handover`, и я помогу собрать структурированный пост для передачи смены\n\nСпрашивайте на русском или английском!',
     aiPlaceholder: 'Спросите про смены, отпуск, ранбуки…',
     aiThinking: 'Думаю…',
     // Mail page chrome
