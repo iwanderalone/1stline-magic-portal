@@ -41,6 +41,11 @@ IMAP_TIMEOUT = 120
 # Yandex drops long IMAP sessions — reconnect and resume; give up only after
 # this many consecutive drops with no fetched message in between.
 MAX_DROPS_WITHOUT_PROGRESS = 3
+# Some hangs (e.g. a DNS lookup that never returns) happen below imaplib's own
+# socket timeout and never raise at all. If the job reports zero progress for
+# this long, give up waiting on it rather than let it — and the serialized
+# job queue behind it — block forever.
+STALL_TIMEOUT_SEC = 360
 _FS_INVALID = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
 
 
@@ -164,9 +169,30 @@ def _imap_pull(email_addr: str, password: str, maildir: Path, prog: JobProgress,
             raise RuntimeError(f"IMAP login failed — check the address and app password ({e})") from e
         return conn
 
+    def _connect_with_retry() -> imaplib.IMAP4_SSL:
+        """The very first connect used to be a single unguarded attempt — if it
+        hung or dropped, the whole job (and the serialized queue behind it)
+        died silently with no retry. Give it the same bounded retry+backoff
+        as mid-fetch reconnects."""
+        last_err: Exception = RuntimeError("no attempt made")
+        for attempt in range(1, MAX_DROPS_WITHOUT_PROGRESS + 2):
+            _check_cancel(cancel)
+            try:
+                return _connect()
+            except (imaplib.IMAP4.abort, OSError) as e:
+                last_err = e
+                logger.warning("[mbbackup] initial IMAP connect failed (%s) — retry %d/%d",
+                               e, attempt, MAX_DROPS_WITHOUT_PROGRESS + 1)
+                prog.touch()
+                for _ in range(min(30, 5 * attempt)):
+                    _check_cancel(cancel)
+                    time.sleep(1)
+        raise RuntimeError(f"could not establish an IMAP connection after "
+                           f"{MAX_DROPS_WITHOUT_PROGRESS + 1} attempts (last error: {last_err})")
+
     prog.phase = "connecting"
     prog.touch()
-    imap = _connect()
+    imap = _connect_with_retry()
     drops = 0  # consecutive connection drops with no progress in between
     try:
         prog.phase = "listing"
@@ -425,6 +451,37 @@ def _run_pipeline(email_addr: str, password: str, prog: JobProgress,
 
 # ─── async job wrapper ───────────────────────────────────────────────
 
+def _swallow_late_result(fut: asyncio.Future) -> None:
+    """Once we've given up on a stalled/canceled pipeline, its thread may still
+    finish later (or never). Touch the result so asyncio doesn't log an
+    'exception was never retrieved' warning for it."""
+    if not fut.cancelled():
+        fut.exception()
+
+
+async def _run_pipeline_watched(email_addr: str, password: str, prog: JobProgress,
+                                cancel: threading.Event) -> dict:
+    """Run the blocking pipeline in a worker thread, but stop waiting on it if
+    it goes silent for too long or gets canceled — a thread stuck inside a
+    blocking syscall (e.g. a hung DNS lookup) can't be killed from here, so
+    "giving up" means abandoning the thread and freeing the job queue rather
+    than actually stopping it; it's left to finish or die on its own."""
+    fut = asyncio.ensure_future(asyncio.to_thread(_run_pipeline, email_addr, password, prog, cancel))
+    while True:
+        done, _pending = await asyncio.wait({fut}, timeout=2)
+        if fut in done:
+            return fut.result()
+        if cancel.is_set():
+            fut.add_done_callback(_swallow_late_result)
+            raise BackupCancelled()
+        if time.time() - prog.updated_at > STALL_TIMEOUT_SEC:
+            fut.add_done_callback(_swallow_late_result)
+            raise RuntimeError(
+                f"backup stalled — no progress for over {STALL_TIMEOUT_SEC}s, likely a network "
+                f"call hung below the connection timeout. Gave up so the rest of the queue could "
+                f"continue — retry this mailbox.")
+
+
 async def run_backup_job(job_id: int, email_addr: str, password: str) -> None:
     """Execute one backup job; updates the DB row at start and finish."""
     email_key = email_addr.lower()
@@ -448,7 +505,7 @@ async def run_backup_job(job_id: int, email_addr: str, password: str) -> None:
                 await db.commit()
 
             try:
-                result = await asyncio.to_thread(_run_pipeline, email_addr, password, prog, cancel)
+                result = await _run_pipeline_watched(email_addr, password, prog, cancel)
                 status, error = "success", None
             except BackupCancelled:
                 result, status, error = {}, "canceled", None
