@@ -152,6 +152,9 @@ export default function ToolsPage() {
   const [enabled, setEnabled] = useState(null);   // null = loading
   const [batchText, setBatchText] = useState('');
   const [jobs, setJobs] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 10;
   const [busy, setBusy] = useState(false);
   const [cancellingId, setCancellingId] = useState(null);
   const [toast, setToast] = useState(null);
@@ -164,8 +167,12 @@ export default function ToolsPage() {
   }, []);
 
   const loadJobs = useCallback(async () => {
-    try { setJobs(await api('/tools/mailbox-backup/jobs')); } catch { /* keep last */ }
-  }, []);
+    try {
+      const d = await api(`/tools/mailbox-backup/jobs?page=${page}&page_size=${PAGE_SIZE}`);
+      setJobs(d.items);
+      setTotal(d.total);
+    } catch { /* keep last */ }
+  }, [page]);
 
   useEffect(() => { loadJobs(); }, [loadJobs]);
 
@@ -191,7 +198,7 @@ export default function ToolsPage() {
       });
       setBatchText('');
       setToast({ message: tr('toolStarted'), type: 'success' });
-      await loadJobs();
+      if (page !== 1) setPage(1); else await loadJobs();
     } catch (err) {
       setToast({ message: err.message, type: 'error' });
     } finally {
@@ -268,12 +275,25 @@ export default function ToolsPage() {
           </form>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div className="t-eyebrow">{tr('toolJobs')} ({jobs.length})</div>
+            <div className="t-eyebrow">{tr('toolJobs')} ({total})</div>
             {jobs.length === 0
               ? <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>{tr('toolNoJobs')}</div>
               : jobs.map(j => (
                   <JobRow key={j.id} job={j} tr={tr} onCancel={cancelJob} cancelling={cancellingId === j.id} />
                 ))}
+            {total > PAGE_SIZE && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14, paddingTop: 6 }}>
+                <Button variant="ghost" size="sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>
+                  {tr('toolPrev')}
+                </Button>
+                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                  {tr('toolPageOf').replace('{page}', page).replace('{total}', Math.max(1, Math.ceil(total / PAGE_SIZE)))}
+                </span>
+                <Button variant="ghost" size="sm" disabled={page >= Math.ceil(total / PAGE_SIZE)} onClick={() => setPage(p => p + 1)}>
+                  {tr('toolNext')}
+                </Button>
+              </div>
+            )}
           </div>
         </>
       )}

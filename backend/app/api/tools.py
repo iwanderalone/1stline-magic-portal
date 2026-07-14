@@ -1,7 +1,7 @@
 """Tools API — utilities for engineers. Currently: Mailbox Backup.
 
 POST /tools/mailbox-backup        start a backup job (email + app password)
-GET  /tools/mailbox-backup/jobs   recent jobs (passwords are never stored)
+GET  /tools/mailbox-backup/jobs   paginated jobs, active ones pinned first (passwords are never stored)
 GET  /tools/mailbox-backup/jobs/{id}   one job with live progress
 POST /tools/mailbox-backup/jobs/{id}/cancel   cancel a queued/running job
 GET  /tools/status                which tools are configured
@@ -9,14 +9,14 @@ GET  /tools/status                which tools are configured
 import asyncio
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select, desc
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select, desc, func, case
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import get_current_user, get_or_404
 from app.models.models import MailboxBackupJob, User, utcnow
-from app.schemas.schemas import MailboxBackupBatchStart, MailboxBackupJobResponse
+from app.schemas.schemas import MailboxBackupBatchStart, MailboxBackupJobResponse, MailboxBackupJobsPage
 from app.services import mailbox_backup_service as mbs
 from app.services.audit import log_action
 
@@ -86,15 +86,31 @@ async def start_mailbox_backup(
     return [_overlay_progress(j) for j in jobs]
 
 
-@router.get("/mailbox-backup/jobs", response_model=list[MailboxBackupJobResponse])
+@router.get("/mailbox-backup/jobs", response_model=MailboxBackupJobsPage)
 async def list_backup_jobs(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=10, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
+    """Active jobs (queued/running) sort first — oldest-queued first, matching
+    the FIFO order they'll actually run in — so a batch in progress is always
+    visible on page 1 without paging. Finished jobs follow, newest first."""
+    is_active = MailboxBackupJob.status.in_(("queued", "running"))
+    active_group = case((is_active, 0), else_=1)
+    active_order = case((is_active, MailboxBackupJob.created_at))       # ASC within active
+    finished_order = case((is_active, None), else_=MailboxBackupJob.created_at)  # DESC within finished
+    total = (await db.execute(select(func.count()).select_from(MailboxBackupJob))).scalar() or 0
     res = await db.execute(
-        select(MailboxBackupJob).order_by(desc(MailboxBackupJob.created_at)).limit(30)
+        select(MailboxBackupJob)
+        .order_by(active_group, active_order.asc(), finished_order.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
     )
-    return [_overlay_progress(j) for j in res.scalars().all()]
+    return MailboxBackupJobsPage(
+        items=[_overlay_progress(j) for j in res.scalars().all()],
+        total=total, page=page, page_size=page_size,
+    )
 
 
 @router.get("/mailbox-backup/jobs/{job_id}", response_model=MailboxBackupJobResponse)

@@ -747,3 +747,10 @@ class MailboxBackupJobResponse(BaseOrmModel):
     created_at: datetime
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
+
+
+class MailboxBackupJobsPage(BaseModel):
+    items: list[MailboxBackupJobResponse]
+    total: int
+    page: int
+    page_size: int
