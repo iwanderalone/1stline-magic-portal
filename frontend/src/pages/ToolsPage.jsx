@@ -31,33 +31,39 @@ function formatEta(sec) {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
-// ETA from the average fetch rate so far — noisy early on (reconnects skew it
-// toward the slow side, which is fine: better to under-promise), so we only
-// show it once there's enough data to be meaningful.
-function estimateEta(job) {
-  if (job.phase !== 'fetching' || !job.started_at || !job.messages_total || !job.messages_done) return null;
-  const elapsedSec = (Date.now() - new Date(job.started_at)) / 1000;
-  if (elapsedSec < 8 || job.messages_done < 20) return null;
-  const remaining = job.messages_total - job.messages_done;
+// ETA from the average rate so far (messages or bytes, whichever the phase
+// tracks) — noisy early on, so we only show it once there's enough data to
+// be meaningful.
+function computeEta(done, total, startedAt, minDone) {
+  if (!startedAt || !total || !done || done < minDone) return null;
+  const elapsedSec = (Date.now() - new Date(startedAt)) / 1000;
+  if (elapsedSec < 8) return null;
+  const remaining = total - done;
   if (remaining <= 0) return null;
-  const rate = job.messages_done / elapsedSec;
+  const rate = done / elapsedSec;
   if (rate <= 0) return null;
   return formatEta(remaining / rate);
 }
 
 const STATUS_COLOR = { success: 'green', failed: 'red', running: 'blue', queued: 'gray', canceled: 'yellow' };
+const BYTE_PHASES = ['archiving', 'hashing', 'uploading'];
 
 function ProgressBar({ job, tr }) {
   const phaseKey = {
     connecting: 'toolPhConnecting', listing: 'toolPhListing', fetching: 'toolPhFetching',
     reconnecting: 'toolPhReconnecting',
-    archiving: 'toolPhArchiving', uploading: 'toolPhUploading', verifying: 'toolPhVerifying',
-    mbox: 'toolPhMbox', queued: 'toolPhQueued',
+    archiving: 'toolPhArchiving', hashing: 'toolPhHashing', uploading: 'toolPhUploading',
+    verifying: 'toolPhVerifying', mbox: 'toolPhMbox', queued: 'toolPhQueued',
   }[job.phase] || null;
-  // fetching has a real total; later phases show an indeterminate sweep
-  const determinate = job.phase === 'fetching' && job.messages_total > 0;
-  const pct = determinate ? Math.min(100, Math.round((job.messages_done / job.messages_total) * 100)) : null;
-  const eta = determinate ? estimateEta(job) : null;
+  // fetching tracks messages; archiving/hashing/uploading track bytes; other
+  // phases (listing, verifying, mbox) show an indeterminate sweep.
+  const isMsgPhase = job.phase === 'fetching' && job.messages_total > 0;
+  const isBytePhase = BYTE_PHASES.includes(job.phase) && job.bytes_total > 0;
+  const determinate = isMsgPhase || isBytePhase;
+  const done = isMsgPhase ? job.messages_done : job.bytes_done;
+  const total = isMsgPhase ? job.messages_total : job.bytes_total;
+  const pct = determinate ? Math.min(100, Math.round((done / total) * 100)) : null;
+  const eta = determinate ? computeEta(done, total, job.started_at, isMsgPhase ? 20 : 1) : null;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text-secondary)' }}>
@@ -67,7 +73,7 @@ function ProgressBar({ job, tr }) {
         </span>
         <span style={{ fontFamily: 'var(--font-mono)' }}>
           {determinate
-            ? `${job.messages_done}/${job.messages_total} · ${pct}%${eta ? ` · ${tr('toolEtaLbl')} ${eta}` : ''}`
+            ? `${isMsgPhase ? done : human(done)}/${isMsgPhase ? total : human(total)} · ${pct}%${eta ? ` · ${tr('toolEtaLbl')} ${eta}` : ''}`
             : (job.messages_total ? `${job.messages_total} msg` : '')}
         </span>
       </div>

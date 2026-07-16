@@ -64,6 +64,10 @@ class JobProgress:
     messages_total: int = 0
     messages_done: int = 0
     current_folder: str = ""
+    # Generic byte counters, reused across whichever phase currently has a
+    # known total (archiving/hashing/uploading) — reset at each transition.
+    bytes_total: int = 0
+    bytes_done: int = 0
     updated_at: float = field(default_factory=time.time)
 
     def touch(self):
@@ -323,6 +327,7 @@ def _archive_maildir(maildir: Path, archive: Path, prog: JobProgress) -> None:
         # Compressing a large mailbox can take far longer than the fetch phase
         # ever did — without a heartbeat per file added, the stall watchdog
         # would (wrongly) kill a job that's working fine, just slowly.
+        prog.bytes_done += max(tarinfo.size, 0)
         prog.touch()
         return tarinfo
 
@@ -337,6 +342,7 @@ def _sha256_file(path: Path, prog: JobProgress) -> str:
     with path.open("rb") as f:
         for chunk in iter(lambda: f.read(1 << 20), b""):
             h.update(chunk)
+            prog.bytes_done += len(chunk)
             prog.touch()
     return h.hexdigest()
 
@@ -382,17 +388,29 @@ def _make_s3_client():
     )
 
 
-def _s3_upload(s3, local: Path, key: str, prog: JobProgress, metadata: Optional[dict] = None) -> dict:
+def _s3_upload(s3, local: Path, key: str, prog: JobProgress, metadata: Optional[dict] = None,
+               track_bytes: bool = False) -> dict:
     from botocore.exceptions import BotoCoreError, ClientError
     s = get_settings()
     extra: dict = {"StorageClass": s.S3_STORAGE_CLASS.upper()}
     if metadata:
         extra["Metadata"] = {k: str(v) for k, v in metadata.items()}
-    try:
+    transferred = 0
+
+    def _on_chunk(nbytes: int) -> None:
+        nonlocal transferred
+        transferred += nbytes
         # Callback fires per chunk sent — the heartbeat that keeps a large
-        # (many-GB) upload from looking stalled to the watchdog.
+        # (many-GB) upload from looking stalled to the watchdog. Only the
+        # main archive upload (not the tiny sha256/mbox side files) drives
+        # the job's displayed byte progress.
+        if track_bytes:
+            prog.bytes_done = transferred
+        prog.touch()
+
+    try:
         s3.upload_file(Filename=str(local), Bucket=s.S3_BUCKET, Key=key, ExtraArgs=extra,
-                       Callback=lambda _bytes: prog.touch())
+                       Callback=_on_chunk)
     except (ClientError, BotoCoreError) as e:
         raise RuntimeError(f"S3 upload failed for {key}: {e}") from e
     try:
@@ -416,18 +434,30 @@ def _run_pipeline(email_addr: str, password: str, prog: JobProgress,
 
         _check_cancel(cancel)
         prog.phase = "archiving"
+        # Known upfront (just stat() calls) — gives the archiving phase a real
+        # byte total to show progress and an ETA against, same as fetching
+        # has a message total.
+        prog.bytes_total = sum(f.stat().st_size for f in maildir.rglob("*") if f.is_file())
+        prog.bytes_done = 0
         prog.touch()
         ts = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
         archive_name = f"{_sanitize_filename(email_addr)}_{ts}.tar.zst"
         archive = workdir / archive_name
         _archive_maildir(maildir, archive, prog)
 
+        _check_cancel(cancel)
+        prog.phase = "hashing"
+        prog.bytes_total = archive.stat().st_size
+        prog.bytes_done = 0
+        prog.touch()
         local_sha = _sha256_file(archive, prog)
         sha_file = workdir / f"{archive_name}.sha256"
         sha_file.write_text(f"{local_sha}  {archive_name}\n", encoding="utf-8")
 
         _check_cancel(cancel)
         prog.phase = "uploading"
+        prog.bytes_total = archive.stat().st_size
+        prog.bytes_done = 0
         prog.touch()
         s3 = _make_s3_client()
         prefix = s.S3_PREFIX.strip("/")
@@ -435,10 +465,12 @@ def _run_pipeline(email_addr: str, password: str, prog: JobProgress,
         key_prefix = f"{prefix}/{backup_dirname}" if prefix else backup_dirname
         archive_key = f"{key_prefix}/{archive_name}"
         meta = {"sha256": local_sha, "email": email_addr, "backup-timestamp": ts}
-        head = _s3_upload(s3, archive, archive_key, prog, metadata=meta)
+        head = _s3_upload(s3, archive, archive_key, prog, metadata=meta, track_bytes=True)
         _s3_upload(s3, sha_file, f"{archive_key}.sha256", prog, metadata=meta)
 
         prog.phase = "verifying"
+        prog.bytes_total = 0
+        prog.bytes_done = 0
         prog.touch()
         local_size = archive.stat().st_size
         server_size = head.get("ContentLength") if head else None

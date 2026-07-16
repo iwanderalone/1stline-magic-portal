@@ -738,6 +738,8 @@ class MailboxBackupJobResponse(BaseOrmModel):
     folders_done: Optional[int] = None
     messages_total: Optional[int] = None
     messages_done: Optional[int] = None
+    bytes_total: Optional[int] = None
+    bytes_done: Optional[int] = None
     current_folder: Optional[str] = None
     archive_size: Optional[int] = None
     sha256: Optional[str] = None
