@@ -34,6 +34,8 @@ def _overlay_progress(job: MailboxBackupJob) -> MailboxBackupJobResponse:
         resp.folders_done = prog.folders_done
         resp.messages_total = prog.messages_total
         resp.messages_done = prog.messages_done
+        resp.bytes_total = prog.bytes_total
+        resp.bytes_done = prog.bytes_done
         resp.current_folder = prog.current_folder or None
     return resp
 
