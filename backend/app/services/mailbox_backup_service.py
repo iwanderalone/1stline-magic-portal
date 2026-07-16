@@ -206,6 +206,7 @@ def _imap_pull(email_addr: str, password: str, maildir: Path, prog: JobProgress,
         folder_infos: list[tuple[bytes, str, int]] = []
         for folder_bytes in folders_encoded:
             _check_cancel(cancel)
+            prog.touch()
             try:
                 display = imap_utf7_decode(folder_bytes)
             except Exception:
@@ -313,25 +314,34 @@ def _imap_pull(email_addr: str, password: str, maildir: Path, prog: JobProgress,
             pass
 
 
-def _archive_maildir(maildir: Path, archive: Path) -> None:
+def _archive_maildir(maildir: Path, archive: Path, prog: JobProgress) -> None:
     import zstandard as zstd
     s = get_settings()
     cctx = zstd.ZstdCompressor(level=s.MAILBOX_BACKUP_ZSTD_LEVEL, threads=-1)
+
+    def _touch_filter(tarinfo: tarfile.TarInfo) -> tarfile.TarInfo:
+        # Compressing a large mailbox can take far longer than the fetch phase
+        # ever did — without a heartbeat per file added, the stall watchdog
+        # would (wrongly) kill a job that's working fine, just slowly.
+        prog.touch()
+        return tarinfo
+
     with open(archive, "wb") as fout:
         with cctx.stream_writer(fout, closefd=False) as compressor:
             with tarfile.open(fileobj=compressor, mode="w|") as tar:
-                tar.add(str(maildir), arcname=maildir.name)
+                tar.add(str(maildir), arcname=maildir.name, filter=_touch_filter)
 
 
-def _sha256_file(path: Path) -> str:
+def _sha256_file(path: Path, prog: JobProgress) -> str:
     h = hashlib.sha256()
     with path.open("rb") as f:
         for chunk in iter(lambda: f.read(1 << 20), b""):
             h.update(chunk)
+            prog.touch()
     return h.hexdigest()
 
 
-def _maildir_to_mboxset(maildir: Path, out_dir: Path) -> list[Path]:
+def _maildir_to_mboxset(maildir: Path, out_dir: Path, prog: JobProgress) -> list[Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
     produced: list[Path] = []
     for sub in sorted(maildir.iterdir()):
@@ -344,6 +354,7 @@ def _maildir_to_mboxset(maildir: Path, out_dir: Path) -> list[Path]:
             dst.lock()
             for _key, msg in src.iteritems():
                 dst.add(msg)
+                prog.touch()
             dst.flush()
         finally:
             dst.unlock()
@@ -371,14 +382,17 @@ def _make_s3_client():
     )
 
 
-def _s3_upload(s3, local: Path, key: str, metadata: Optional[dict] = None) -> dict:
+def _s3_upload(s3, local: Path, key: str, prog: JobProgress, metadata: Optional[dict] = None) -> dict:
     from botocore.exceptions import BotoCoreError, ClientError
     s = get_settings()
     extra: dict = {"StorageClass": s.S3_STORAGE_CLASS.upper()}
     if metadata:
         extra["Metadata"] = {k: str(v) for k, v in metadata.items()}
     try:
-        s3.upload_file(Filename=str(local), Bucket=s.S3_BUCKET, Key=key, ExtraArgs=extra)
+        # Callback fires per chunk sent — the heartbeat that keeps a large
+        # (many-GB) upload from looking stalled to the watchdog.
+        s3.upload_file(Filename=str(local), Bucket=s.S3_BUCKET, Key=key, ExtraArgs=extra,
+                       Callback=lambda _bytes: prog.touch())
     except (ClientError, BotoCoreError) as e:
         raise RuntimeError(f"S3 upload failed for {key}: {e}") from e
     try:
@@ -406,9 +420,9 @@ def _run_pipeline(email_addr: str, password: str, prog: JobProgress,
         ts = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
         archive_name = f"{_sanitize_filename(email_addr)}_{ts}.tar.zst"
         archive = workdir / archive_name
-        _archive_maildir(maildir, archive)
+        _archive_maildir(maildir, archive, prog)
 
-        local_sha = _sha256_file(archive)
+        local_sha = _sha256_file(archive, prog)
         sha_file = workdir / f"{archive_name}.sha256"
         sha_file.write_text(f"{local_sha}  {archive_name}\n", encoding="utf-8")
 
@@ -421,8 +435,8 @@ def _run_pipeline(email_addr: str, password: str, prog: JobProgress,
         key_prefix = f"{prefix}/{backup_dirname}" if prefix else backup_dirname
         archive_key = f"{key_prefix}/{archive_name}"
         meta = {"sha256": local_sha, "email": email_addr, "backup-timestamp": ts}
-        head = _s3_upload(s3, archive, archive_key, metadata=meta)
-        _s3_upload(s3, sha_file, f"{archive_key}.sha256", metadata=meta)
+        head = _s3_upload(s3, archive, archive_key, prog, metadata=meta)
+        _s3_upload(s3, sha_file, f"{archive_key}.sha256", prog, metadata=meta)
 
         prog.phase = "verifying"
         prog.touch()
@@ -434,9 +448,9 @@ def _run_pipeline(email_addr: str, password: str, prog: JobProgress,
 
         prog.phase = "mbox"
         prog.touch()
-        mbox_files = _maildir_to_mboxset(maildir, workdir / "mbox")
+        mbox_files = _maildir_to_mboxset(maildir, workdir / "mbox", prog)
         for mf in mbox_files:
-            _s3_upload(s3, mf, f"{key_prefix}/mbox/{mf.name}",
+            _s3_upload(s3, mf, f"{key_prefix}/mbox/{mf.name}", prog,
                        metadata={**meta, "mbox-folder": mf.stem})
 
         return {
