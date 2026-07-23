@@ -52,9 +52,10 @@ async def require_admin(user: User = Depends(get_current_user)) -> User:
     return user
 
 
-async def get_or_404(db: AsyncSession, model: Type[T], obj_id) -> T:
+async def get_or_404(db: AsyncSession, model: Type[T], obj_id, *, options=None) -> T:
     """Fetch a model instance by primary key or raise HTTP 404."""
-    obj = await db.get(model, obj_id)
+    obj = await db.get(model, obj_id, options=options)
     if obj is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
     return obj
+
