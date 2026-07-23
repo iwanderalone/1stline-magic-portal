@@ -4,8 +4,9 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
+from sqlalchemy.orm import selectinload
 from app.core.database import get_db
-from app.core.deps import get_current_user, require_admin
+from app.core.deps import get_current_user, require_admin, get_or_404
 from app.models.models import Runbook, RunbookStep, User
 from app.schemas.schemas import RunbookCreate, RunbookUpdate, RunbookResponse
 from app.services.audit import log_action
@@ -14,9 +15,18 @@ router = APIRouter(prefix="/runbooks", tags=["runbooks"])
 
 
 async def _next_slug(db: AsyncSession) -> str:
-    result = await db.execute(select(func.count()).select_from(Runbook))
-    count = result.scalar_one()
-    return f"rb-{count + 1:03d}"
+    result = await db.execute(select(Runbook.slug).where(Runbook.slug.like("rb-%")))
+    slugs = result.scalars().all()
+    max_num = 0
+    for slug in slugs:
+        try:
+            num = int(slug.split("-")[1])
+            if num > max_num:
+                max_num = num
+        except (IndexError, ValueError):
+            continue
+    return f"rb-{max_num + 1:03d}"
+
 
 
 def _serialize_tags(tags: list[str] | None) -> str | None:
@@ -92,14 +102,12 @@ async def get_runbook(
     db: AsyncSession = Depends(get_db),
 ):
     from sqlalchemy.orm import selectinload
-    result = await db.execute(
-        select(Runbook)
-        .options(selectinload(Runbook.steps), selectinload(Runbook.owner))
-        .where(Runbook.id == runbook_id)
+    rb = await get_or_404(
+        db,
+        Runbook,
+        runbook_id,
+        options=[selectinload(Runbook.steps), selectinload(Runbook.owner)],
     )
-    rb = result.scalar_one_or_none()
-    if not rb:
-        raise HTTPException(status_code=404)
     return RunbookResponse.model_validate(rb)
 
 
@@ -149,15 +157,12 @@ async def update_runbook(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    from sqlalchemy.orm import selectinload
-    result = await db.execute(
-        select(Runbook)
-        .options(selectinload(Runbook.steps), selectinload(Runbook.owner))
-        .where(Runbook.id == runbook_id)
+    rb = await get_or_404(
+        db,
+        Runbook,
+        runbook_id,
+        options=[selectinload(Runbook.steps), selectinload(Runbook.owner)],
     )
-    rb = result.scalar_one_or_none()
-    if not rb:
-        raise HTTPException(status_code=404)
 
     if req.title is not None:
         rb.title = req.title
@@ -189,9 +194,7 @@ async def delete_runbook(
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    rb = await db.get(Runbook, runbook_id)
-    if not rb:
-        raise HTTPException(status_code=404)
+    rb = await get_or_404(db, Runbook, runbook_id)
     await db.delete(rb)
     return {"deleted": True}
 

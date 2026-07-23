@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.database import get_db
-from app.core.deps import get_current_user, require_admin
+from app.core.deps import get_current_user, require_admin, get_or_404
 from app.models.models import ZammadEvent, ZammadTicket, ZammadComment, User, utcnow
 from app.schemas.schemas import (
     ZammadWebhookPayload, ZammadEventResponse,
@@ -430,10 +430,7 @@ async def get_event(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    result = await db.execute(select(ZammadEvent).where(ZammadEvent.id == event_id))
-    ev = result.scalar_one_or_none()
-    if not ev:
-        raise HTTPException(status_code=404, detail="Event not found")
+    ev = await get_or_404(db, ZammadEvent, event_id)
     return ev
 
 
