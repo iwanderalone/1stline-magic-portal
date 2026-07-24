@@ -67,3 +67,26 @@ export async function api(path, opts = {}, _retry = true) {
   }
   return data;
 }
+
+// For endpoints that return a binary body (e.g. a generated PDF) instead of
+// JSON — api() above assumes JSON and would fail parsing these.
+export async function apiBlob(path, opts = {}) {
+  const tokens = getTokens();
+  const headers = { 'Content-Type': 'application/json', ...opts.headers };
+  if (tokens?.access_token) headers['Authorization'] = `Bearer ${tokens.access_token}`;
+
+  let res;
+  try { res = await fetch(`${BASE}${path}`, { ...opts, headers }); }
+  catch { throw new Error('Cannot reach server. Is the backend running?'); }
+
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`;
+    try {
+      const data = await res.json();
+      if (typeof data?.detail === 'string') msg = data.detail;
+      else if (Array.isArray(data?.detail)) msg = data.detail.map(e => e.msg || String(e)).join('; ');
+    } catch { /* body wasn't JSON */ }
+    throw new Error(msg);
+  }
+  return res.blob();
+}

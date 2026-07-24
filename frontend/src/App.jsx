@@ -562,7 +562,7 @@ export default function App() {
               {page === 'alerts'     && <AlertsPage />}
               {page === 'runbooks'   && <RunbooksPage user={auth.user} initialRunbookId={initialRunbookId} initialSlug={subPath} />}
               {page === 'reminders'  && <RemindersPage user={auth.user} />}
-              {page === 'tools'      && <ToolsPage />}
+              {page === 'tools'      && <ToolsPage user={auth.user} subPath={subPath} />}
             </div>
           </main>
         </div>

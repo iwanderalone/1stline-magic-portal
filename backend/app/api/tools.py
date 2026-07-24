@@ -1,27 +1,51 @@
-"""Tools API — utilities for engineers. Currently: Mailbox Backup.
+"""Tools API — utilities for engineers. Currently: Mailbox Backup, Inventory
+(NetBox), Handover PDF generator.
 
 POST /tools/mailbox-backup        start a backup job (email + app password)
 GET  /tools/mailbox-backup/jobs   paginated jobs, active ones pinned first (passwords are never stored)
 GET  /tools/mailbox-backup/jobs/{id}   one job with live progress
 POST /tools/mailbox-backup/jobs/{id}/cancel   cancel a queued/running job
+GET  /tools/inventory/devices                 list/search NetBox devices
+GET  /tools/inventory/devices/{id}            device detail
+POST /tools/inventory/devices                 create device (admin/manager)
+PATCH /tools/inventory/devices/{id}           update device (admin/manager) — no delete route exists
+GET  /tools/inventory/device-types|sites|device-roles|manufacturers   lookups for form dropdowns
+POST /tools/inventory/handover                generate a handover PDF (works without NetBox)
 GET  /tools/status                which tools are configured
 """
 import asyncio
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import select, desc, func, case
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.deps import get_current_user, get_or_404
+from app.core.deps import get_current_user, get_or_404, require_admin_or_manager
 from app.models.models import MailboxBackupJob, User, utcnow
-from app.schemas.schemas import MailboxBackupBatchStart, MailboxBackupJobResponse, MailboxBackupJobsPage
+from app.schemas.schemas import (
+    HandoverGenerate,
+    MailboxBackupBatchStart,
+    MailboxBackupJobResponse,
+    MailboxBackupJobsPage,
+    NetboxDeviceCreate,
+    NetboxDeviceDetail,
+    NetboxDevicesPage,
+    NetboxDeviceUpdate,
+    NetboxLookupItem,
+)
 from app.services import mailbox_backup_service as mbs
+from app.services import netbox_service as nbs
 from app.services.audit import log_action
+from app.services.handover_pdf_service import generate_handover_pdf
+from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/tools", tags=["tools"])
+
+
+def _netbox_unavailable() -> HTTPException:
+    return HTTPException(status_code=503, detail="NetBox is not configured (NETBOX_URL/NETBOX_API_TOKEN missing)")
 
 
 def _overlay_progress(job: MailboxBackupJob) -> MailboxBackupJobResponse:
@@ -42,7 +66,7 @@ def _overlay_progress(job: MailboxBackupJob) -> MailboxBackupJobResponse:
 
 @router.get("/status")
 async def tools_status(_: User = Depends(get_current_user)):
-    return {"mailbox_backup": mbs.enabled()}
+    return {"mailbox_backup": mbs.enabled(), "netbox": nbs.enabled()}
 
 
 @router.post("/mailbox-backup", response_model=list[MailboxBackupJobResponse], status_code=201)
@@ -150,3 +174,137 @@ async def cancel_backup_job(
     await db.refresh(job)
     logger.info("[tools] %s canceled mailbox backup job %s (%s)", user.username, job_id, job.email)
     return _overlay_progress(job)
+
+
+# ─── Inventory (NetBox) ───────────────────────────────────
+
+@router.get("/inventory/devices", response_model=NetboxDevicesPage)
+async def list_devices(
+    q: str | None = None,
+    site: int | None = None,
+    role: int | None = None,
+    status: str | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=25, ge=1, le=100),
+    _: User = Depends(get_current_user),
+):
+    if not nbs.enabled():
+        raise _netbox_unavailable()
+    try:
+        return await nbs.list_devices(q=q, site=site, role=role, status=status, page=page, page_size=page_size)
+    except nbs.NetboxError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc))
+
+
+@router.get("/inventory/devices/{device_id}", response_model=NetboxDeviceDetail)
+async def get_device(device_id: int, _: User = Depends(get_current_user)):
+    if not nbs.enabled():
+        raise _netbox_unavailable()
+    try:
+        return await nbs.get_device(device_id)
+    except nbs.NetboxError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc))
+
+
+@router.post("/inventory/devices", response_model=NetboxDeviceDetail, status_code=201)
+async def create_device(
+    payload: NetboxDeviceCreate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin_or_manager),
+):
+    if not nbs.enabled():
+        raise _netbox_unavailable()
+    try:
+        device = await nbs.create_device(payload)
+    except nbs.NetboxError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc))
+    await log_action(db, user, "inventory_device_created", f"NetBox device created: {payload.name} (id={device.id})")
+    await db.commit()
+    logger.info("[tools] %s created NetBox device %s (id=%s)", user.username, payload.name, device.id)
+    return device
+
+
+@router.patch("/inventory/devices/{device_id}", response_model=NetboxDeviceDetail)
+async def update_device(
+    device_id: int,
+    payload: NetboxDeviceUpdate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin_or_manager),
+):
+    if not nbs.enabled():
+        raise _netbox_unavailable()
+    try:
+        device = await nbs.update_device(device_id, payload)
+    except nbs.NetboxError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc))
+    await log_action(db, user, "inventory_device_updated", f"NetBox device updated: id={device_id}")
+    await db.commit()
+    logger.info("[tools] %s updated NetBox device id=%s", user.username, device_id)
+    return device
+
+
+@router.get("/inventory/device-types", response_model=list[NetboxLookupItem])
+async def list_device_types(_: User = Depends(get_current_user)):
+    if not nbs.enabled():
+        raise _netbox_unavailable()
+    try:
+        return await nbs.list_device_types()
+    except nbs.NetboxError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc))
+
+
+@router.get("/inventory/sites", response_model=list[NetboxLookupItem])
+async def list_sites(_: User = Depends(get_current_user)):
+    if not nbs.enabled():
+        raise _netbox_unavailable()
+    try:
+        return await nbs.list_sites()
+    except nbs.NetboxError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc))
+
+
+@router.get("/inventory/device-roles", response_model=list[NetboxLookupItem])
+async def list_device_roles(_: User = Depends(get_current_user)):
+    if not nbs.enabled():
+        raise _netbox_unavailable()
+    try:
+        return await nbs.list_device_roles()
+    except nbs.NetboxError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc))
+
+
+@router.get("/inventory/manufacturers", response_model=list[NetboxLookupItem])
+async def list_manufacturers(_: User = Depends(get_current_user)):
+    if not nbs.enabled():
+        raise _netbox_unavailable()
+    try:
+        return await nbs.list_manufacturers()
+    except nbs.NetboxError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc))
+
+
+# ─── Handover PDF generator ───────────────────────────────
+
+@router.post("/inventory/handover")
+async def generate_handover(
+    payload: HandoverGenerate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Stateless: builds the PDF in-memory and streams it back. Not gated on
+    NetBox (device lines are free-text), only audit-logged."""
+    assignor_name = get_settings().HANDOVER_ASSIGNOR_NAME
+    pdf_bytes = generate_handover_pdf(payload, assignor_name)
+    await log_action(
+        db, user, "inventory_handover_generated",
+        f"Handover generated for {payload.employee_name} ({len(payload.devices)} device line(s))",
+    )
+    await db.commit()
+    logger.info("[tools] %s generated a handover PDF for %s", user.username, payload.employee_name)
+    safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in payload.employee_name)[:60] or "handover"
+    filename = f"handover-{safe_name}-{payload.date.isoformat()}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

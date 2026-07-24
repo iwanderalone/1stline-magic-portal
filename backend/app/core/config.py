@@ -114,6 +114,13 @@ class Settings(BaseSettings):
     MAILBOX_BACKUP_IMAP_HOST: str = "imap.yandex.ru"
     MAILBOX_BACKUP_ZSTD_LEVEL: int = 10  # 19 is very slow in-container; 10 is a good tradeoff
 
+    # Inventory (Tools section). Browse/create/edit — never delete — devices in
+    # NetBox. Empty URL/token = section hidden/disabled.
+    NETBOX_URL: str = ""            # e.g. https://netbox.example.com
+    NETBOX_API_TOKEN: str = ""
+    # Handover PDF generator (Tools section). Works standalone, no NetBox needed.
+    HANDOVER_ASSIGNOR_NAME: str = "Darpo FZ LLC (DBA Viory)"
+
     # Mail Reporter
     MAIL_IMAP_SERVER: str = "imap.yandex.com"
     MAIL_IMAP_PORT: int = 993

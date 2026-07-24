@@ -245,6 +245,19 @@ const PATHS = {
       <path d="M8 11h2" strokeLinecap="round" />
     </>
   ),
+  box: (
+    <>
+      <path d="M2 5.5L9 2l7 3.5-7 3.5-7-3.5z" strokeLinejoin="round" />
+      <path d="M2 5.5V13l7 3.5V9M16 5.5V13l-7 3.5" strokeLinejoin="round" />
+    </>
+  ),
+  fileText: (
+    <>
+      <path d="M5 2h6l4 4v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z" strokeLinejoin="round" />
+      <path d="M11 2v4h4" strokeLinejoin="round" />
+      <path d="M6.5 10h6M6.5 12.5h6M6.5 15h4" strokeLinecap="round" />
+    </>
+  ),
 };
 
 export function Icon({ name, size = 18, color = 'currentColor', style }) {
