@@ -1,4 +1,5 @@
 """Authentication endpoints."""
+import logging
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,16 +10,19 @@ from app.core.security import (
     decode_token, generate_otp_secret, generate_otp_qr_base64, verify_otp,
 )
 from app.core.deps import get_current_user
+from app.core.encryption import encrypt, decrypt
 from app.models.models import User
 from app.schemas.schemas import (
     LoginRequest, OTPVerifyRequest, OTPSetupResponse,
     TokenResponse, RefreshRequest, UserResponse, ProfileUpdate, PasswordChangeRequest,
 )
 from app.services.audit import log_action
+from app.services import keycloak_service
 import secrets
 import time as _time
 from collections import defaultdict
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 # ─── In-process brute-force tracking ─────────────────────
@@ -203,6 +207,27 @@ async def refresh_tokens(req: RefreshRequest, request: Request, db: AsyncSession
     user = result.scalar_one_or_none()
     if not user or not user.is_active:
         raise HTTPException(status_code=401, detail="User not found")
+
+    # SSO-linked accounts: silently re-check current Keycloak group membership
+    # on every token refresh (~every 30 min) so access lost in AD/Keycloak is
+    # revoked within one refresh cycle, not whenever this 7-day refresh token
+    # happens to expire. Local-only users skip this entirely.
+    if user.sso_subject and user.sso_refresh_token_encrypted:
+        try:
+            kc_refresh_token = decrypt(user.sso_refresh_token_encrypted)
+            kc_tokens = await keycloak_service.silent_refresh(kc_refresh_token)
+            if kc_tokens is None:
+                raise ValueError("Keycloak refresh rejected")
+            claims = keycloak_service.unverified_claims(kc_tokens.get("id_token") or kc_tokens["access_token"])
+            role = keycloak_service.resolve_role(keycloak_service.extract_groups(claims))
+            if role is None:
+                raise ValueError("no longer a member of any access group")
+            user.role = role
+            user.sso_refresh_token_encrypted = encrypt(kc_tokens["refresh_token"])
+            await db.commit()
+        except Exception as e:
+            logger.info("[auth] SSO revocation check failed for %s: %s", user.username, e)
+            raise HTTPException(status_code=401, detail="SSO session revoked — please sign in again")
 
     access = create_access_token({"sub": str(user.id)})
     refresh = create_refresh_token({"sub": str(user.id)})

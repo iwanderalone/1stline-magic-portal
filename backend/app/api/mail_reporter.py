@@ -9,7 +9,7 @@ from sqlalchemy import select, delete, desc, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.deps import get_current_user, require_admin, get_or_404
+from app.core.deps import get_current_user, require_admin_or_manager, get_or_404
 from app.models.models import MailboxConfig, EmailLog, EmailComment, EmailReply, MailRoutingRule, User
 from app.schemas.schemas import (
     MailboxConfigCreate, MailboxConfigUpdate, MailboxConfigResponse, EmailLogResponse,
@@ -32,7 +32,7 @@ router = APIRouter(prefix="/mail-reporter", tags=["mail-reporter"])
 @router.get("/mailboxes", response_model=list[MailboxConfigResponse])
 async def list_mailboxes(
     db: AsyncSession = Depends(get_db),
-    _=Depends(require_admin),
+    _=Depends(require_admin_or_manager),
 ):
     result = await db.execute(select(MailboxConfig).order_by(MailboxConfig.id))
     return result.scalars().all()
@@ -42,7 +42,7 @@ async def list_mailboxes(
 async def create_mailbox(
     body: MailboxConfigCreate,
     db: AsyncSession = Depends(get_db),
-    _=Depends(require_admin),
+    _=Depends(require_admin_or_manager),
 ):
     # Check duplicate email
     existing = await db.execute(
@@ -67,7 +67,7 @@ async def update_mailbox(
     mailbox_id: int,
     body: MailboxConfigUpdate,
     db: AsyncSession = Depends(get_db),
-    _=Depends(require_admin),
+    _=Depends(require_admin_or_manager),
 ):
     mb = await get_or_404(db, MailboxConfig, mailbox_id)
 
@@ -87,7 +87,7 @@ async def update_mailbox(
 async def delete_mailbox(
     mailbox_id: int,
     db: AsyncSession = Depends(get_db),
-    _=Depends(require_admin),
+    _=Depends(require_admin_or_manager),
 ):
     mb = await get_or_404(db, MailboxConfig, mailbox_id)
     email = mb.email
@@ -103,7 +103,7 @@ async def delete_mailbox(
 async def test_mailbox_connection(
     mailbox_id: int,
     db: AsyncSession = Depends(get_db),
-    _=Depends(require_admin),
+    _=Depends(require_admin_or_manager),
 ):
     mb = await get_or_404(db, MailboxConfig, mailbox_id)
     result = await asyncio.to_thread(_test_imap_connection, mb.email, decrypt(mb.password))
@@ -238,7 +238,7 @@ async def update_email_log(
 async def clear_email_logs(
     mailbox_id: Optional[int] = None,
     db: AsyncSession = Depends(get_db),
-    _=Depends(require_admin),
+    _=Depends(require_admin_or_manager),
 ):
     """Delete email logs (and dedup fingerprints). Emails will be re-processed on next poll."""
     if mailbox_id is not None:
@@ -256,7 +256,7 @@ async def clear_email_logs(
 # ─── Manual Poll ─────────────────────────────────────────────────────
 
 @router.post("/poll-now")
-async def poll_now(background_tasks: BackgroundTasks, _=Depends(require_admin)):
+async def poll_now(background_tasks: BackgroundTasks, _=Depends(require_admin_or_manager)):
     """Trigger an immediate email check in the background."""
     background_tasks.add_task(check_all_mailboxes)
     return {"started": True, "message": "Poll triggered — check logs or refresh emails shortly"}
@@ -268,7 +268,7 @@ async def poll_now(background_tasks: BackgroundTasks, _=Depends(require_admin)):
 async def list_rules(
     mailbox_id: Optional[int] = Query(None, description="Filter to rules for a specific mailbox (includes global rules)"),
     db: AsyncSession = Depends(get_db),
-    _=Depends(require_admin),
+    _=Depends(require_admin_or_manager),
 ):
     """Return routing rules ordered by priority, then id.
 
@@ -294,7 +294,7 @@ async def list_rules(
 async def create_rule(
     body: MailRoutingRuleCreate,
     db: AsyncSession = Depends(get_db),
-    _=Depends(require_admin),
+    _=Depends(require_admin_or_manager),
 ):
     rule = MailRoutingRule(**body.model_dump(), is_builtin=False)
     db.add(rule)
@@ -309,7 +309,7 @@ async def update_rule(
     rule_id: int,
     body: MailRoutingRuleUpdate,
     db: AsyncSession = Depends(get_db),
-    _=Depends(require_admin),
+    _=Depends(require_admin_or_manager),
 ):
     rule = await get_or_404(db, MailRoutingRule, rule_id)
 
@@ -340,7 +340,7 @@ async def update_rule(
 async def delete_rule(
     rule_id: int,
     db: AsyncSession = Depends(get_db),
-    _=Depends(require_admin),
+    _=Depends(require_admin_or_manager),
 ):
     rule = await get_or_404(db, MailRoutingRule, rule_id)
     if rule.is_builtin and rule.builtin_key == "general":
@@ -415,7 +415,7 @@ async def delete_comment(
     email_id: int,
     comment_id: int,
     db: AsyncSession = Depends(get_db),
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin_or_manager),
 ):
     """Delete a comment — admins only."""
     comment = await get_or_404(db, EmailComment, comment_id)

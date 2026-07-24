@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from app.core.database import get_db
-from app.core.deps import get_current_user, require_admin, get_or_404
+from app.core.deps import get_current_user, require_admin, require_admin_or_manager, get_or_404
 from app.core.security import hash_password
 from app.models.models import User, Group, UserRole, user_groups
 from app.schemas.schemas import (
@@ -23,6 +23,18 @@ _AVATAR_ALLOWED_TYPES = {"image/png", "image/gif"}
 _AVATAR_MAX_BYTES = 2 * 1024 * 1024  # 2 MB
 
 router = APIRouter(prefix="/users", tags=["users"])
+
+
+def _forbid_manager_escalation(actor: User, *, target: User | None = None, new_role: UserRole | None = None):
+    """Managers get most admin-shaped user-management routes, but must not be
+    able to touch admin accounts or grant the admin role to anyone (themselves
+    included) — that boundary is the whole point of a separate manager role."""
+    if actor.role != UserRole.MANAGER:
+        return
+    if target is not None and target.role == UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Managers cannot modify admin accounts")
+    if new_role == UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Managers cannot grant the admin role")
 
 
 def user_to_response(u: User) -> UserResponse:
@@ -56,7 +68,7 @@ async def list_users(
         select(User).options(selectinload(User.groups)).order_by(User.display_name)
     )
     users = result.scalars().all()
-    if user.role == UserRole.ADMIN:
+    if user.role in (UserRole.ADMIN, UserRole.MANAGER):
         return [user_to_response(u) for u in users]
     # Engineers get only the fields needed for schedule rendering
     return [user_to_public(u) for u in users]
@@ -65,9 +77,10 @@ async def list_users(
 @router.post("/", response_model=UserResponse)
 async def create_user(
     req: UserCreate,
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin_or_manager),
     db: AsyncSession = Depends(get_db),
 ):
+    _forbid_manager_escalation(admin, new_role=req.role)
     existing = await db.execute(select(User).where(User.username == req.username))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="Username already taken")
@@ -181,10 +194,11 @@ async def unlink_telegram(
 @router.post("/{user_id}/reactivate")
 async def reactivate_user(
     user_id: UUID,
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin_or_manager),
     db: AsyncSession = Depends(get_db),
 ):
     user = await get_or_404(db, User, user_id)
+    _forbid_manager_escalation(admin, target=user)
     user.is_active = True
     await db.flush()
     return {"reactivated": True}
@@ -207,10 +221,11 @@ async def hard_delete_user(
 async def update_user(
     user_id: UUID,
     req: UserUpdate,
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin_or_manager),
     db: AsyncSession = Depends(get_db),
 ):
     user = await get_or_404(db, User, user_id)
+    _forbid_manager_escalation(admin, target=user, new_role=req.role)
     await db.refresh(user, ["groups"])
 
     data = req.model_dump(exclude_unset=True)
@@ -242,12 +257,13 @@ async def update_user(
 @router.delete("/{user_id}")
 async def delete_user(
     user_id: UUID,
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin_or_manager),
     db: AsyncSession = Depends(get_db),
 ):
     user = await get_or_404(db, User, user_id)
     if str(user.id) == str(admin.id):
         raise HTTPException(status_code=400, detail="Cannot delete yourself")
+    _forbid_manager_escalation(admin, target=user)
     user.is_active = False
     await db.flush()
     return {"deleted": True}
@@ -257,10 +273,11 @@ async def delete_user(
 async def reset_password(
     user_id: UUID,
     req: AdminResetPassword,
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin_or_manager),
     db: AsyncSession = Depends(get_db),
 ):
     user = await get_or_404(db, User, user_id)
+    _forbid_manager_escalation(admin, target=user)
     user.hashed_password = hash_password(req.new_password)
     await db.flush()
     return {"ok": True}
@@ -269,10 +286,11 @@ async def reset_password(
 @router.post("/{user_id}/telegram-link-code")
 async def generate_telegram_link_code(
     user_id: UUID,
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin_or_manager),
     db: AsyncSession = Depends(get_db),
 ):
     user = await get_or_404(db, User, user_id)
+    _forbid_manager_escalation(admin, target=user)
     code = secrets.token_hex(4).upper()
     user.telegram_link_code = code
     await db.flush()
@@ -282,13 +300,14 @@ async def generate_telegram_link_code(
 @router.post("/{user_id}/reset-otp")
 async def reset_otp(
     user_id: UUID,
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin_or_manager),
     db: AsyncSession = Depends(get_db),
 ):
     """Admin resets OTP for a user (disables 2FA)."""
     user = await get_or_404(db, User, user_id)
     if str(user.id) == str(admin.id):
         raise HTTPException(status_code=400, detail="Use /auth/setup-otp to manage your own OTP")
+    _forbid_manager_escalation(admin, target=user)
     user.otp_secret = None
     user.otp_enabled = False
     await db.flush()

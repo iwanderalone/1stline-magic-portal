@@ -22,6 +22,7 @@ def _enum(cls, **kw):
 
 class UserRole(str, enum.Enum):
     ADMIN = "admin"
+    MANAGER = "manager"
     ENGINEER = "engineer"
 
 class ShiftType(str, enum.Enum):
@@ -103,6 +104,10 @@ class User(Base):
     telegram_link_code = Column(String(20), nullable=True)
     telegram_notify_shifts = Column(Boolean, default=True)
     telegram_notify_reminders = Column(Boolean, default=True)
+
+    # Keycloak SSO
+    sso_subject = Column(String(255), unique=True, nullable=True, index=True)  # Keycloak 'sub' claim
+    sso_refresh_token_encrypted = Column(Text, nullable=True)  # Fernet-encrypted (app/core/encryption.py)
 
     # Timezone (IANA, e.g. "Europe/Moscow")
     timezone = Column(String(50), default="UTC", nullable=False)

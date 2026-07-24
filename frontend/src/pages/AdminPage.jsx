@@ -4,36 +4,45 @@ import { useLang } from '../components/LangContext';
 import { Card, Button, Input, Badge, Select, Overlay, Toast, Tabs, EmptyState, Avatar } from '../components/UI';
 import { Icon } from '../components/Icons';
 
-export default function AdminPage() {
+// Telegram integration config ("website settings") stays admin-only — managers
+// get everything else (users, groups, shift config, audit logs).
+const ADMIN_ONLY_TABS = new Set(['telegram', 'templates']);
+
+export default function AdminPage({ user }) {
   const { t: tr } = useLang();
+  const isAdmin = user?.role === 'admin';
+  const allTabs = [
+    { id: 'users',     label: tr('users') },
+    { id: 'groups',    label: tr('groups') },
+    { id: 'shifts',    label: tr('shiftConfig') },
+    { id: 'telegram',  label: tr('telegram') },
+    { id: 'templates', label: 'Templates' },
+    { id: 'logs',      label: tr('logs') },
+  ];
+  const tabs = isAdmin ? allTabs : allTabs.filter(t => !ADMIN_ONLY_TABS.has(t.id));
   const [tab, setTab] = useState('users');
+  const activeTab = tabs.some(t => t.id === tab) ? tab : tabs[0]?.id;
   return (
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       <div>
         <h2 style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 30, letterSpacing: '-0.02em', margin: '0 0 16px' }}>
           {tr('adminPanel')}
         </h2>
-        <Tabs tabs={[
-          { id: 'users',     label: tr('users') },
-          { id: 'groups',    label: tr('groups') },
-          { id: 'shifts',    label: tr('shiftConfig') },
-          { id: 'telegram',  label: tr('telegram') },
-          { id: 'templates', label: 'Templates' },
-          { id: 'logs',      label: tr('logs') },
-        ]} active={tab} onChange={setTab} />
+        <Tabs tabs={tabs} active={activeTab} onChange={setTab} />
       </div>
-      {tab === 'users'     && <UsersTab />}
-      {tab === 'groups'    && <GroupsTab />}
-      {tab === 'shifts'    && <ShiftConfigTab />}
-      {tab === 'telegram'  && <TelegramTab />}
-      {tab === 'templates' && <TelegramTemplatesTab />}
-      {tab === 'logs'      && <LogsTab />}
+      {activeTab === 'users'     && <UsersTab viewer={user} />}
+      {activeTab === 'groups'    && <GroupsTab />}
+      {activeTab === 'shifts'    && <ShiftConfigTab />}
+      {activeTab === 'telegram'  && isAdmin && <TelegramTab />}
+      {activeTab === 'templates' && isAdmin && <TelegramTemplatesTab />}
+      {activeTab === 'logs'      && <LogsTab />}
     </div>
   );
 }
 
 // ─── Users Tab ──────────────────────────────────────────
-function UsersTab() {
+function UsersTab({ viewer }) {
+  const viewerIsAdmin = viewer?.role === 'admin';
   const [users, setUsers] = useState([]);
   const [groups, setGroups] = useState([]);
   const [configs, setConfigs] = useState([]);
@@ -146,32 +155,33 @@ function UsersTab() {
               </div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-              <Badge color={u.role === 'admin' ? 'blue' : 'gray'}>{u.role}</Badge>
+              <Badge color={u.role === 'admin' ? 'blue' : u.role === 'manager' ? 'yellow' : 'gray'}>{u.role}</Badge>
+              {u.sso_subject && <Badge color="blue">SSO</Badge>}
               {u.otp_enabled && <Badge color="green">OTP</Badge>}
               {u.telegram_chat_id
                 ? <Badge color="blue"><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>TG <Icon name="check" size={12} /></span></Badge>
                 : linkCodes[u.id]
                   ? <span onClick={() => copyCode(u.id)} title="Click to copy" style={{ cursor: 'pointer' }}><Badge color="yellow"><Icon name="copy" size={12} /> /link {linkCodes[u.id]}</Badge></span>
-                  : <Button size="sm" variant="ghost" onClick={() => linkTg(u.id)}>Link TG</Button>}
-              {u.is_active && <Button size="sm" variant="ghost" icon="edit" onClick={() => setEditTarget(u)}>Edit</Button>}
-              {u.is_active && <Button size="sm" variant="ghost" icon="key" onClick={() => setResetTarget(u.id)}>Reset PW</Button>}
-              {u.is_active && u.otp_enabled && <Button size="sm" variant="ghost" onClick={() => resetOtp(u.id)}>Reset 2FA</Button>}
+                  : (viewerIsAdmin || u.role !== 'admin') && <Button size="sm" variant="ghost" onClick={() => linkTg(u.id)}>Link TG</Button>}
+              {u.is_active && (viewerIsAdmin || u.role !== 'admin') && <Button size="sm" variant="ghost" icon="edit" onClick={() => setEditTarget(u)}>Edit</Button>}
+              {u.is_active && (viewerIsAdmin || u.role !== 'admin') && <Button size="sm" variant="ghost" icon="key" onClick={() => setResetTarget(u.id)}>Reset PW</Button>}
+              {u.is_active && u.otp_enabled && (viewerIsAdmin || u.role !== 'admin') && <Button size="sm" variant="ghost" onClick={() => resetOtp(u.id)}>Reset 2FA</Button>}
               {u.is_active && u.role !== 'admin' && <Button size="sm" variant="danger" onClick={() => deactivate(u.id)}>Deactivate</Button>}
-              {!u.is_active && <Button size="sm" variant="ghost" onClick={() => reactivate(u.id)}>Reactivate</Button>}
-              {!u.is_active && <Button size="sm" variant="danger" icon="trash" onClick={() => hardDelete(u.id, u.display_name)}>Delete</Button>}
+              {!u.is_active && (viewerIsAdmin || u.role !== 'admin') && <Button size="sm" variant="ghost" onClick={() => reactivate(u.id)}>Reactivate</Button>}
+              {!u.is_active && viewerIsAdmin && <Button size="sm" variant="danger" icon="trash" onClick={() => hardDelete(u.id, u.display_name)}>Delete</Button>}
             </div>
           </div>
         ))}
       </Card>
-      {show && <CreateUserModal onClose={() => setShow(false)} onCreate={create} groups={groups} configs={configs} />}
-      {editTarget && <EditUserModal user={editTarget} onClose={() => setEditTarget(null)} onSave={f => edit(editTarget.id, f)} groups={groups} configs={configs} />}
+      {show && <CreateUserModal onClose={() => setShow(false)} onCreate={create} groups={groups} configs={configs} viewerIsAdmin={viewerIsAdmin} />}
+      {editTarget && <EditUserModal user={editTarget} onClose={() => setEditTarget(null)} onSave={f => edit(editTarget.id, f)} groups={groups} configs={configs} viewerIsAdmin={viewerIsAdmin} />}
       {resetTarget && <ResetPasswordModal onClose={() => setResetTarget(null)} onReset={resetPw} />}
       {toast && <Toast {...toast} onClose={() => setToast(null)} />}
     </>
   );
 }
 
-function CreateUserModal({ onClose, onCreate, groups, configs }) {
+function CreateUserModal({ onClose, onCreate, groups, configs, viewerIsAdmin }) {
   const activeShiftTypes = useMemo(() => configs.filter(c => c.is_active).map(c => ({ value: c.shift_type, label: c.label })), [configs]);
   const [f, setF] = useState({
     username: '', display_name: '', email: '', timezone: 'UTC', password: '',
@@ -206,7 +216,8 @@ function CreateUserModal({ onClose, onCreate, groups, configs }) {
         <Input label="Password *" type="password" value={f.password} onChange={e => s('password', e.target.value)} />
         <Select label="Role" value={f.role} onChange={e => s('role', e.target.value)}>
           <option value="engineer">Engineer</option>
-          <option value="admin">Admin</option>
+          <option value="manager">Manager</option>
+          {viewerIsAdmin && <option value="admin">Admin</option>}
         </Select>
         <Input label="Telegram" value={f.telegram_username} onChange={e => s('telegram_username', e.target.value)} placeholder="@username" />
         <div style={{ display: 'flex', gap: '12px' }}>
@@ -240,7 +251,7 @@ function CreateUserModal({ onClose, onCreate, groups, configs }) {
   );
 }
 
-function EditUserModal({ user, onClose, onSave, groups, configs }) {
+function EditUserModal({ user, onClose, onSave, groups, configs, viewerIsAdmin }) {
   const activeShiftTypes = useMemo(() => configs.filter(c => c.is_active).map(c => ({ value: c.shift_type, label: c.label })), [configs]);
   const [f, setF] = useState({
     display_name: user.display_name,
@@ -292,9 +303,10 @@ function EditUserModal({ user, onClose, onSave, groups, configs }) {
         <Select label="Timezone" value={f.timezone} onChange={e => s('timezone', e.target.value)}>
           {TIMEZONES.map(tz => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
         </Select>
-        <Select label="Role" value={f.role} onChange={e => s('role', e.target.value)}>
+        <Select label="Role" value={f.role} onChange={e => s('role', e.target.value)} disabled={user.role === 'admin' && !viewerIsAdmin}>
           <option value="engineer">Engineer</option>
-          <option value="admin">Admin</option>
+          <option value="manager">Manager</option>
+          {(viewerIsAdmin || user.role === 'admin') && <option value="admin">Admin</option>}
         </Select>
         <Input label="Telegram" value={f.telegram_username} onChange={e => s('telegram_username', e.target.value)} />
         <div style={{ display: 'flex', gap: '12px' }}>

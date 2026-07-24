@@ -471,7 +471,7 @@ function RunbookModal({ initial, users, onSave, onClose }) {
 
 /* ─── Main Page ──────────────────────────────────────────────── */
 export default function RunbooksPage({ user, initialRunbookId, initialSlug }) {
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = user?.role === 'admin' || user?.role === 'manager';
   const { t: tr } = useLang();
 
   const [runbooks, setRunbooks] = useState([]);

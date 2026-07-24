@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { getTokens, clearTokens, api } from './api';
+import { getTokens, setTokens, clearTokens, api } from './api';
 import { getGlobalCSS } from './theme';
 import { useTheme } from './components/ThemeContext';
 import { useLang } from './components/LangContext';
@@ -185,7 +185,9 @@ export default function App() {
     return tk ? { loggedIn: true, user: tk.user } : { loggedIn: false, user: null };
   });
 
-  const isAdmin = (u) => u?.role === 'admin';
+  // Admin and manager both get the admin page/nav; manager is a narrower role
+  // (no Telegram integration settings — gated per-tab inside AdminPage itself).
+  const canAccessAdmin = (u) => u?.role === 'admin' || u?.role === 'manager';
   const PAGES = ['home', 'schedule', 'timeoff', 'profile', 'admin', 'mail', 'reminders', 'runbooks', 'tickets', 'alerts', 'tools'];
   // Hash routes are '#page' or '#page/sub' — e.g. '#runbooks/rb-003', '#tools/backup'.
   const parseLocation = () => {
@@ -201,7 +203,7 @@ export default function App() {
     const initialPage = pageFromLocation();
     if (initialPage === 'admin') {
       const tk = getTokens();
-      if (tk?.user?.role !== 'admin') return 'home';
+      if (!canAccessAdmin(tk?.user)) return 'home';
     }
     return initialPage;
   });
@@ -214,7 +216,7 @@ export default function App() {
   const [subPath, setSubPath] = useState(() => parseLocation().sub);
 
   const navigate = useCallback((p, runbookId = null) => {
-    if (p === 'admin' && !isAdmin(auth.user)) return;
+    if (p === 'admin' && !canAccessAdmin(auth.user)) return;
     setInitialRunbookId(runbookId);
     setPage(p);
     window.history.pushState(null, '', `/#${p}`);
@@ -234,7 +236,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (page === 'admin' && !isAdmin(auth.user)) {
+    if (page === 'admin' && !canAccessAdmin(auth.user)) {
       setPage('home');
       window.history.replaceState(null, '', '/#home');
       setSidebarOpen(false);
@@ -244,7 +246,7 @@ export default function App() {
   useEffect(() => {
     const syncRoute = () => {
       const { page: nextPage, sub } = parseLocation();
-      if (nextPage === 'admin' && !isAdmin(auth.user)) {
+      if (nextPage === 'admin' && !canAccessAdmin(auth.user)) {
         setPage('home');
         window.history.replaceState(null, '', '/#home');
         return;
@@ -269,6 +271,33 @@ export default function App() {
   const onLogout     = () => { clearTokens(); setAuth({ loggedIn: false, user: null }); };
   const onUserUpdate = (u) => setAuth(a => ({ ...a, user: { ...a.user, ...u } }));
 
+  // Keycloak redirects the browser here after login: '#/sso-callback?ticket=...'
+  // (success — exchange for real portal tokens) or '...?error=...' (rejected,
+  // e.g. no matching AD group). Hash-routing has no query-string parser
+  // elsewhere, so this is handled as a one-off before the normal route sync.
+  const [ssoError, setSsoError] = useState(null);
+  const [ssoChecking, setSsoChecking] = useState(() => /^#\/?sso-callback\b/.test(window.location.hash));
+  useEffect(() => {
+    const m = window.location.hash.match(/^#\/?sso-callback\b\??(.*)$/);
+    if (!m) { setSsoChecking(false); return; }
+    window.history.replaceState(null, '', '/#home');
+    const params = new URLSearchParams(m[1] || '');
+    const ticket = params.get('ticket');
+    const err = params.get('error');
+    if (err) { setSsoError(err); setSsoChecking(false); return; }
+    if (!ticket) { setSsoChecking(false); return; }
+    fetch('/api/auth/sso/exchange', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ticket }),
+    }).then(async (res) => {
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'SSO exchange failed');
+      setTokens(data);
+      setAuth({ loggedIn: true, user: data.user });
+    }).catch(() => setSsoError('exchange_failed'))
+      .finally(() => setSsoChecking(false));
+  }, []);
+
   useEffect(() => {
     if (!auth.loggedIn) return;
     const poll = () => api('/notifications/unread-count').then(d => d && setUnread(d.count)).catch(() => {});
@@ -277,10 +306,17 @@ export default function App() {
     return () => clearInterval(i);
   }, [auth.loggedIn]);
 
+  if (!auth.loggedIn && ssoChecking) return (
+    <>
+      <style>{getGlobalCSS(t)}</style>
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }} />
+    </>
+  );
+
   if (!auth.loggedIn) return (
     <>
       <style>{getGlobalCSS(t)}</style>
-      <LoginPage onLogin={onLogin} />
+      <LoginPage onLogin={onLogin} ssoError={ssoError} />
     </>
   );
 
@@ -314,7 +350,7 @@ export default function App() {
       id: 'bottom', divider: true,
       items: [
         { id: 'profile', label: lang === 'ru' ? 'Профиль' : 'My Profile' },
-        ...(auth.user.role === 'admin' ? [{ id: 'admin', label: tr('admin') }] : []),
+        ...(canAccessAdmin(auth.user) ? [{ id: 'admin', label: tr('admin') }] : []),
       ],
     },
   ];
@@ -520,7 +556,7 @@ export default function App() {
               {page === 'schedule'   && <SchedulePage user={auth.user} />}
               {page === 'timeoff'    && <TimeOffPage user={auth.user} />}
               {page === 'profile'    && <ProfilePage user={auth.user} onUserUpdate={onUserUpdate} />}
-              {page === 'admin'      && isAdmin(auth.user) && <AdminPage />}
+              {page === 'admin'      && canAccessAdmin(auth.user) && <AdminPage user={auth.user} />}
               {page === 'mail'       && <MailReporterPage user={auth.user} initialEmailId={subPath} />}
               {page === 'tickets'    && <TicketsPage user={auth.user} initialTicket={subPath} />}
               {page === 'alerts'     && <AlertsPage />}

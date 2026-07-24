@@ -653,7 +653,7 @@ function EmailDetail({ email, ruleMap, onStatusChange, onAddComment, onCommentDe
 
 export default function MailReporterPage({ user, initialEmailId }) {
   const { t: tr } = useLang();
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = user?.role === 'admin' || user?.role === 'manager';
 
   const [mailboxes, setMailboxes] = useState([]);
   const [emails, setEmails] = useState([]);

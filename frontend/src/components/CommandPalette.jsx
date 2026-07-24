@@ -20,7 +20,7 @@ export default function CommandPalette({ open, onClose, navigate, user }) {
   const [activeIdx, setActiveIdx] = useState(0);
   const inputRef = useRef(null);
   const listRef  = useRef(null);
-  const isAdmin  = user?.role === 'admin';
+  const isAdmin  = user?.role === 'admin' || user?.role === 'manager';
 
   const NAV_ITEMS = [
     { id: 'home',      label: tr('home'),        icon: 'grid',     hint: tr('cmdHintHome') },

@@ -28,6 +28,8 @@ from app.api import tools
 from app.api import tickets
 from app.api import alerts
 from app.api import assistant
+from app.api import sso
+from app.services import keycloak_service
 from app.workers.reminder_worker import check_and_fire_reminders
 from app.workers.shift_notification_scheduler import schedule_pending_notifications
 from app.workers.shift_notification_worker import check_shift_notifications
@@ -330,6 +332,7 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(LimitBodySizeMiddleware)
 
 app.include_router(auth.router, prefix="/api")
+app.include_router(sso.router, prefix="/api")
 app.include_router(users.router, prefix="/api")
 app.include_router(groups.router, prefix="/api")
 app.include_router(schedule.router, prefix="/api")
@@ -373,4 +376,5 @@ async def public_config():
     return {
         "telegram_bot_username": settings.TELEGRAM_BOT_USERNAME,
         "portal_timezone": settings.PORTAL_TIMEZONE,
+        "sso_enabled": keycloak_service.enabled(),
     }

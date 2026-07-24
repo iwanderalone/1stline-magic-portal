@@ -52,6 +52,15 @@ async def require_admin(user: User = Depends(get_current_user)) -> User:
     return user
 
 
+async def require_admin_or_manager(user: User = Depends(get_current_user)) -> User:
+    if user.role not in (UserRole.ADMIN, UserRole.MANAGER):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin or manager access required",
+        )
+    return user
+
+
 async def get_or_404(db: AsyncSession, model: Type[T], obj_id, *, options=None) -> T:
     """Fetch a model instance by primary key or raise HTTP 404."""
     obj = await db.get(model, obj_id, options=options)

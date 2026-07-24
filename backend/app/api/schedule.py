@@ -7,7 +7,7 @@ from sqlalchemy.orm import selectinload
 from datetime import date
 from collections import defaultdict
 from app.core.database import get_db
-from app.core.deps import get_current_user, require_admin, get_or_404
+from app.core.deps import get_current_user, require_admin_or_manager, get_or_404
 from app.core.scheduler import scheduler
 from app.workers.shift_notification_scheduler import schedule_pending_notifications
 from app.models.models import User, Shift, TimeOffRequest, UserBlockedDate, ShiftType, ShiftConfig, UserRole
@@ -67,7 +67,7 @@ async def list_shifts(
 @router.post("/shifts", response_model=ShiftResponse)
 async def create_shift(
     req: ShiftCreate,
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin_or_manager),
     db: AsyncSession = Depends(get_db),
 ):
     await validate_shift_assignment(db, req.user_id, req.date, req.shift_type)
@@ -95,7 +95,7 @@ async def create_shift(
 async def clear_draft_shifts(
     start_date: date = Query(...),
     end_date: date = Query(...),
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin_or_manager),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
@@ -114,7 +114,7 @@ async def clear_draft_shifts(
 async def update_shift(
     shift_id: UUID,
     req: ShiftUpdate,
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin_or_manager),
     db: AsyncSession = Depends(get_db),
 ):
     shift = await get_or_404(db, Shift, shift_id)
@@ -140,7 +140,7 @@ async def update_shift(
 @router.delete("/shifts/{shift_id}")
 async def delete_shift(
     shift_id: UUID,
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin_or_manager),
     db: AsyncSession = Depends(get_db),
 ):
     shift = await get_or_404(db, Shift, shift_id)
@@ -160,7 +160,7 @@ async def delete_shift(
 @router.post("/generate", response_model=list[ShiftResponse])
 async def auto_generate(
     req: ScheduleGenerateRequest,
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin_or_manager),
     db: AsyncSession = Depends(get_db),
 ):
     assignments = await generate_schedule(
@@ -199,7 +199,7 @@ async def publish_schedule(
     background_tasks: BackgroundTasks,
     start_date: date = Query(...),
     end_date: date = Query(...),
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin_or_manager),
     db: AsyncSession = Depends(get_db),
 ):
     # Shifts to publish (new drafts)
@@ -283,7 +283,7 @@ async def request_time_off(
 async def review_time_off(
     request_id: UUID,
     req: TimeOffReviewRequest,
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin_or_manager),
     db: AsyncSession = Depends(get_db),
 ):
     time_off = await get_or_404(db, TimeOffRequest, request_id)
@@ -315,7 +315,7 @@ async def delete_time_off(
 @router.get("/blocked-dates", response_model=list[UserBlockedDateResponse])
 async def list_blocked_dates(
     user_id: UUID | None = Query(None),
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin_or_manager),
     db: AsyncSession = Depends(get_db),
 ):
     query = select(UserBlockedDate)
@@ -329,7 +329,7 @@ async def list_blocked_dates(
 @router.post("/blocked-dates", response_model=UserBlockedDateResponse)
 async def create_blocked_date(
     req: UserBlockedDateCreate,
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin_or_manager),
     db: AsyncSession = Depends(get_db),
 ):
     if req.end_date < req.start_date:
@@ -345,7 +345,7 @@ async def create_blocked_date(
 @router.delete("/blocked-dates/{entry_id}")
 async def delete_blocked_date(
     entry_id: UUID,
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin_or_manager),
     db: AsyncSession = Depends(get_db),
 ):
     entry = await get_or_404(db, UserBlockedDate, entry_id)

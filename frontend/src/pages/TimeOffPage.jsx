@@ -6,7 +6,7 @@ import { Icon } from '../components/Icons';
 
 export default function TimeOffPage({ user }) {
   const { t: tr } = useLang();
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = user?.role === 'admin' || user?.role === 'manager';
 
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);

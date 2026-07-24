@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 from app.core.database import get_db
-from app.core.deps import get_current_user, require_admin, get_or_404
+from app.core.deps import get_current_user, require_admin_or_manager, get_or_404
 from app.models.models import Runbook, RunbookStep, User
 from app.schemas.schemas import RunbookCreate, RunbookUpdate, RunbookResponse
 from app.services.audit import log_action
@@ -191,7 +191,7 @@ async def update_runbook(
 @router.delete("/{runbook_id}")
 async def delete_runbook(
     runbook_id: UUID,
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin_or_manager),
     db: AsyncSession = Depends(get_db),
 ):
     rb = await get_or_404(db, Runbook, runbook_id)

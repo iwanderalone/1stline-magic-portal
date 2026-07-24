@@ -127,6 +127,21 @@ class Settings(BaseSettings):
     MAIL_DEFAULT_CHAT_ID: str = ""        # fallback Telegram chat_id if mailbox has no target
     MAIL_DEFAULT_THREAD_ID: str = ""      # fallback Telegram thread/topic id
 
+    # Keycloak SSO (OIDC). Empty CLIENT_ID/SECRET = SSO login hidden/disabled —
+    # local username/password + TOTP login is unaffected either way.
+    KEYCLOAK_SERVER_URL: str = ""       # e.g. https://sso.example.com
+    KEYCLOAK_REALM: str = ""
+    KEYCLOAK_CLIENT_ID: str = ""
+    KEYCLOAK_CLIENT_SECRET: str = ""
+    KEYCLOAK_REDIRECT_URI: str = ""     # backend callback, e.g. https://portal.example.com/api/auth/sso/callback
+    PORTAL_PUBLIC_URL: str = ""         # frontend base URL for the post-login redirect; falls back to first CORS_ORIGINS entry
+    # AD/Keycloak group -> portal role. Group membership is the sole source of
+    # truth for SSO access — no membership in any of these, no login.
+    KEYCLOAK_ADMIN_GROUP: str = "g-app-itportal-admin"
+    KEYCLOAK_MANAGER_GROUP: str = "g-app-itportal-manager"
+    KEYCLOAK_ENGINEER_GROUP: str = "g-app-itportal-engineer"
+    KEYCLOAK_GROUPS_CLAIM: str = "groups"
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]

@@ -60,7 +60,7 @@ export function CommentItem({ c, me, onSave, onDelete }) {
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const canEdit = !!me?.id && c.user_id === me.id;
-  const canDelete = me?.role === 'admin';
+  const canDelete = me?.role === 'admin' || me?.role === 'manager';
 
   const save = async () => {
     const text = draft.trim();
