@@ -760,3 +760,94 @@ class MailboxBackupJobsPage(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+# ─── Tools: Inventory (NetBox) ───────────────────────────
+# Thin passthrough of NetBox device fields — not a full mirror of every
+# NetBox attribute, only what the UI displays/edits.
+
+class NetboxRef(BaseModel):
+    # id is None for NetBox choice fields (e.g. status: {value, label} has no id),
+    # populated for nested-serializer relations (device_type/role/site/etc).
+    id: Optional[int] = None
+    name: Optional[str] = None
+    slug: Optional[str] = None
+    display: Optional[str] = None
+
+
+class NetboxDeviceSummary(BaseModel):
+    id: int
+    name: Optional[str] = None
+    display: Optional[str] = None
+    device_type: Optional[NetboxRef] = None
+    role: Optional[NetboxRef] = None
+    site: Optional[NetboxRef] = None
+    status: Optional[NetboxRef] = None
+    serial: Optional[str] = None
+    asset_tag: Optional[str] = None
+    primary_ip: Optional[dict] = None
+    url: Optional[str] = None
+
+
+class NetboxDeviceDetail(NetboxDeviceSummary):
+    manufacturer: Optional[NetboxRef] = None
+    platform: Optional[NetboxRef] = None
+    location: Optional[NetboxRef] = None
+    rack: Optional[NetboxRef] = None
+    comments: Optional[str] = None
+    custom_fields: Optional[dict] = None
+    last_updated: Optional[str] = None
+
+
+class NetboxDevicesPage(BaseModel):
+    items: list[NetboxDeviceSummary]
+    total: int
+    page: int
+    page_size: int
+
+
+class NetboxDeviceCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=64)
+    device_type: int
+    role: int
+    site: int
+    status: str = "active"
+    serial: Optional[str] = Field(None, max_length=50)
+    asset_tag: Optional[str] = Field(None, max_length=50)
+    comments: Optional[str] = None
+
+
+class NetboxDeviceUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=64)
+    device_type: Optional[int] = None
+    role: Optional[int] = None
+    site: Optional[int] = None
+    status: Optional[str] = None
+    serial: Optional[str] = Field(None, max_length=50)
+    asset_tag: Optional[str] = Field(None, max_length=50)
+    comments: Optional[str] = None
+
+
+class NetboxLookupItem(BaseModel):
+    id: int
+    name: str
+    slug: Optional[str] = None
+
+
+# ─── Tools: Handover ──────────────────────────────────────
+
+class HandoverDeviceLine(BaseModel):
+    description: str = Field(..., min_length=1, max_length=300)
+    quantity: int = Field(1, ge=1, le=999)
+    serial_no: Optional[str] = Field(None, max_length=100)
+    inventory_no: Optional[str] = Field(None, max_length=100)
+
+
+class HandoverGenerate(BaseModel):
+    employee_name: str = Field(..., min_length=1, max_length=200)
+    position: str = Field(..., min_length=1, max_length=200)
+    assignment_period: Optional[str] = Field(None, max_length=200)
+    purpose: Optional[str] = Field(None, max_length=500)
+    date: date
+    devices: list[HandoverDeviceLine] = Field(..., min_length=1, max_length=50)
+    comments: Optional[str] = Field(None, max_length=1000)
