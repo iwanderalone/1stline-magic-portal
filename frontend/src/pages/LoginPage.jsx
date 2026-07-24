@@ -1,18 +1,26 @@
-import { useState } from 'react';
-import { setTokens } from '../api';
+import { useState, useEffect } from 'react';
+import { setTokens, getPublicConfig } from '../api';
 import { Card, Button, Input } from '../components/UI';
 import { useLang } from '../components/LangContext';
 import { Icon } from '../components/Icons';
 
-export default function LoginPage({ onLogin }) {
+const SSO_ERROR_KEYS = {
+  no_access_group: 'ssoErrorNoGroup',
+  account_deactivated: 'ssoErrorDeactivated',
+};
+
+export default function LoginPage({ onLogin, ssoError }) {
   const { t: tr } = useLang();
   const [step, setStep] = useState('credentials');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [otpCode, setOtpCode] = useState('');
   const [tempToken, setTempToken] = useState('');
-  const [error, setError] = useState('');
+  const [error, setError] = useState(ssoError ? tr(SSO_ERROR_KEYS[ssoError] || 'ssoErrorGeneric') : '');
   const [loading, setLoading] = useState(false);
+  const [ssoEnabled, setSsoEnabled] = useState(false);
+
+  useEffect(() => { getPublicConfig().then(c => setSsoEnabled(!!c.sso_enabled)); }, []);
 
   const doFetch = async (url, body) => {
     const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -56,6 +64,19 @@ export default function LoginPage({ onLogin }) {
             <Input label={tr('username')} value={username} onChange={e => setUsername(e.target.value)} autoFocus />
             <Input label={tr('password')} type="password" value={password} onChange={e => setPassword(e.target.value)} />
             <Button style={{ width: '100%', padding: '11px' }} disabled={loading}>{loading ? tr('signingIn') : tr('signIn')}</Button>
+            {ssoEnabled && (
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', margin: '2px 0', color: 'var(--text-muted)', fontSize: '12px' }}>
+                  <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+                  {tr('orDivider')}
+                  <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+                </div>
+                <Button type="button" variant="secondary" style={{ width: '100%', padding: '11px' }}
+                  onClick={() => { window.location.href = '/api/auth/sso/start'; }}>
+                  {tr('signInSso')}
+                </Button>
+              </>
+            )}
           </form>
         ) : (
           <form onSubmit={handleOTP} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>

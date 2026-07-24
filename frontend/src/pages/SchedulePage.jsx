@@ -73,7 +73,7 @@ export default function SchedulePage({ user }) {
   const [selectedTimeOff, setSelectedTimeOff] = useState(null);
   const [toast, setToast] = useState(null);
   const [portalConfig, setPortalConfig] = useState({});
-  const isAdmin = user.role === 'admin';
+  const isAdmin = user.role === 'admin' || user.role === 'manager';
 
   const userTz = user?.timezone || 'UTC';
 

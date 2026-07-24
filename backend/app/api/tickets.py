@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.database import get_db
-from app.core.deps import get_current_user, require_admin, get_or_404
+from app.core.deps import get_current_user, require_admin_or_manager, get_or_404
 from app.models.models import ZammadEvent, ZammadTicket, ZammadComment, User, utcnow
 from app.schemas.schemas import (
     ZammadWebhookPayload, ZammadEventResponse,
@@ -627,7 +627,7 @@ async def delete_portal_note(
     ticket_id: int,
     comment_id: int,
     db: AsyncSession = Depends(get_db),
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin_or_manager),
 ):
     comment = await _get_portal_note(db, ticket_id, comment_id)
     await db.delete(comment)

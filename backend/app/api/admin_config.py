@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.core.database import get_db
-from app.core.deps import require_admin, get_or_404
+from app.core.deps import require_admin, require_admin_or_manager, get_or_404
 from app.models.models import User, ShiftConfig, TelegramChat, Notification, ActivityLog, ShiftType, Shift, TelegramTemplate
 from app.schemas.schemas import (
     ShiftConfigUpdate, ShiftConfigResponse,
@@ -22,7 +22,7 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 
 @router.get("/shift-configs", response_model=list[ShiftConfigResponse])
 async def list_shift_configs(
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin_or_manager),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(ShiftConfig).order_by(ShiftConfig.shift_type))
@@ -32,7 +32,7 @@ async def list_shift_configs(
 @router.patch("/shift-configs/{config_id}", response_model=ShiftConfigResponse)
 async def update_shift_config(
     config_id: UUID, req: ShiftConfigUpdate,
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin_or_manager),
     db: AsyncSession = Depends(get_db),
 ):
     config = await get_or_404(db, ShiftConfig, config_id)
@@ -206,7 +206,7 @@ async def telegram_diagnostics(
 
 @router.get("/audit-logs", response_model=list[ActivityLogResponse])
 async def get_audit_logs(
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin_or_manager),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(

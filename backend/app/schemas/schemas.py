@@ -40,6 +40,9 @@ class TokenResponse(BaseModel):
 class RefreshRequest(BaseModel):
     refresh_token: str
 
+class SsoExchangeRequest(BaseModel):
+    ticket: str
+
 
 # ─── Groups ──────────────────────────────────────────────
 
@@ -148,6 +151,7 @@ class UserResponse(BaseOrmModel):
     telegram_chat_id: Optional[str] = None
     telegram_notify_shifts: Optional[bool] = None
     telegram_notify_reminders: Optional[bool] = None
+    sso_subject: Optional[str] = None
     min_shift_gap_days: int = 2
     max_shifts_per_week: int = 3
     availability_pattern: Optional[AvailabilityPattern] = None

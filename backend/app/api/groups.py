@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from app.core.database import get_db
-from app.core.deps import get_current_user, require_admin, get_or_404
+from app.core.deps import get_current_user, require_admin_or_manager, get_or_404
 from app.models.models import Group, User
 from app.schemas.schemas import GroupCreate, GroupResponse
 
@@ -32,7 +32,7 @@ async def list_groups(
 @router.post("/", response_model=GroupResponse)
 async def create_group(
     req: GroupCreate,
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin_or_manager),
     db: AsyncSession = Depends(get_db),
 ):
     group = Group(**req.model_dump())
@@ -45,7 +45,7 @@ async def create_group(
 @router.delete("/{group_id}")
 async def delete_group(
     group_id: UUID,
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin_or_manager),
     db: AsyncSession = Depends(get_db),
 ):
     group = await get_or_404(db, Group, group_id)

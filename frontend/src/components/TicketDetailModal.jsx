@@ -183,7 +183,7 @@ export default function TicketDetailModal({ ticketId, onClose, onError, onChange
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {data.comments.map(c => {
                   const canEdit = c.portal_only && !!user?.id && c.user_id === user.id;
-                  const canDelete = c.portal_only && user?.role === 'admin';
+                  const canDelete = c.portal_only && (user?.role === 'admin' || user?.role === 'manager');
                   const isEditing = editingId === c.id;
                   return (
                   <div key={c.id} style={{

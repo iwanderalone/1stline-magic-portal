@@ -22,6 +22,11 @@ const translations = {
     verifying: 'Verifying…',
     verify: 'Verify',
     back: '← Back',
+    orDivider: 'or',
+    signInSso: 'Sign in with SSO',
+    ssoErrorNoGroup: 'Your account is not a member of any portal access group — contact an admin.',
+    ssoErrorDeactivated: 'This account has been deactivated — contact an admin.',
+    ssoErrorGeneric: 'SSO sign-in failed — please try again or use your password.',
 
     // Notifications
     notifications: 'Notifications',
@@ -516,6 +521,11 @@ const translations = {
     verifying: 'Проверка…',
     verify: 'Подтвердить',
     back: '← Назад',
+    orDivider: 'или',
+    signInSso: 'Войти через SSO',
+    ssoErrorNoGroup: 'Ваша учётная запись не состоит ни в одной группе доступа к порталу — обратитесь к администратору.',
+    ssoErrorDeactivated: 'Эта учётная запись деактивирована — обратитесь к администратору.',
+    ssoErrorGeneric: 'Не удалось войти через SSO — попробуйте снова или используйте пароль.',
 
     // Notifications
     notifications: 'Уведомления',
