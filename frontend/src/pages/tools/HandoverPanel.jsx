@@ -10,7 +10,9 @@ function todayLocal() {
   return new Date(d.getTime() - offset * 60000).toISOString().slice(0, 10);
 }
 
-function emptyLine() { return { description: '', quantity: 1, serial_no: '', inventory_no: '' }; }
+function emptyLine() {
+  return { description: '', quantity: 1, serial_no: '', inventory_no: '', additional_info: '', accessories: '' };
+}
 
 export default function HandoverPanel() {
   const { t: tr } = useLang();
@@ -49,6 +51,8 @@ export default function HandoverPanel() {
           quantity: d.quantity,
           serial_no: d.serial_no.trim() || null,
           inventory_no: d.inventory_no.trim() || null,
+          additional_info: d.additional_info.trim() || null,
+          accessories: d.accessories.trim() || null,
         })),
         comments: comments.trim() || null,
       };
@@ -104,21 +108,30 @@ export default function HandoverPanel() {
             </Button>
           </div>
           {devices.map((d, i) => (
-            <div key={i} style={{ display: 'grid', gridTemplateColumns: '2.4fr 0.7fr 1fr 1fr auto', gap: 8, alignItems: 'center' }}>
-              <input style={inputStyle} placeholder={tr('handoverDescription')} value={d.description} onChange={setLine(i, 'description')} required />
-              <input style={inputStyle} type="number" min={1} max={999} placeholder={tr('handoverQty')} value={d.quantity} onChange={setLine(i, 'quantity')} />
-              <input style={inputStyle} placeholder={tr('handoverSerial')} value={d.serial_no} onChange={setLine(i, 'serial_no')} />
-              <input style={inputStyle} placeholder={tr('handoverInvNo')} value={d.inventory_no} onChange={setLine(i, 'inventory_no')} />
-              <button
-                type="button" onClick={() => removeLine(i)} disabled={devices.length <= 1}
-                title={tr('handoverRemoveDevice')}
-                style={{
-                  background: 'none', border: 'none', cursor: devices.length <= 1 ? 'default' : 'pointer',
-                  opacity: devices.length <= 1 ? 0.3 : 1, color: 'var(--danger)', padding: 4,
-                }}
-              >
-                <Icon name="x" size={16} />
-              </button>
+            <div key={i} style={{
+              display: 'flex', flexDirection: 'column', gap: 8, padding: 10,
+              border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
+            }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '2.4fr 0.7fr auto', gap: 8, alignItems: 'center' }}>
+                <input style={inputStyle} placeholder={tr('handoverDescription')} value={d.description} onChange={setLine(i, 'description')} required />
+                <input style={inputStyle} type="number" min={1} max={999} placeholder={tr('handoverQty')} value={d.quantity} onChange={setLine(i, 'quantity')} />
+                <button
+                  type="button" onClick={() => removeLine(i)} disabled={devices.length <= 1}
+                  title={tr('handoverRemoveDevice')}
+                  style={{
+                    background: 'none', border: 'none', cursor: devices.length <= 1 ? 'default' : 'pointer',
+                    opacity: devices.length <= 1 ? 0.3 : 1, color: 'var(--danger)', padding: 4,
+                  }}
+                >
+                  <Icon name="x" size={16} />
+                </button>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8 }}>
+                <input style={inputStyle} placeholder={tr('handoverSerial')} value={d.serial_no} onChange={setLine(i, 'serial_no')} />
+                <input style={inputStyle} placeholder={tr('handoverInvNo')} value={d.inventory_no} onChange={setLine(i, 'inventory_no')} />
+                <input style={inputStyle} placeholder={tr('handoverAdditionalInfo')} value={d.additional_info} onChange={setLine(i, 'additional_info')} />
+                <input style={inputStyle} placeholder={tr('handoverAccessories')} value={d.accessories} onChange={setLine(i, 'accessories')} />
+              </div>
             </div>
           ))}
         </div>
