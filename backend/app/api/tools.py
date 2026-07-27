@@ -1,5 +1,5 @@
 """Tools API — utilities for engineers. Currently: Mailbox Backup, Inventory
-(NetBox), Handover PDF generator.
+(NetBox), Handover generator.
 
 POST /tools/mailbox-backup        start a backup job (email + app password)
 GET  /tools/mailbox-backup/jobs   paginated jobs, active ones pinned first (passwords are never stored)
@@ -10,7 +10,7 @@ GET  /tools/inventory/devices/{id}            device detail
 POST /tools/inventory/devices                 create device (admin/manager)
 PATCH /tools/inventory/devices/{id}           update device (admin/manager) — no delete route exists
 GET  /tools/inventory/device-types|sites|device-roles|manufacturers   lookups for form dropdowns
-POST /tools/inventory/handover                generate a handover PDF (works without NetBox)
+POST /tools/inventory/handover                fill the handover .docx template (works without NetBox)
 GET  /tools/status                which tools are configured
 """
 import asyncio
@@ -37,7 +37,7 @@ from app.schemas.schemas import (
 from app.services import mailbox_backup_service as mbs
 from app.services import netbox_service as nbs
 from app.services.audit import log_action
-from app.services.handover_pdf_service import generate_handover_pdf
+from app.services.handover_service import generate_handover_docx
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -283,7 +283,7 @@ async def list_manufacturers(_: User = Depends(get_current_user)):
         raise HTTPException(status_code=exc.status_code, detail=str(exc))
 
 
-# ─── Handover PDF generator ───────────────────────────────
+# ─── Handover generator ────────────────────────────────────
 
 @router.post("/inventory/handover")
 async def generate_handover(
@@ -291,20 +291,20 @@ async def generate_handover(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Stateless: builds the PDF in-memory and streams it back. Not gated on
-    NetBox (device lines are free-text), only audit-logged."""
+    """Stateless: fills the .docx template in-memory and streams it back. Not
+    gated on NetBox (device lines are free-text), only audit-logged."""
     assignor_name = get_settings().HANDOVER_ASSIGNOR_NAME
-    pdf_bytes = generate_handover_pdf(payload, assignor_name)
+    docx_bytes = generate_handover_docx(payload, assignor_name)
     await log_action(
         db, user, "inventory_handover_generated",
         f"Handover generated for {payload.employee_name} ({len(payload.devices)} device line(s))",
     )
     await db.commit()
-    logger.info("[tools] %s generated a handover PDF for %s", user.username, payload.employee_name)
+    logger.info("[tools] %s generated a handover doc for %s", user.username, payload.employee_name)
     safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in payload.employee_name)[:60] or "handover"
-    filename = f"handover-{safe_name}-{payload.date.isoformat()}.pdf"
+    filename = f"handover-{safe_name}-{payload.date.isoformat()}.docx"
     return Response(
-        content=pdf_bytes,
-        media_type="application/pdf",
+        content=docx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
