@@ -56,7 +56,7 @@ export default function HandoverPanel() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `handover-${employeeName.trim().replace(/\s+/g, '_')}-${date}.pdf`;
+      a.download = `handover-${employeeName.trim().replace(/\s+/g, '_')}-${date}.docx`;
       document.body.appendChild(a);
       a.click();
       a.remove();

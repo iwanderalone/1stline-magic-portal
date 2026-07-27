@@ -16,7 +16,9 @@ import HomePage from './pages/HomePage';
 import RunbooksPage from './pages/RunbooksPage';
 import TicketsPage from './pages/TicketsPage';
 import AlertsPage from './pages/AlertsPage';
-import ToolsPage from './pages/ToolsPage';
+import MailboxBackupPanel from './pages/tools/MailboxBackupPanel';
+import InventoryPanel from './pages/tools/InventoryPanel';
+import HandoverPanel from './pages/tools/HandoverPanel';
 import AssistantChat from './components/AssistantChat';
 import NotificationsPanel from './components/NotificationsPanel';
 import CommandPalette from './components/CommandPalette';
@@ -188,7 +190,7 @@ export default function App() {
   // Admin and manager both get the admin page/nav; manager is a narrower role
   // (no Telegram integration settings — gated per-tab inside AdminPage itself).
   const canAccessAdmin = (u) => u?.role === 'admin' || u?.role === 'manager';
-  const PAGES = ['home', 'schedule', 'timeoff', 'profile', 'admin', 'mail', 'reminders', 'runbooks', 'tickets', 'alerts', 'tools'];
+  const PAGES = ['home', 'schedule', 'timeoff', 'profile', 'admin', 'mail', 'reminders', 'runbooks', 'tickets', 'alerts', 'tools', 'inventory', 'handover'];
   // Hash routes are '#page' or '#page/sub' — e.g. '#runbooks/rb-003', '#tools/backup'.
   const parseLocation = () => {
     const rawHash = window.location.hash.replace(/^#\/?/, '');
@@ -344,7 +346,11 @@ export default function App() {
     },
     {
       id: 'toolsGroup', label: lang === 'ru' ? 'Инструменты' : 'Tools',
-      items: [{ id: 'tools', label: lang === 'ru' ? 'Бэкап почты' : 'Mailbox Backup' }],
+      items: [
+        { id: 'tools',     label: lang === 'ru' ? 'Бэкап почты'    : 'Mailbox Backup' },
+        { id: 'inventory', label: lang === 'ru' ? 'Инвентаризация' : 'Inventory' },
+        { id: 'handover',  label: lang === 'ru' ? 'Акт передачи'   : 'Handover' },
+      ],
     },
     {
       id: 'bottom', divider: true,
@@ -562,7 +568,9 @@ export default function App() {
               {page === 'alerts'     && <AlertsPage />}
               {page === 'runbooks'   && <RunbooksPage user={auth.user} initialRunbookId={initialRunbookId} initialSlug={subPath} />}
               {page === 'reminders'  && <RemindersPage user={auth.user} />}
-              {page === 'tools'      && <ToolsPage user={auth.user} subPath={subPath} />}
+              {page === 'tools'      && <div style={{ padding: 24, maxWidth: 1100, margin: '0 auto' }}><MailboxBackupPanel /></div>}
+              {page === 'inventory'  && <div style={{ padding: 24, maxWidth: 1100, margin: '0 auto' }}><InventoryPanel user={auth.user} /></div>}
+              {page === 'handover'   && <div style={{ padding: 24, maxWidth: 1100, margin: '0 auto' }}><HandoverPanel /></div>}
             </div>
           </main>
         </div>
