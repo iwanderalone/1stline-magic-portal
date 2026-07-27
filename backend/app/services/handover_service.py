@@ -9,9 +9,12 @@ logging.
 Template merge fields (see templates/handover_template.docx):
   - Header table: {{ assignor_name }}, {{ employee_name }}, {{ position }},
     {{ assignment_period }}, {{ purpose }}
-  - Equipment table: a docxtpl row loop (`{%tr for d in devices %}` /
-    `{%tr endfor %}`) over {{ d.description }}, {{ d.quantity }},
-    {{ d.serial_no }}, {{ d.inventory_no }}
+  - Equipment table: a docxtpl row-GROUP loop (`{%tr for d in devices %}` /
+    `{%tr endfor %}` wrapping the whole per-device Serial/Inventory/Additional
+    info/Accessories block, matching the original template's layout — see the
+    Device column's native vertical merge, left untouched by the template
+    build script) over {{ d.description }}, {{ d.quantity }}, {{ d.serial_no }},
+    {{ d.inventory_no }}, {{ d.additional_info }}, {{ d.accessories }}
   - {{ comments }} next to the Equipment Return "Comments:" label
 Print name / Date signature lines are left blank on purpose — signed by hand
 after printing.
@@ -38,8 +41,10 @@ def generate_handover_docx(data: HandoverGenerate, assignor_name: str) -> bytes:
             {
                 "description": d.description,
                 "quantity": d.quantity,
-                "serial_no": d.serial_no or "—",
-                "inventory_no": d.inventory_no or "—",
+                "serial_no": d.serial_no or "",
+                "inventory_no": d.inventory_no or "",
+                "additional_info": d.additional_info or "",
+                "accessories": d.accessories or "",
             }
             for d in data.devices
         ],

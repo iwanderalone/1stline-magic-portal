@@ -841,6 +841,8 @@ class HandoverDeviceLine(BaseModel):
     quantity: int = Field(1, ge=1, le=999)
     serial_no: Optional[str] = Field(None, max_length=100)
     inventory_no: Optional[str] = Field(None, max_length=100)
+    additional_info: Optional[str] = Field(None, max_length=300)
+    accessories: Optional[str] = Field(None, max_length=300)
 
 
 class HandoverGenerate(BaseModel):
