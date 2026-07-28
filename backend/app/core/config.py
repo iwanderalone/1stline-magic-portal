@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=True)
 
     # App
-    APP_NAME: str = "Support Portal"
+    APP_NAME: str = "Viory IT Portal"
     APP_VERSION: str = "0.1.0"
     DEBUG: bool = False
     SECRET_KEY: str = "change-me-in-production-use-openssl-rand-hex-32"
@@ -66,7 +66,7 @@ class Settings(BaseSettings):
         return v
 
     # OTP
-    OTP_ISSUER: str = "SupportPortal"
+    OTP_ISSUER: str = "Viory IT Portal"
     OTP_VALID_WINDOW: int = 1  # Allow 1 step before/after for clock drift
 
     # Telegram Bot
