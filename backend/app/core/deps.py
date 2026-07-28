@@ -1,7 +1,7 @@
 """Auth dependencies for protecting routes."""
 from typing import Type, TypeVar
 from uuid import UUID
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -13,8 +13,17 @@ T = TypeVar("T")
 
 security_scheme = HTTPBearer()
 
+# HR is read-only access to the schedule, plus ordinary self-service (own
+# profile, own auth, notification bell) — nothing else. Enforced here, in the
+# one dependency almost every route already depends on (directly or via
+# require_admin/require_admin_or_manager), so this can't be bypassed by a
+# frontend that simply doesn't render the button for a disallowed action.
+_HR_ALLOWED_PREFIXES = ("/api/schedule", "/api/users", "/api/auth", "/api/notifications")
+_HR_READ_ONLY_PREFIX = "/api/schedule"
+
 
 async def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security_scheme),
     db: AsyncSession = Depends(get_db),
 ) -> User:
@@ -39,6 +48,13 @@ async def get_current_user(
 
     if not user or not user.is_active:
         raise HTTPException(status_code=401, detail="User not found or inactive")
+
+    if user.role == UserRole.HR:
+        path = request.url.path
+        if not any(path.startswith(p) for p in _HR_ALLOWED_PREFIXES):
+            raise HTTPException(status_code=403, detail="HR access is limited to the schedule (read-only)")
+        if path.startswith(_HR_READ_ONLY_PREFIX) and request.method != "GET":
+            raise HTTPException(status_code=403, detail="HR access to the schedule is read-only")
 
     return user
 

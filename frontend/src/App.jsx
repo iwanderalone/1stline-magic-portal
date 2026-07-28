@@ -4,7 +4,7 @@ import { getGlobalCSS } from './theme';
 import { useTheme } from './components/ThemeContext';
 import { useLang } from './components/LangContext';
 import { Icon } from './components/Icons';
-import { Kbd } from './components/UI';
+import { Kbd, EmptyState } from './components/UI';
 import LoginPage from './pages/LoginPage';
 import SchedulePage from './pages/SchedulePage';
 import AdminPage from './pages/AdminPage';
@@ -191,6 +191,16 @@ export default function App() {
   // (no Telegram integration settings — gated per-tab inside AdminPage itself).
   const canAccessAdmin = (u) => u?.role === 'admin' || u?.role === 'manager';
   const PAGES = ['home', 'schedule', 'timeoff', 'profile', 'admin', 'mail', 'reminders', 'runbooks', 'tickets', 'alerts', 'tools', 'inventory', 'handover'];
+  // HR is restricted to a fixed page allowlist (enforced for real on the
+  // backend too — see get_current_user in deps.py); every other role sees
+  // everything it always has. A page outside the list renders NoAccessPage
+  // instead of the real component, so a stale bookmark or deep link degrades
+  // gracefully rather than erroring against the backend's own 403.
+  const PAGE_ACCESS = { hr: ['home', 'schedule', 'profile'] };
+  const canAccessPage = (u, p) => {
+    const allowed = PAGE_ACCESS[u?.role];
+    return !allowed || allowed.includes(p);
+  };
   // Hash routes are '#page' or '#page/sub' — e.g. '#runbooks/rb-003', '#tools/backup'.
   const parseLocation = () => {
     const rawHash = window.location.hash.replace(/^#\/?/, '');
@@ -359,7 +369,9 @@ export default function App() {
         ...(canAccessAdmin(auth.user) ? [{ id: 'admin', label: tr('admin') }] : []),
       ],
     },
-  ];
+  ]
+    .map(g => ({ ...g, items: g.items.filter(it => canAccessPage(auth.user, it.id)) }))
+    .filter(g => g.items.length > 0);
 
   const [collapsedGroups, setCollapsedGroups] = useState(() => {
     try { return JSON.parse(localStorage.getItem('navCollapsed') || '[]'); } catch { return []; }
@@ -558,19 +570,27 @@ export default function App() {
           {/* Page content */}
           <main style={{ flex: 1, minWidth: 0, padding: isMobile ? '20px 16px 32px' : '28px 36px 48px' }}>
             <div style={{ width: '100%', maxWidth: 1440, margin: '0 auto' }}>
-              {page === 'home'       && <HomePage user={auth.user} unread={unread} onNavigate={navigate} />}
-              {page === 'schedule'   && <SchedulePage user={auth.user} />}
-              {page === 'timeoff'    && <TimeOffPage user={auth.user} />}
-              {page === 'profile'    && <ProfilePage user={auth.user} onUserUpdate={onUserUpdate} />}
-              {page === 'admin'      && canAccessAdmin(auth.user) && <AdminPage user={auth.user} />}
-              {page === 'mail'       && <MailReporterPage user={auth.user} initialEmailId={subPath} />}
-              {page === 'tickets'    && <TicketsPage user={auth.user} initialTicket={subPath} />}
-              {page === 'alerts'     && <AlertsPage />}
-              {page === 'runbooks'   && <RunbooksPage user={auth.user} initialRunbookId={initialRunbookId} initialSlug={subPath} />}
-              {page === 'reminders'  && <RemindersPage user={auth.user} />}
-              {page === 'tools'      && <div style={{ padding: 24, maxWidth: 1100, margin: '0 auto' }}><MailboxBackupPanel /></div>}
-              {page === 'inventory'  && <div style={{ padding: 24, maxWidth: 1100, margin: '0 auto' }}><InventoryPanel user={auth.user} /></div>}
-              {page === 'handover'   && <div style={{ padding: 24, maxWidth: 1100, margin: '0 auto' }}><HandoverPanel /></div>}
+              {!canAccessPage(auth.user, page) ? (
+                <EmptyState
+                  icon={<Icon name="shield" size={40} />}
+                  title={tr('noAccessTitle')}
+                  subtitle={tr('noAccessSubtitle')}
+                />
+              ) : <>
+                {page === 'home'       && <HomePage user={auth.user} unread={unread} onNavigate={navigate} />}
+                {page === 'schedule'   && <SchedulePage user={auth.user} />}
+                {page === 'timeoff'    && <TimeOffPage user={auth.user} />}
+                {page === 'profile'    && <ProfilePage user={auth.user} onUserUpdate={onUserUpdate} />}
+                {page === 'admin'      && canAccessAdmin(auth.user) && <AdminPage user={auth.user} />}
+                {page === 'mail'       && <MailReporterPage user={auth.user} initialEmailId={subPath} />}
+                {page === 'tickets'    && <TicketsPage user={auth.user} initialTicket={subPath} />}
+                {page === 'alerts'     && <AlertsPage />}
+                {page === 'runbooks'   && <RunbooksPage user={auth.user} initialRunbookId={initialRunbookId} initialSlug={subPath} />}
+                {page === 'reminders'  && <RemindersPage user={auth.user} />}
+                {page === 'tools'      && <div style={{ padding: 24, maxWidth: 1100, margin: '0 auto' }}><MailboxBackupPanel /></div>}
+                {page === 'inventory'  && <div style={{ padding: 24, maxWidth: 1100, margin: '0 auto' }}><InventoryPanel user={auth.user} /></div>}
+                {page === 'handover'   && <div style={{ padding: 24, maxWidth: 1100, margin: '0 auto' }}><HandoverPanel /></div>}
+              </>}
             </div>
           </main>
         </div>
@@ -578,7 +598,7 @@ export default function App() {
 
       {showNotifs && <NotificationsPanel onClose={() => setShowNotifs(false)} />}
 
-      <AssistantChat />
+      {auth.user?.role !== 'hr' && <AssistantChat />}
 
       <CommandPalette
         open={paletteOpen}
