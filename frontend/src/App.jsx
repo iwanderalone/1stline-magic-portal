@@ -50,6 +50,8 @@ const NAV_ICONS = {
   timeoff:    'sun',
   reminders:  'bell',
   tools:      'archive',
+  inventory:  'box',
+  handover:   'fileText',
   admin:      'shield',
 };
 
