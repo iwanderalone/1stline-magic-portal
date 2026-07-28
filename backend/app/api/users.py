@@ -98,7 +98,7 @@ async def create_user(
     user = User(
         username=req.username,
         display_name=req.display_name,
-        email=req.email,
+        email=(req.email or "").strip() or None,
         hashed_password=hash_password(req.password),
         role=req.role,
         telegram_username=req.telegram_username or None,
@@ -233,6 +233,8 @@ async def update_user(
     avail = data.pop("availability_pattern", None)
     has_allowed_types = "allowed_shift_types" in data
     allowed_types = data.pop("allowed_shift_types", None)
+    if "email" in data:
+        data["email"] = (data["email"] or "").strip() or None
 
     for field, value in data.items():
         setattr(user, field, value)
