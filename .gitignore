@@ -54,3 +54,7 @@ docs/superpowers/
 codex-plans/
 memory/
 
+# Claude Security scan output — local findings, never committed
+CLAUDE-SECURITY-*/
+SECURITY-FINDINGS.md
+
