@@ -24,6 +24,7 @@ class UserRole(str, enum.Enum):
     ADMIN = "admin"
     MANAGER = "manager"
     ENGINEER = "engineer"
+    HR = "hr"
 
 class ShiftType(str, enum.Enum):
     DAY = "day"

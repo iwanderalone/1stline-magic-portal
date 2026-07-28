@@ -472,6 +472,8 @@ const translations = {
     remote: 'Remote',
     draft: 'draft',
     danger: 'danger',
+    noAccessTitle: "You don't have access to this page",
+    noAccessSubtitle: 'Your role only grants read-only access to the schedule.',
 
     // Runbooks page
     rbCategoryAccess: 'Access',
@@ -1011,6 +1013,8 @@ const translations = {
     inOffice: 'В офисе',
     remote: 'Удалённо',
     draft: 'черновик',
+    noAccessTitle: 'У вас нет доступа к этой странице',
+    noAccessSubtitle: 'Ваша роль даёт доступ только на чтение к расписанию.',
 
     // Runbooks page
     rbCategoryAccess: 'Доступ',

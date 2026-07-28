@@ -74,6 +74,7 @@ export default function SchedulePage({ user }) {
   const [toast, setToast] = useState(null);
   const [portalConfig, setPortalConfig] = useState({});
   const isAdmin = user.role === 'admin' || user.role === 'manager';
+  const readOnly = user.role === 'hr'; // schedule is view-only for HR, enforced server-side too
 
   const userTz = user?.timezone || 'UTC';
 
@@ -356,7 +357,7 @@ export default function SchedulePage({ user }) {
       {!loading && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 420px), 1fr))', gap: 16 }}>
           <CoveragePanel shifts={shifts} users={users} configs={configs} tr={tr} />
-          <TimeOffPanel timeOff={timeOff} locale={locale} tr={tr} onRequest={() => setShowTimeOff(true)} onSelect={setSelectedTimeOff} />
+          <TimeOffPanel timeOff={timeOff} locale={locale} tr={tr} onRequest={readOnly ? null : () => setShowTimeOff(true)} onSelect={setSelectedTimeOff} />
         </div>
       )}
 
@@ -383,7 +384,7 @@ export default function SchedulePage({ user }) {
           isAdmin={isAdmin}
           onClose={() => setSelectedTimeOff(null)}
           onReview={async (status) => { await handleReview(selectedTimeOff.id, status); setSelectedTimeOff(null); }}
-          onDelete={() => confirm(tr('scheduleDeleteTimeOffConfirm')) && handleDeleteTimeOff(selectedTimeOff.id)}
+          onDelete={readOnly ? null : () => confirm(tr('scheduleDeleteTimeOffConfirm')) && handleDeleteTimeOff(selectedTimeOff.id)}
         />
       )}
       {toast && <Toast {...toast} onClose={() => setToast(null)} />}
@@ -580,7 +581,7 @@ function TimeOffDetailModal({ entry, isAdmin, onClose, onReview, onDelete }) {
         </div>
 
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
-          <Button variant="danger" onClick={onDelete}>{tr('delete')}</Button>
+          {onDelete ? <Button variant="danger" onClick={onDelete}>{tr('delete')}</Button> : <span />}
           <div style={{ display: 'flex', gap: '8px' }}>
             {isAdmin && entry.status === 'pending' && (
               <>
@@ -822,7 +823,7 @@ function TimeOffPanel({ timeOff, locale, tr, onRequest, onSelect }) {
   return (
     <Card
       accent="var(--accent)"
-      header={<><Icon name="calendar" size={18} color="var(--accent)" /><h2 style={{ margin: 0, fontSize: 22 }}>{tr('scheduleTimeOffPanel')}</h2><span style={{ flex: 1 }} /><Button size="sm" variant="ghost" icon="plus" onClick={onRequest}>{tr('scheduleRequest')}</Button></>}
+      header={<><Icon name="calendar" size={18} color="var(--accent)" /><h2 style={{ margin: 0, fontSize: 22 }}>{tr('scheduleTimeOffPanel')}</h2><span style={{ flex: 1 }} />{onRequest && <Button size="sm" variant="ghost" icon="plus" onClick={onRequest}>{tr('scheduleRequest')}</Button>}</>}
     >
       {items.length === 0 ? (
         <EmptyState title={tr('scheduleNoTimeOff')} />

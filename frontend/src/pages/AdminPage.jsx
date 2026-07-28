@@ -155,7 +155,7 @@ function UsersTab({ viewer }) {
               </div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-              <Badge color={u.role === 'admin' ? 'blue' : u.role === 'manager' ? 'yellow' : 'gray'}>{u.role}</Badge>
+              <Badge color={u.role === 'admin' ? 'blue' : u.role === 'manager' ? 'yellow' : u.role === 'hr' ? 'green' : 'gray'}>{u.role}</Badge>
               {u.sso_subject && <Badge color="blue">SSO</Badge>}
               {u.otp_enabled && <Badge color="green">OTP</Badge>}
               {u.telegram_chat_id
@@ -217,6 +217,7 @@ function CreateUserModal({ onClose, onCreate, groups, configs, viewerIsAdmin }) 
         <Select label="Role" value={f.role} onChange={e => s('role', e.target.value)}>
           <option value="engineer">Engineer</option>
           <option value="manager">Manager</option>
+          <option value="hr">HR (read-only schedule)</option>
           {viewerIsAdmin && <option value="admin">Admin</option>}
         </Select>
         <Input label="Telegram" value={f.telegram_username} onChange={e => s('telegram_username', e.target.value)} placeholder="@username" />
@@ -306,6 +307,7 @@ function EditUserModal({ user, onClose, onSave, groups, configs, viewerIsAdmin }
         <Select label="Role" value={f.role} onChange={e => s('role', e.target.value)} disabled={user.role === 'admin' && !viewerIsAdmin}>
           <option value="engineer">Engineer</option>
           <option value="manager">Manager</option>
+          <option value="hr">HR (read-only schedule)</option>
           {(viewerIsAdmin || user.role === 'admin') && <option value="admin">Admin</option>}
         </Select>
         <Input label="Telegram" value={f.telegram_username} onChange={e => s('telegram_username', e.target.value)} />
