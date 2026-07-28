@@ -55,7 +55,7 @@ export default function LoginPage({ onLogin, ssoError }) {
       <Card className="fade-in" style={{ width: '100%', maxWidth: '400px', padding: '40px 32px' }}>
         <div style={{ textAlign: 'center', marginBottom: '32px' }}>
           <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', color: '#fff' }}><Icon name="zap" size={22} /></div>
-          <h1 style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 28, letterSpacing: '-0.02em', color: 'var(--text)', marginBottom: 6 }}>Support Portal</h1>
+          <h1 style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 28, letterSpacing: '-0.02em', color: 'var(--text)', marginBottom: 6 }}>Viory IT Portal</h1>
           <p style={{ color: 'var(--text-muted)', fontSize: '14px', marginTop: '6px' }}>{step === 'otp' ? tr('enterCode') : tr('signIn')}</p>
         </div>
         {error && <div style={{ background: 'var(--danger-light)', color: 'var(--danger)', padding: '10px 14px', borderRadius: 'var(--radius-sm)', fontSize: '13px', marginBottom: '16px' }}>{error}</div>}
