@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     APP_NAME: str = "Viory IT Portal"
     APP_VERSION: str = "0.1.0"
     DEBUG: bool = False
+    ENVIRONMENT: str = "development"
     SECRET_KEY: str = "change-me-in-production-use-openssl-rand-hex-32"
 
     # Database — PostgreSQL (asyncpg)

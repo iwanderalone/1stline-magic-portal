@@ -7,6 +7,7 @@ smtplib is run in a worker thread to stay off the event loop.
 import asyncio
 import html as html_mod
 import logging
+import imaplib
 import smtplib
 from email.message import EmailMessage
 from email.utils import parseaddr, formataddr
@@ -40,6 +41,32 @@ def extract_address(sender: str) -> str:
     return addr
 
 
+def _append_to_sent(login: str, password: str, msg_bytes: bytes) -> None:
+    """Upload sent message copy to IMAP Sent folder so it appears in webmail."""
+    settings = get_settings()
+    try:
+        with imaplib.IMAP4_SSL(settings.MAIL_IMAP_SERVER, settings.MAIL_IMAP_PORT, timeout=30) as imap:
+            imap.login(login, password)
+            
+            # Yandex uses 'Sent' or Russian IMAP UTF-7 name '&BB4EQgQ,BEAEMAQyBDsENQQ9BD0ESw-' for sent mail.
+            sent_folders = ['Sent', '&BB4EQgQ,BEAEMAQyBDsENQQ9BD0ESw-']
+            success = False
+            for folder in sent_folders:
+                try:
+                    res, _ = imap.append(folder, None, None, msg_bytes)
+                    if res == 'OK':
+                        logger.info(f"[smtp] Saved sent email to '{folder}' folder for {login}")
+                        success = True
+                        break
+                except imaplib.IMAP4.error:
+                    continue
+            
+            if not success:
+                logger.warning(f"[smtp] Could not save sent email to any Sent folder for {login}")
+    except Exception as e:
+        logger.error(f"[smtp] Failed to connect to IMAP to save sent message for {login}: {e}")
+
+
 def _send_sync(
     host: str, port: int, login: str, password: str,
     to_addr: str, subject: str, body: str, in_reply_to: str | None,
@@ -71,6 +98,9 @@ def _send_sync(
             smtp.starttls()
             smtp.login(login, password)
             smtp.send_message(msg)
+
+    # Append to IMAP Sent folder so it appears in webmail
+    _append_to_sent(login, password, msg.as_bytes())
 
 
 async def send_reply(
