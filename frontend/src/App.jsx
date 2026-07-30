@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { getTokens, setTokens, clearTokens, api } from './api';
+import { getTokens, setTokens, clearTokens, api, getPublicConfig } from './api';
 import { getGlobalCSS } from './theme';
 import { useTheme } from './components/ThemeContext';
 import { useLang } from './components/LangContext';
@@ -188,6 +188,15 @@ export default function App() {
     const tk = getTokens();
     return tk ? { loggedIn: true, user: tk.user } : { loggedIn: false, user: null };
   });
+
+  const [envName, setEnvName] = useState('prod');
+  useEffect(() => {
+    getPublicConfig().then(c => {
+      if (c.environment) {
+        setEnvName(c.environment.toLowerCase() === 'production' ? 'prod' : 'dev');
+      }
+    });
+  }, []);
 
   // Admin and manager both get the admin page/nav; manager is a narrower role
   // (no Telegram integration settings — gated per-tab inside AdminPage itself).
@@ -434,7 +443,7 @@ export default function App() {
               Viory IT Portal
             </div>
             <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2, fontFamily: 'var(--font-mono)' }}>
-              prod
+              {envName}
             </div>
           </div>
           <Icon name="arrowUpDown" size={11} />

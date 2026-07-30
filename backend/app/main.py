@@ -377,4 +377,5 @@ async def public_config():
         "telegram_bot_username": settings.TELEGRAM_BOT_USERNAME,
         "portal_timezone": settings.PORTAL_TIMEZONE,
         "sso_enabled": keycloak_service.enabled(),
+        "environment": settings.ENVIRONMENT,
     }
