@@ -442,9 +442,11 @@ export default function App() {
             <div style={{ fontSize: 14.5, fontWeight: 600, color: 'var(--text)', lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               Viory IT Portal
             </div>
-            <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2, fontFamily: 'var(--font-mono)' }}>
-              {envName}
-            </div>
+            {envName !== 'prod' && (
+              <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2, fontFamily: 'var(--font-mono)' }}>
+                {envName}
+              </div>
+            )}
           </div>
           <Icon name="arrowUpDown" size={11} />
         </button>
