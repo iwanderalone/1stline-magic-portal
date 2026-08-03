@@ -20,6 +20,7 @@ from app.models.models import (
     Shift, TimeOffRequest, TimeOffStatus, TimeOffType,
     Runbook, RunbookStep, User,
 )
+from app.services import netbox_service
 
 logger = logging.getLogger(__name__)
 
@@ -195,6 +196,16 @@ TOOL_DECLARATIONS = [
             "type": "object",
             "properties": {"slug": {"type": "string"}},
             "required": ["slug"],
+        },
+    },
+    {
+        "name": "search_inventory",
+        "description": "Search or list devices in the NetBox inventory by name, serial number, asset tag, role, status, etc. Use this whenever the user asks about equipment, devices, serials, or asset tags.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Search term: name, serial number, or asset tag"},
+            },
         },
     },
 ]
@@ -598,6 +609,30 @@ async def _tool_get_runbook(user: User, args: dict) -> dict:
     }
 
 
+async def _tool_search_inventory(user: User, args: dict) -> dict:
+    if not netbox_service.enabled():
+        return {"error": "Inventory service (NetBox) is not configured or disabled."}
+    q = args.get("query")
+    try:
+        res = await netbox_service.list_devices(q=q, page_size=20)
+        items = []
+        for d in res.items:
+            items.append({
+                "id": d.id,
+                "name": d.name or d.display,
+                "device_type": d.device_type.display if d.device_type else None,
+                "role": d.role.display if d.role else None,
+                "site": d.site.display if d.site else None,
+                "status": d.status.display if d.status else None,
+                "serial": d.serial,
+                "asset_tag": d.asset_tag,
+            })
+        return {"devices": items, "total": res.total}
+    except Exception as e:
+        logger.exception("[assistant] NetBox search failed")
+        return {"error": f"Failed to search NetBox inventory: {str(e)}"}
+
+
 TOOL_IMPL = {
     "get_my_schedule": _tool_get_my_schedule,
     "get_team_schedule": _tool_get_team_schedule,
@@ -611,6 +646,7 @@ TOOL_IMPL = {
     "list_runbooks": _tool_list_runbooks,
     "search_runbooks": _tool_search_runbooks,
     "get_runbook": _tool_get_runbook,
+    "search_inventory": _tool_search_inventory,
 }
 
 
@@ -628,8 +664,8 @@ def _system_prompt(user: User) -> str:
         "Be concise and practical; use short lists where helpful.\n"
         f"Today is {date.today().isoformat()} ({date.today().strftime('%A')}). "
         f"The user is {user.display_name or user.username} (role: {user.role.value}).\n"
-        "You can look up schedules, time-off, runbooks, and review the operational mail "
-        "queue via tools — prefer tools over guessing. When filing a time-off request, "
+        "You can look up schedules, time-off, runbooks, review the operational mail "
+        "queue, and search/lookup NetBox inventory devices (serial numbers, asset tags, status) via tools — prefer tools over guessing. When filing a time-off request, "
         "restate the dates and type and get an explicit confirmation from the user first. "
         "Time-off requests always require admin approval afterwards — mention that. "
         "For mail reviews, highlight what needs action: unchecked items first, then "

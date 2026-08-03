@@ -9,7 +9,7 @@ import DeviceFormModal from '../../components/DeviceFormModal';
 const PAGE_SIZE = 20;
 
 export default function InventoryPanel({ user }) {
-  const { t: tr } = useLang();
+  const { lang, t: tr } = useLang();
   const canEdit = user?.role === 'admin' || user?.role === 'manager';
   const [enabled, setEnabled] = useState(null); // null = loading
   const [q, setQ] = useState('');
@@ -97,7 +97,29 @@ export default function InventoryPanel({ user }) {
 
       <form onSubmit={onSearchSubmit} style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
         <div style={{ flex: '1 1 220px', display: 'flex', flexDirection: 'column', gap: 5 }}>
-          <label className="t-eyebrow">{tr('invSearch')}</label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <label className="t-eyebrow" style={{ marginBottom: 0 }}>{tr('invSearch')}</label>
+            <span 
+              title={lang === 'ru' ? "Поиск сопоставляет название, серийный номер или инвентарную метку" : "Search matches name, serial number, or asset tag"} 
+              style={{ 
+                cursor: 'help', 
+                fontSize: 10, 
+                color: 'var(--text-muted)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 14,
+                height: 14,
+                borderRadius: '50%',
+                background: 'var(--surface-alt)',
+                border: '1px solid var(--border-light)',
+                fontWeight: 'bold',
+                lineHeight: 1
+              }}
+            >
+              ?
+            </span>
+          </div>
           <input
             value={q} onChange={e => setQ(e.target.value)}
             placeholder={tr('invSearchPlaceholder')}
