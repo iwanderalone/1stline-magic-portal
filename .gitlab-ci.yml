@@ -6,58 +6,7 @@
 # Jobs fetch the repo with the ephemeral CI_JOB_TOKEN — no stored deploy tokens.
 # The prod job takes a pg_dump backup to /opt/backups before rebuilding.
 
-stages: [deploy]
-
-variables:
-  GIT_STRATEGY: none        # deploy in-place in /opt — no separate runner checkout
-  REPO_URL: "https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
-
-.health_check: &health_check |
-  for i in $(seq 1 24); do
-    sleep 5
-    if curl -fsS "http://127.0.0.1:${HEALTH_PORT}/api/health" >/dev/null 2>&1; then
-      echo "healthy after $((i * 5))s"
-      exit 0
-    fi
-  done
-  echo "health check FAILED on :${HEALTH_PORT}"
-  exit 1
-
-deploy-dev:
-  stage: deploy
-  tags: [hz-hmg]
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "dev"'
-  variables:
-    HEALTH_PORT: "8001"
-  script:
-    - cd /opt/dev-1stline-magic-portal
-    - git fetch "$REPO_URL" "$CI_COMMIT_REF_NAME"
-    - git reset --hard "$CI_COMMIT_SHA"
-    - docker compose -f docker-compose.dev.yml up -d --build
-    - *health_check
-  environment:
-    name: dev
-    url: https://portal-dev.wanderalone.moe
-
-deploy-prod:
-  stage: deploy
-  tags: [hz-hmg]
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-      when: manual
-  variables:
-    HEALTH_PORT: "8000"
-  script:
-    # backup first — restore with: pg_restore -U portal -d portal -c <file>
-    - mkdir -p /opt/backups
-    - docker exec 1stline-magic-portal-db-1 pg_dump -U portal -F c portal > "/opt/backups/portal-$(date +%Y%m%d-%H%M%S).dump"
-    - ls -lh /opt/backups | tail -1
-    - cd /opt/1stline-magic-portal
-    - git fetch "$REPO_URL" "$CI_COMMIT_REF_NAME"
-    - git reset --hard "$CI_COMMIT_SHA"
-    - docker compose up -d --build
-    - *health_check
-  environment:
-    name: production
-    url: https://portal.wanderalone.moe
+include:
+  - project: 'internal/ci-templates'
+    ref: main
+    file: 'deploy.yml'
