@@ -485,7 +485,7 @@ def format_message(category: str, extra: dict, sender: str, recipient: str,
         if hashtag:
             header += f" <b>{escape_html(hashtag)}</b>"
         mention_line = f"{mentions}\n" if mentions else ""
-        body_section = f"\n{safe_body}" if inc_body else ""
+        body_section = f"\n<blockquote expandable>{safe_body}</blockquote>" if inc_body else ""
 
         return (
             f"{header}\n"
@@ -506,7 +506,7 @@ def format_message(category: str, extra: dict, sender: str, recipient: str,
         f"<b>To:</b> {safe_recipient}\n"
         f"<b>Subject:</b> {safe_subject}\n"
         f"🕐 {local_time}\n\n"
-        f"{safe_body}"
+        f"<blockquote expandable>{safe_body}</blockquote>"
     )
 
 
