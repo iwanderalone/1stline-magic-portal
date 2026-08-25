@@ -308,10 +308,11 @@ async def _is_redundant_event(db: AsyncSession, event_type: str, body: dict, exi
         "Supported values: `ticket_opened`, `ticket_assigned`, `comment_added`, "
         "`ticket_closed`, `ticket_paused`, `ticket_status_changed`, `ticket_sync`. "
         "If `event` is omitted, the backend auto-detects one or more event types.\n\n"
-        "Optional HMAC verification: set `ZAMMAD_WEBHOOK_SECRET` env var to the same "
+        "HMAC verification: set `ZAMMAD_WEBHOOK_SECRET` env var to the same "
         "value entered in Zammad's **HMAC SHA1 Signature Token** field. "
-        "Zammad sends `X-Hub-Signature: sha1=<hex>` and the endpoint will reject "
-        "requests with an invalid signature."
+        "Zammad sends `X-Hub-Signature: sha1=<hex>` and the endpoint rejects "
+        "requests with a missing or invalid signature. In production, the secret "
+        "itself is required — the endpoint refuses all requests if it isn't set."
     ),
 )
 async def receive_webhook(
@@ -332,6 +333,11 @@ async def receive_webhook(
         if not x_hub_signature or not hmac.compare_digest(x_hub_signature, expected):
             logger.warning("[tickets] Webhook rejected — invalid HMAC signature")
             raise HTTPException(status_code=401, detail="Invalid webhook signature")
+    elif settings.ENVIRONMENT.lower() == "production":
+        # Fail closed: an unsigned webhook receiver in production is an open
+        # write endpoint anyone can hit to inject fake ticket events.
+        logger.error("[tickets] Webhook rejected — ZAMMAD_WEBHOOK_SECRET not configured in production")
+        raise HTTPException(status_code=503, detail="Webhook signing not configured")
 
     try:
         body = json.loads(raw_body) if raw_body else {}
