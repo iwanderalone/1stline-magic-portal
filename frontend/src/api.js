@@ -1,6 +1,9 @@
 const BASE = '/api';
 
 let _publicConfig = null;
+let _refreshPromise = null;
+let _sessionResetting = false;
+
 export async function getPublicConfig() {
   if (_publicConfig) return _publicConfig;
   try { _publicConfig = await fetch('/api/config').then(r => r.json()); }
@@ -16,21 +19,37 @@ export function setTokens(t) { localStorage.setItem('tokens', JSON.stringify(t))
 export function clearTokens() { localStorage.removeItem('tokens'); }
 
 async function tryRefresh() {
+  if (_refreshPromise) return _refreshPromise;
+
   const tokens = getTokens();
   if (!tokens?.refresh_token) return false;
-  try {
-    const res = await fetch(`${BASE}/auth/refresh`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refresh_token: tokens.refresh_token }),
-    });
-    if (!res.ok) return false;
-    const data = await res.json();
-    setTokens(data);
-    return true;
-  } catch {
-    return false;
-  }
+
+  _refreshPromise = (async () => {
+    try {
+      const res = await fetch(`${BASE}/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: tokens.refresh_token }),
+      });
+      if (!res.ok) return false;
+      const data = await res.json();
+      setTokens(data);
+      return true;
+    } catch {
+      return false;
+    } finally {
+      _refreshPromise = null;
+    }
+  })();
+
+  return _refreshPromise;
+}
+
+function resetSession() {
+  clearTokens();
+  if (_sessionResetting) return;
+  _sessionResetting = true;
+  window.location.reload();
 }
 
 export async function api(path, opts = {}, _retry = true) {
@@ -45,7 +64,7 @@ export async function api(path, opts = {}, _retry = true) {
 
   if (res.status === 401) {
     if (_retry && await tryRefresh()) return api(path, opts, false);
-    clearTokens(); window.location.reload(); return null;
+    resetSession(); return null;
   }
 
   const text = await res.text();
