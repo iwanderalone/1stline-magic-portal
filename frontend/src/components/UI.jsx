@@ -392,3 +392,25 @@ export function SectionHeader({ title, eyebrow, action, count }) {
     </div>
   );
 }
+
+/**
+ * PageHeader — shared top-of-page header. Title is always serif (.t-h1) so
+ * every page reads as the same product; a secondary toolbar row (filters,
+ * view switches) goes in `children`, never inline beside the title.
+ */
+export function PageHeader({ eyebrow, title, subtitle, meta, actions, children }) {
+  return (
+    <div style={{ marginBottom: 24 }}>
+      {eyebrow && <div className="t-eyebrow" style={{ marginBottom: 'var(--space-2)' }}>{eyebrow}</div>}
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-3)', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-3)', minWidth: 0 }}>
+          <h1 className="t-h1" style={{ margin: 0 }}>{title}</h1>
+          {meta}
+        </div>
+        {actions && <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>{actions}</div>}
+      </div>
+      {subtitle && <div className="t-body-sm" style={{ marginTop: 'var(--space-2)' }}>{subtitle}</div>}
+      {children && <div style={{ marginTop: 'var(--space-4)' }}>{children}</div>}
+    </div>
+  );
+}

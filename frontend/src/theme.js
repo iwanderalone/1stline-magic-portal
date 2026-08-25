@@ -95,8 +95,6 @@ export const shared = {
 
 export function getGlobalCSS(t) {
   return `
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&display=swap');
-
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
@@ -153,6 +151,23 @@ export function getGlobalCSS(t) {
       --fs-h3:       18px;
       --fs-h2:       24px;
       --fs-h1:       32px;
+      --fs-display:    44px;
+      --fs-display-lg: 64px;
+
+      --fw-regular:  400;
+      --fw-semibold: 600;
+
+      --ls-display: -0.02em;
+      --ls-h1:      -0.025em;
+      --ls-h2:      -0.015em;
+      --ls-tight:   -0.01em;
+
+      --lh-display: 1.1;
+      --lh-heading: 1.25;
+
+      --space-2: 8px;
+      --space-3: 12px;
+      --space-4: 16px;
 
       --ease-entry: cubic-bezier(0.16, 1, 0.3, 1);
       --ease-state: cubic-bezier(0.4, 0, 0.2, 1);
@@ -201,6 +216,10 @@ export function getGlobalCSS(t) {
       background: var(--surface-alt); border: 1px solid var(--border);
       border-radius: var(--radius-xs); padding: 1px 6px; color: var(--text);
     }
+    .t-h4 {
+      font-family: var(--font-sans); font-size: var(--fs-h4);
+      font-weight: var(--fw-semibold); line-height: var(--lh-heading); color: var(--text);
+    }
     .t-h3 {
       font-family: var(--font-sans); font-size: var(--fs-h3);
       font-weight: 600; letter-spacing: -0.01em;
@@ -210,6 +229,21 @@ export function getGlobalCSS(t) {
       font-family: var(--font-sans); font-size: var(--fs-h2);
       font-weight: 600; letter-spacing: -0.015em;
       line-height: 1.25; color: var(--text);
+    }
+    .t-h1 {
+      font-family: var(--font-display); font-size: var(--fs-h1);
+      font-weight: var(--fw-regular); letter-spacing: var(--ls-h1);
+      line-height: var(--lh-heading); color: var(--text);
+    }
+    .t-display {
+      font-family: var(--font-display); font-size: var(--fs-display);
+      font-weight: var(--fw-regular); letter-spacing: var(--ls-display);
+      line-height: var(--lh-display); color: var(--text);
+    }
+    .t-display-lg {
+      font-family: var(--font-display); font-size: var(--fs-display-lg);
+      font-weight: var(--fw-regular); letter-spacing: var(--ls-display);
+      line-height: var(--lh-display); color: var(--text);
     }
 
     /* ── Buttons ────────────────────────────────────────────── */
@@ -317,6 +351,9 @@ export function getGlobalCSS(t) {
       border-color: var(--accent); border-style: solid;
       color: var(--accent); background: var(--accent-light);
     }
+
+    /* ── Assistant launcher ─────────────────────────────────── */
+    .assistant-fab:hover { border-color: var(--accent); }
 
     /* ── Scrollbars ─────────────────────────────────────────── */
     *::-webkit-scrollbar { width: 8px; height: 8px; }

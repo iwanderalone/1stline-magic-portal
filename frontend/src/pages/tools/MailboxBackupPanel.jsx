@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../../api';
-import { Button, Badge, Toast, EmptyState } from '../../components/UI';
+import { Button, Badge, Toast, EmptyState, PageHeader } from '../../components/UI';
 import { Icon } from '../../components/Icons';
 import { useLang } from '../../components/LangContext';
 
@@ -235,10 +235,7 @@ export default function MailboxBackupPanel() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 860 }}>
       {toast && <Toast {...toast} onClose={() => setToast(null)} />}
 
-      <div>
-        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>{tr('toolMailboxBackup')}</h2>
-        <p style={{ margin: '4px 0 0', color: 'var(--text-muted)', fontSize: 13 }}>{tr('toolMbSubtitle')}</p>
-      </div>
+      <PageHeader title={tr('toolMailboxBackup')} subtitle={tr('toolMbSubtitle')} />
 
       {enabled === false && (
         <EmptyState icon={<Icon name="archive" size={40} />} title={tr('toolNotConfigured')} subtitle={tr('toolNotConfiguredDesc')} />

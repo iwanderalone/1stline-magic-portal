@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { api } from '../api';
 import { useLang } from '../components/LangContext';
-import { Button, Card, Badge, Input, Overlay, Toast, EmptyState, Tag } from '../components/UI';
+import { Button, Card, Badge, Input, Overlay, Toast, EmptyState, PageHeader, Tag } from '../components/UI';
 import { Icon } from '../components/Icons';
 import { MessageBody, CommentItem } from '../components/EmailDetailModal';
 import EmailReplies from '../components/EmailReplies';
@@ -793,17 +793,15 @@ export default function MailReporterPage({ user, initialEmailId }) {
       {toast && <Toast {...toast} onClose={() => setToast(null)} />}
 
       {/* Action Bar */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>Mail</h1>
-          <Badge tone="blue" dot>{emails.length} logs</Badge>
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+      <PageHeader
+        title="Mail"
+        meta={<Badge tone="blue" dot>{emails.length} logs</Badge>}
+        actions={<>
           {isAdmin && <Button variant="secondary" size="sm" icon="settings" onClick={() => setShowRuleModal(true)}>Rules</Button>}
           {isAdmin && <Button variant="secondary" size="sm" icon="plus" onClick={() => setShowMailboxModal(true)}>Mailbox</Button>}
           <Button variant="primary" size="sm" icon="refresh" onClick={pollNow}>Sync IMAP</Button>
-        </div>
-      </div>
+        </>}
+      />
 
       <div style={{ flex: 1, display: 'flex', gap: 2, background: 'var(--border-light)', borderRadius: 'var(--radius)', overflow: 'hidden', border: '1px solid var(--border)' }}>
         {/* Sidebar */}

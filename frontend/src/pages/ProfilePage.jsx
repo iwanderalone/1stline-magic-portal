@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { api, getPublicConfig } from '../api';
-import { Card, Button, Input, Badge, Toast, Select, Avatar } from '../components/UI';
+import { Card, Button, Input, Badge, Toast, Select, Avatar, PageHeader } from '../components/UI';
 import { useLang } from '../components/LangContext';
 import { Icon } from '../components/Icons';
 
@@ -178,9 +178,7 @@ export default function ProfilePage({ user, onUserUpdate }) {
 
   return (
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '22px', maxWidth: '800px' }}>
-      <h1 style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 30, letterSpacing: '-0.02em', margin: 0 }}>
-        {tr('myProfile')}
-      </h1>
+      <PageHeader title={tr('myProfile')} />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px' }}>
 
