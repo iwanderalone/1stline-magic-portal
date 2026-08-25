@@ -237,6 +237,9 @@ export default function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [initialRunbookId, setInitialRunbookId] = useState(null);
   const [subPath, setSubPath] = useState(() => parseLocation().sub);
+  const [collapsedGroups, setCollapsedGroups] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('navCollapsed') || '[]'); } catch { return []; }
+  });
 
   const navigate = useCallback((p, runbookId = null) => {
     if (p === 'admin' && !canAccessAdmin(auth.user)) return;
@@ -384,9 +387,6 @@ export default function App() {
     .map(g => ({ ...g, items: g.items.filter(it => canAccessPage(auth.user, it.id)) }))
     .filter(g => g.items.length > 0);
 
-  const [collapsedGroups, setCollapsedGroups] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('navCollapsed') || '[]'); } catch { return []; }
-  });
   const toggleGroup = (gid) => setCollapsedGroups(prev => {
     const next = prev.includes(gid) ? prev.filter(g => g !== gid) : [...prev, gid];
     localStorage.setItem('navCollapsed', JSON.stringify(next));
