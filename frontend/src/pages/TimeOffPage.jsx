@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '../api';
 import { useLang } from '../components/LangContext';
-import { Card, Button, Badge, Input, Select, Overlay, Toast, EmptyState } from '../components/UI';
+import { Card, Button, Badge, Input, Select, Overlay, PageHeader, Toast, EmptyState } from '../components/UI';
 import { Icon } from '../components/Icons';
 
 export default function TimeOffPage({ user }) {
@@ -60,24 +60,15 @@ export default function TimeOffPage({ user }) {
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       {toast && <Toast {...toast} onClose={() => setToast(null)} />}
 
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
-        <div>
-          <h1 style={{
-            fontFamily: 'var(--font-display)',
-            fontWeight: 600,
-            fontSize: 30,
-            letterSpacing: '-0.02em',
-            margin: 0,
-          }}>{tr('timeOffRequests')}</h1>
-          <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '2px' }}>{tr('timeOffDesc')}</p>
-        </div>
-        <Button
-          onClick={() => setShowForm(true)}
-          style={{ background: 'var(--success)', color: '#fff' }}
-        >
-          {tr('requestTimeOff')}
-        </Button>
-      </div>
+      <PageHeader
+        title={tr('timeOffRequests')}
+        subtitle={tr('timeOffDesc')}
+        actions={
+          <Button onClick={() => setShowForm(true)} style={{ background: 'var(--success)', color: '#fff' }}>
+            {tr('requestTimeOff')}
+          </Button>
+        }
+      />
 
       <Card style={{ padding: '4px' }}>
         {loading ? (

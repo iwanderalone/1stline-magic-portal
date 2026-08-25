@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { api } from '../api';
 import { useTheme } from '../components/ThemeContext';
 import { useLang } from '../components/LangContext';
-import { Button, Input, Select, Card, Overlay, Toast, EmptyState, Badge } from '../components/UI';
+import { Button, Input, Select, Card, Overlay, PageHeader, Toast, EmptyState, Badge } from '../components/UI';
 import { Icon } from '../components/Icons';
 
 const CATEGORY_ICONS = {
@@ -593,34 +593,29 @@ export default function RunbooksPage({ user, initialRunbookId, initialSlug }) {
   return (
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       {/* Page header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 20, flexShrink: 0 }}>
-        <div>
-          <h1 style={{
-            fontFamily: 'var(--font-display)', fontWeight: 600,
-            fontSize: 30, letterSpacing: '-0.02em', margin: 0,
-          }}>Runbooks</h1>
-          <p style={{ color: 'var(--text-muted)', fontSize: 13, margin: '4px 0 0 0' }}>
-            {categories.total} playbook{categories.total !== 1 ? 's' : ''} · used {runbooks.reduce((s, r) => s + (r.run_count || 0), 0)} times
-          </p>
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <div style={{ position: 'relative' }}>
-            <Icon name="search" size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
-            <input
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder={tr('rbSearchPlaceholder')}
-              style={{
-                padding: '7px 11px 7px 32px', fontSize: 13,
-                border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
-                background: 'var(--surface)', color: 'var(--text)', outline: 'none', width: 180,
-              }}
-            />
-          </div>
-          <Button variant="primary" size="sm" icon="plus" onClick={() => setShowCreate(true)}>
-            {tr('rbNewTitle')}
-          </Button>
-        </div>
+      <div style={{ flexShrink: 0 }}>
+        <PageHeader
+          title="Runbooks"
+          subtitle={`${categories.total} playbook${categories.total !== 1 ? 's' : ''} · used ${runbooks.reduce((s, r) => s + (r.run_count || 0), 0)} times`}
+          actions={<>
+            <div style={{ position: 'relative' }}>
+              <Icon name="search" size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
+              <input
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder={tr('rbSearchPlaceholder')}
+                style={{
+                  padding: '7px 11px 7px 32px', fontSize: 13,
+                  border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
+                  background: 'var(--surface)', color: 'var(--text)', outline: 'none', width: 180,
+                }}
+              />
+            </div>
+            <Button variant="primary" size="sm" icon="plus" onClick={() => setShowCreate(true)}>
+              {tr('rbNewTitle')}
+            </Button>
+          </>}
+        />
       </div>
 
       {/* Body */}
