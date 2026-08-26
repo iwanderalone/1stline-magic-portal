@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { api, getPublicConfig } from '../api';
 import { useLang } from '../components/LangContext';
-import { Card, Button, Input, Badge, EmptyState, Overlay, Toast, Tabs, Select } from '../components/UI';
+import { Card, Button, Input, Badge, EmptyState, Overlay, PageHeader, Toast, Tabs, Select } from '../components/UI';
 import { Icon } from '../components/Icons';
 
 // --- Helpers ---
@@ -278,13 +278,10 @@ export default function SchedulePage({ user }) {
 
   return (
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
-        <div>
-          <h1 style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 42, letterSpacing: '-0.04em', lineHeight: 1, color: 'var(--text)', margin: 0 }}>{tr('schedule_title')}</h1>
-          <p style={{ color: 'var(--text-muted)', fontSize: '15px', marginTop: '8px' }}>
-            {view === 'weekly' ? `${tr('scheduleWeekOf')} ${headerLabel}` : headerLabel} · {published ? tr('schedulePublished') : tr('scheduleDraft')}
-          </p>
-        </div>
+      <PageHeader
+        title={tr('schedule_title')}
+        subtitle={`${view === 'weekly' ? `${tr('scheduleWeekOf')} ${headerLabel}` : headerLabel} · ${published ? tr('schedulePublished') : tr('scheduleDraft')}`}
+      >
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
           <Tabs tabs={[{ id: 'weekly', label: tr('week') }, { id: 'monthly', label: tr('month') }]} active={view} onChange={v => { setView(v); setOffset(0); }} />
           <Button variant="secondary" size="sm" icon="chevronLeft" onClick={() => setOffset(o => o - 1)} />
@@ -296,7 +293,7 @@ export default function SchedulePage({ user }) {
           {isAdmin && <Button variant="secondary" size="sm" icon="check" onClick={handlePublish}>{tr('publish')}</Button>}
           {isAdmin && <Button variant="danger" size="sm" icon="trash" onClick={handleClearDrafts}>{tr('scheduleClearDrafts')}</Button>}
         </div>
-      </div>
+      </PageHeader>
 
       {conflictCopy && (
         <Card style={{ borderColor: 'color-mix(in srgb, var(--warning) 45%, var(--border))', background: 'color-mix(in srgb, var(--warning) 9%, var(--surface))' }}>

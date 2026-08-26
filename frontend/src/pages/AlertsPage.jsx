@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { api } from '../api';
 import { useTheme } from '../components/ThemeContext';
 import { useLang } from '../components/LangContext';
-import { Badge, EmptyState, Toast } from '../components/UI';
+import { Badge, EmptyState, PageHeader, Toast } from '../components/UI';
 import { Icon } from '../components/Icons';
 
 const SEVERITY_COLOR = { critical: 'red', warning: 'orange', info: 'blue' };
@@ -67,12 +67,7 @@ export default function AlertsPage() {
     <div style={{ padding: 24, maxWidth: 1100, margin: '0 auto' }}>
       {toast && <Toast message={toast.message} tone={toast.tone} onClose={() => setToast(null)} />}
 
-      <div style={{ marginBottom: 20 }}>
-        <h2 style={{ margin: 0, color: t.text, fontSize: 20, fontWeight: 700 }}>{tr('alTitle')}</h2>
-        <p style={{ margin: '4px 0 0', color: t.textMuted, fontSize: 13 }}>
-          {tr('alSubtitle')}
-        </p>
-      </div>
+      <PageHeader title={tr('alTitle')} subtitle={tr('alSubtitle')} />
 
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
         {pills.map(p => {

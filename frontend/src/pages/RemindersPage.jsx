@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '../api';
 import { useLang } from '../components/LangContext';
-import { Card, Button, Input, Badge, EmptyState, Overlay, Toast, Select } from '../components/UI';
+import { Card, Button, Input, Badge, EmptyState, Overlay, PageHeader, Toast, Select } from '../components/UI';
 import { Icon } from '../components/Icons';
 
 export default function RemindersPage() {
@@ -37,23 +37,15 @@ export default function RemindersPage() {
 
   return (
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
-        <div>
-          <h1 style={{
-            fontFamily: 'var(--font-display)',
-            fontWeight: 600,
-            fontSize: 30,
-            letterSpacing: '-0.02em',
-            margin: 0,
-          }}>{tr('reminders_title')}</h1>
-          <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>{reminders.length} {filter}</p>
-        </div>
-        <div style={{ display: 'flex', gap: '8px' }}>
+      <PageHeader
+        title={tr('reminders_title')}
+        subtitle={`${reminders.length} ${filter}`}
+        actions={<>
           <Button variant={filter === 'active' ? 'primary' : 'secondary'} size="sm" onClick={() => setFilter('active')}>{tr('active')}</Button>
           <Button variant={filter === 'all' ? 'primary' : 'secondary'} size="sm" onClick={() => setFilter('all')}>{tr('all')}</Button>
           <Button size="sm" onClick={() => setShowCreate(true)}>{tr('newReminder')}</Button>
-        </div>
-      </div>
+        </>}
+      />
       <Card style={{ padding: '4px', minHeight: '300px', display: 'flex', flexDirection: 'column' }}>
         {loading ? <div style={{ padding: '48px', textAlign: 'center', color: 'var(--text-muted)' }}>{tr('loading')}</div> :
           reminders.length === 0 ? (

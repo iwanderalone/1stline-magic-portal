@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { apiBlob } from '../../api';
-import { Button, Input, Toast } from '../../components/UI';
+import { Button, Input, Toast, PageHeader } from '../../components/UI';
 import { Icon } from '../../components/Icons';
 import { useLang } from '../../components/LangContext';
 
@@ -82,10 +82,7 @@ export default function HandoverPanel() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 860 }}>
       {toast && <Toast {...toast} onClose={() => setToast(null)} />}
 
-      <div>
-        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>{tr('handoverTitle')}</h2>
-        <p style={{ margin: '4px 0 0', color: 'var(--text-muted)', fontSize: 13 }}>{tr('handoverSubtitle')}</p>
-      </div>
+      <PageHeader title={tr('handoverTitle')} subtitle={tr('handoverSubtitle')} />
 
       <form onSubmit={submit} style={{
         display: 'flex', flexDirection: 'column', gap: 14, padding: 18,
