@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../../api';
-import { Button, EmptyState, Select, Toast } from '../../components/UI';
+import { Button, EmptyState, Select, Toast, PageHeader } from '../../components/UI';
 import { Icon } from '../../components/Icons';
 import { useLang } from '../../components/LangContext';
 import DeviceList from '../../components/DeviceList';
@@ -90,10 +90,7 @@ export default function InventoryPanel({ user }) {
         />
       )}
 
-      <div>
-        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>{tr('invTitle')}</h2>
-        <p style={{ margin: '4px 0 0', color: 'var(--text-muted)', fontSize: 13 }}>{tr('invSubtitle')}</p>
-      </div>
+      <PageHeader title={tr('invTitle')} subtitle={tr('invSubtitle')} />
 
       <form onSubmit={onSearchSubmit} style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
         <div style={{ flex: '1 1 220px', display: 'flex', flexDirection: 'column', gap: 5 }}>

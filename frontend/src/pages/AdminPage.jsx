@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { api, getPublicConfig } from '../api';
 import { useLang } from '../components/LangContext';
-import { Card, Button, Input, Badge, Select, Overlay, Toast, Tabs, EmptyState, Avatar } from '../components/UI';
+import { Card, Button, Input, Badge, Select, Overlay, PageHeader, Toast, Tabs, EmptyState, Avatar } from '../components/UI';
 import { Icon } from '../components/Icons';
 
 // Telegram integration config ("website settings") stays admin-only — managers
@@ -24,12 +24,9 @@ export default function AdminPage({ user }) {
   const activeTab = tabs.some(t => t.id === tab) ? tab : tabs[0]?.id;
   return (
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      <div>
-        <h2 style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 30, letterSpacing: '-0.02em', margin: '0 0 16px' }}>
-          {tr('adminPanel')}
-        </h2>
+      <PageHeader title={tr('adminPanel')}>
         <Tabs tabs={tabs} active={activeTab} onChange={setTab} />
-      </div>
+      </PageHeader>
       {activeTab === 'users'     && <UsersTab viewer={user} />}
       {activeTab === 'groups'    && <GroupsTab />}
       {activeTab === 'shifts'    && <ShiftConfigTab />}

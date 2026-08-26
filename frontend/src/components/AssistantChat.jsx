@@ -178,16 +178,20 @@ export default function AssistantChat() {
       <button
         onClick={() => setOpen(o => !o)}
         title={tr('aiTitle')}
+        aria-label={tr('aiTitle')}
+        className="assistant-fab"
         style={{
           position: 'fixed', right: 22, bottom: 22, zIndex: 900,
           width: 54, height: 54, borderRadius: '50%',
-          background: 'var(--accent)', color: '#fff', border: 'none',
+          background: 'var(--surface-elevated)', color: 'var(--accent)',
+          border: '1px solid var(--border-strong)',
           boxShadow: 'var(--shadow-lg)', cursor: 'pointer',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           fontFamily: 'var(--font-mono)', fontSize: 15, fontWeight: 700, letterSpacing: '-0.05em',
+          transition: 'border-color var(--dur-fast) ease, color var(--dur-fast) ease',
         }}
       >
-        {open ? <Icon name="x" size={22} color="#fff" /> : CAT}
+        {open ? <Icon name="x" size={20} color="var(--text-secondary)" /> : CAT}
       </button>
 
       {/* chat panel */}

@@ -2,9 +2,9 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../api';
 import { useTheme } from '../components/ThemeContext';
 import { useLang } from '../components/LangContext';
-import { Button, Badge, EmptyState, Toast, Overlay, Tabs } from '../components/UI';
+import { Button, Badge, EmptyState, PageHeader, Toast, Overlay, Tabs } from '../components/UI';
 import { Icon } from '../components/Icons';
-import TicketDetailModal, { BUCKET_COLOR, EVENT_META, eventLabel, formatTime } from '../components/TicketDetailModal';
+import TicketDetailModal, { BUCKET_COLOR, EVENT_META, eventLabel, formatTime, stateLabel } from '../components/TicketDetailModal';
 
 const ALL_TYPES = Object.keys(EVENT_META);
 
@@ -141,7 +141,7 @@ function TicketBoardView({ onError, user, initialTicket }) {
                 >
                   <td style={{ padding: '10px 12px', fontFamily: 'var(--font-mono)', fontSize: 13, color: t.textMuted }}>#{tk.number || tk.id}</td>
                   <td style={{ padding: '10px 12px', color: t.text, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tk.title || '—'}</td>
-                  <td style={{ padding: '10px 12px' }}><Badge color={BUCKET_COLOR[tk.bucket] || 'gray'}>{tk.state || tk.bucket}</Badge></td>
+                  <td style={{ padding: '10px 12px' }}><Badge color={BUCKET_COLOR[tk.bucket] || 'gray'}>{stateLabel(tk.state, tr) !== '—' ? stateLabel(tk.state, tr) : (tk.bucket || '—')}</Badge></td>
                   <td style={{ padding: '10px 12px', fontSize: 13, color: t.textSecondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tk.assignee || '—'}</td>
                   <td style={{ padding: '10px 12px', fontSize: 13, color: t.textSecondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tk.customer || '—'}</td>
                   <td style={{ padding: '10px 12px', fontSize: 13, color: t.textMuted }}>{tk.article_count ?? '—'}</td>
@@ -284,19 +284,17 @@ export default function TicketsPage({ user, initialTicket }) {
     <div style={{ padding: 24, maxWidth: 1100, margin: '0 auto' }}>
       {toast && <Toast message={toast.message} tone={toast.tone} onClose={() => setToast(null)} />}
 
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-        <div>
-          <h2 style={{ margin: 0, color: t.text, fontSize: 20, fontWeight: 700 }}>{tr('tpTabBoard')}</h2>
-          <p style={{ margin: '4px 0 0', color: t.textMuted, fontSize: 13 }}>
-            {tr('tpSubtitle')}
-          </p>
-        </div>
-        <Tabs
-          tabs={[{ id: 'board', label: tr('tpTabBoard') }, { id: 'events', label: tr('tpTabEvents') }]}
-          active={tab}
-          onChange={setTab}
-        />
-      </div>
+      <PageHeader
+        title={tr('tpTabBoard')}
+        subtitle={tr('tpSubtitle')}
+        actions={
+          <Tabs
+            tabs={[{ id: 'board', label: tr('tpTabBoard') }, { id: 'events', label: tr('tpTabEvents') }]}
+            active={tab}
+            onChange={setTab}
+          />
+        }
+      />
 
       {tab === 'board' ? <TicketBoardView onError={onError} user={user} initialTicket={initialTicket} /> : <EventLogView onError={onError} />}
     </div>

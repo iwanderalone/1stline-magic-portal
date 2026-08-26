@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
 import { useLang } from '../components/LangContext';
-import { Avatar, Badge, Button, Card, EmptyState, Tag } from '../components/UI';
+import { Avatar, Badge, Button, Card, EmptyState, PageHeader, Tag } from '../components/UI';
 import { Icon } from '../components/Icons';
 import EmailDetailModal from '../components/EmailDetailModal';
 import TicketDetailModal, { stateLabel, fmtDuration } from '../components/TicketDetailModal';
@@ -251,32 +251,15 @@ export default function HomePage({ user, unread = 0, onNavigate }) {
 
   return (
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
-      <section style={{
-        display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end',
-        gap: 18, flexWrap: 'wrap', paddingBottom: 10, borderBottom: '1px solid var(--border-light)',
-      }}>
-        <div style={{ maxWidth: 900 }}>
-          <div className="t-eyebrow">{todayLabel} · {userNow.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</div>
-          <h1 style={{
-            margin: '8px 0 8px',
-            fontFamily: 'var(--font-display)',
-            fontSize: 'clamp(34px, 5vw, 58px)',
-            fontWeight: 600,
-            letterSpacing: '-0.045em',
-            lineHeight: 0.98,
-          }}>
-            {greetingPrefix},{' '}
-            <span style={{ color: 'var(--accent)' }}>{displayName}</span>.
-          </h1>
-          <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: 17, lineHeight: 1.45 }}>
-            {shiftDetail}. {mailAttention}
-          </p>
-        </div>
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+      <PageHeader
+        eyebrow={`${todayLabel} · ${userNow.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`}
+        title={<>{greetingPrefix}, <span style={{ color: 'var(--accent)' }}>{displayName}</span>.</>}
+        subtitle={`${shiftDetail}. ${mailAttention}`}
+        actions={<>
           <Button icon="calendar" onClick={() => onNavigate?.('schedule')}>{tr('homeMyShifts')}</Button>
           <Button variant="primary" icon="mail" onClick={() => onNavigate?.('mail')}>{tr('homeOpenMail')}</Button>
-        </div>
-      </section>
+        </>}
+      />
 
       {/* Slim stat strip — replaces the old full-size metric cards */}
       <section style={{
