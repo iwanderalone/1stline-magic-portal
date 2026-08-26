@@ -191,7 +191,7 @@ export default function CommandPalette({ open, onClose, navigate, user }) {
               {pages.map((item, i) => (
                 <ResultItem
                   key={item.id}
-                  item={item}
+                  item={{ _type: 'page', ...item }}
                   idx={i}
                   active={activeIdx === i}
                   onSelect={select}
