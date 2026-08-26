@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from sqlalchemy import (
     Column, String, Boolean, DateTime, Integer, BigInteger, ForeignKey,
     Text, Enum as SAEnum, Date, Time, UniqueConstraint, Table, Float, Uuid, Index,
+    func,
 )
 from sqlalchemy.orm import relationship
 from app.core.database import Base
@@ -454,8 +455,8 @@ class Runbook(Base):
     when_to_use = Column(Text, nullable=True)
     owner_id    = Column(Uuid(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     run_count   = Column(Integer, default=0, nullable=False)
-    created_at  = Column(DateTime(timezone=True), default=utcnow)
-    updated_at  = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+    created_at  = Column(DateTime(timezone=True), nullable=False, default=utcnow, server_default=func.now())
+    updated_at  = Column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow, server_default=func.now())
 
     owner = relationship("User", foreign_keys=[owner_id])
     steps = relationship("RunbookStep", back_populates="runbook",
