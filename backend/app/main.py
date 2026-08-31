@@ -29,6 +29,7 @@ from app.api import tickets
 from app.api import alerts
 from app.api import assistant
 from app.api import sso
+from app.api import settings as settings_api
 from app.services import keycloak_service
 from app.workers.reminder_worker import check_and_fire_reminders
 from app.workers.shift_notification_scheduler import schedule_pending_notifications
@@ -185,6 +186,56 @@ async def _migrate_imap_passwords() -> None:
             logger.info("Encrypted %d IMAP passwords", migrated)
 
 
+async def _migrate_encryption_key() -> None:
+    """One-time cleanup: once DATA_ENCRYPTION_KEY is set, re-encrypt any
+    values still under the legacy SECRET_KEY-derived key onto the new one.
+    Not required for correctness — decrypt() already falls back to the old
+    key via MultiFernet — this just consolidates onto the new key over time.
+    """
+    if not settings.DATA_ENCRYPTION_KEY:
+        return
+
+    from app.core.encryption import encrypt, decrypt, _derive_key
+    from app.core.database import AsyncSessionFactory
+    from app.models.models import MailboxConfig, User, AppSetting
+    from cryptography.fernet import Fernet
+    from sqlalchemy import select
+
+    new_fernet = Fernet(_derive_key(settings.DATA_ENCRYPTION_KEY))
+
+    def _under_new_key(ciphertext: str) -> bool:
+        try:
+            new_fernet.decrypt(ciphertext.encode())
+            return True
+        except Exception:
+            return False
+
+    async with AsyncSessionFactory() as db:
+        migrated = 0
+
+        result = await db.execute(select(MailboxConfig))
+        for mb in result.scalars().all():
+            if mb.password and not _under_new_key(mb.password):
+                mb.password = encrypt(decrypt(mb.password))
+                migrated += 1
+
+        result = await db.execute(select(User).where(User.sso_refresh_token_encrypted.isnot(None)))
+        for user in result.scalars().all():
+            if user.sso_refresh_token_encrypted and not _under_new_key(user.sso_refresh_token_encrypted):
+                user.sso_refresh_token_encrypted = encrypt(decrypt(user.sso_refresh_token_encrypted))
+                migrated += 1
+
+        result = await db.execute(select(AppSetting).where(AppSetting.is_secret == True))
+        for row in result.scalars().all():
+            if row.value and not _under_new_key(row.value):
+                row.value = encrypt(decrypt(row.value))
+                migrated += 1
+
+        if migrated:
+            await db.commit()
+            logger.info("Re-encrypted %d values onto DATA_ENCRYPTION_KEY", migrated)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Idempotent safety net for local dev where Alembic isn't run.
@@ -196,6 +247,13 @@ async def lifespan(app: FastAPI):
     await seed_routing_rules()
     await _migrate_imap_passwords()
     await _migrate_avatar_urls()
+    await _migrate_encryption_key()
+
+    from app.core.database import AsyncSessionFactory
+    from app.core.dynamic_settings import load_settings_cache, eff
+    async with AsyncSessionFactory() as _settings_db:
+        await load_settings_cache(_settings_db)
+
     await sync_active_zammad_tickets()
 
     # Mailbox backup jobs don't survive restarts — mark orphans as failed.
@@ -216,8 +274,10 @@ async def lifespan(app: FastAPI):
         )
 
     # Mail reporter — check all enabled mailboxes on a configurable interval
+    # (admin-overridable live via Admin > Settings, see app/api/settings.py)
     scheduler.add_job(
-        check_all_mailboxes, "interval", seconds=settings.MAIL_POLL_INTERVAL,
+        check_all_mailboxes, "interval",
+        seconds=eff("MAIL_POLL_INTERVAL", settings.MAIL_POLL_INTERVAL, cast=int),
         id="mail_reporter_poll", max_instances=1, coalesce=True,
     )
 
@@ -345,6 +405,7 @@ app.include_router(tickets.router, prefix="/api")
 app.include_router(alerts.router, prefix="/api")
 app.include_router(assistant.router, prefix="/api")
 app.include_router(tools.router, prefix="/api")
+app.include_router(settings_api.router, prefix="/api")
 
 
 @app.exception_handler(Exception)
@@ -373,9 +434,10 @@ async def health(db: AsyncSession = Depends(get_db)):
 @app.get("/api/config")
 async def public_config():
     """Public config exposed to the frontend (no secrets)."""
+    from app.core.dynamic_settings import eff
     return {
         "telegram_bot_username": settings.TELEGRAM_BOT_USERNAME,
-        "portal_timezone": settings.PORTAL_TIMEZONE,
+        "portal_timezone": eff("PORTAL_TIMEZONE", settings.PORTAL_TIMEZONE),
         "sso_enabled": keycloak_service.enabled(),
         "environment": settings.ENVIRONMENT,
     }
