@@ -210,6 +210,7 @@ npm run dev      # Vite dev server on :5173 — proxies /api to :8000
 - **Telegram tab**: configure group chats and which notification types they receive
 - **Telegram Templates tab**: named presets for Telegram destinations (used by mail rules and reminders)
 - **Logs tab**: last 200 audit log entries (login, time-off, schedule generation/publish, etc.)
+- **Settings tab**: runtime overrides for operational config (poll intervals, session lifetimes, branding) and integration credentials (Telegram bot token, Zammad/Grafana/Gemini/S3/NetBox/Keycloak secrets) — takes effect live without a redeploy, except fields marked "(restart required)". Secrets are Fernet-encrypted at rest and never echoed back to the client once saved.
 
 ### Profile (self-service)
 - Change display name, name colour, avatar URL
@@ -399,8 +400,9 @@ PostgreSQL in Docker (named volume `postgres_data`). Schema managed by Alembic �
 
 | Variable                | Required | Default                              | Description                                    |
 |-------------------------|----------|--------------------------------------|------------------------------------------------|
-| `SECRET_KEY`            | **yes**  | *(none)*                             | App secret; also derives Fernet encryption key. Generate: `openssl rand -hex 32` |
+| `SECRET_KEY`            | **yes**  | *(none)*                             | App secret; signs JWTs, and derives the Fernet encryption key when `DATA_ENCRYPTION_KEY` is unset. Generate: `openssl rand -hex 32` |
 | `JWT_SECRET`            | **yes**  | *(none)*                             | JWT signing key. Generate: `openssl rand -hex 64` |
+| `DATA_ENCRYPTION_KEY`   | no       | *(derives from SECRET_KEY)*          | Separate key for data-at-rest encryption (IMAP passwords, SSO refresh tokens, encrypted Admin > Settings values). Generate: `openssl rand -hex 32` |
 | `POSTGRES_PASSWORD`     | **yes**  | *(none)*                             | PostgreSQL password (used by Docker Compose). Generate: `openssl rand -hex 32` |
 | `DATABASE_URL`          | no       | `postgresql+asyncpg://portal:<pw>@db:5432/portal` (Docker) | SQLAlchemy async URL                           |
 | `PORTAL_TIMEZONE`       | no       | `UTC`                                | IANA timezone for shift times and crons        |

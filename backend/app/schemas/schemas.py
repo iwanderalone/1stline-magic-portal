@@ -853,3 +853,20 @@ class HandoverGenerate(BaseModel):
     date: date
     devices: list[HandoverDeviceLine] = Field(..., min_length=1, max_length=50)
     comments: Optional[str] = Field(None, max_length=1000)
+
+
+# ─── Admin Settings ─────────────────────────────────────────
+
+class SettingFieldResponse(BaseModel):
+    key: str
+    category: str
+    label: str
+    type: str
+    is_secret: bool
+    requires_restart: bool = False
+    value: Optional[str] = None     # only populated for non-secret fields
+    is_set: Optional[bool] = None   # only populated for secret fields
+
+
+class SettingsUpdate(BaseModel):
+    values: dict[str, Optional[str]] = Field(..., min_length=1)

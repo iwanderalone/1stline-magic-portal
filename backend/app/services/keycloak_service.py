@@ -27,12 +27,16 @@ STATE_TTL = 600         # 10 min to complete the Keycloak round trip
 TICKET_TTL = 60         # one-time token-delivery ticket, single use
 
 
+def _kc(key: str, cast=str):
+    from app.core.dynamic_settings import eff
+    return eff(key, getattr(get_settings(), key), cast=cast)
+
+
 def enabled() -> bool:
-    s = get_settings()
     return bool(
-        s.KEYCLOAK_SERVER_URL and s.KEYCLOAK_REALM
-        and s.KEYCLOAK_CLIENT_ID and s.KEYCLOAK_CLIENT_SECRET
-        and s.KEYCLOAK_REDIRECT_URI
+        _kc("KEYCLOAK_SERVER_URL") and _kc("KEYCLOAK_REALM")
+        and _kc("KEYCLOAK_CLIENT_ID") and _kc("KEYCLOAK_CLIENT_SECRET")
+        and _kc("KEYCLOAK_REDIRECT_URI")
     )
 
 
@@ -47,8 +51,7 @@ _login_tickets: dict[str, dict] = {}    # ticket -> {"tokens": {...}, "created_a
 
 
 def _realm_url() -> str:
-    s = get_settings()
-    return f"{s.KEYCLOAK_SERVER_URL.rstrip('/')}/realms/{s.KEYCLOAK_REALM}"
+    return f"{_kc('KEYCLOAK_SERVER_URL').rstrip('/')}/realms/{_kc('KEYCLOAK_REALM')}"
 
 
 async def _discovery() -> dict:
@@ -119,11 +122,10 @@ def _sweep_expired(store: dict, ttl: float) -> None:
 # ─── OIDC flow ────────────────────────────────────────────────────────
 
 async def build_authorize_url(state: str, nonce: str) -> str:
-    s = get_settings()
     disc = await _discovery()
     params = {
-        "client_id": s.KEYCLOAK_CLIENT_ID,
-        "redirect_uri": s.KEYCLOAK_REDIRECT_URI,
+        "client_id": _kc("KEYCLOAK_CLIENT_ID"),
+        "redirect_uri": _kc("KEYCLOAK_REDIRECT_URI"),
         "response_type": "code",
         "scope": "openid email profile",
         "state": state,
@@ -134,15 +136,14 @@ async def build_authorize_url(state: str, nonce: str) -> str:
 
 async def exchange_code(code: str) -> dict:
     """Authorization-code grant. Returns Keycloak's {access_token, refresh_token, id_token, ...}."""
-    s = get_settings()
     disc = await _discovery()
     async with httpx.AsyncClient(timeout=10) as client:
         resp = await client.post(disc["token_endpoint"], data={
             "grant_type": "authorization_code",
             "code": code,
-            "redirect_uri": s.KEYCLOAK_REDIRECT_URI,
-            "client_id": s.KEYCLOAK_CLIENT_ID,
-            "client_secret": s.KEYCLOAK_CLIENT_SECRET,
+            "redirect_uri": _kc("KEYCLOAK_REDIRECT_URI"),
+            "client_id": _kc("KEYCLOAK_CLIENT_ID"),
+            "client_secret": _kc("KEYCLOAK_CLIENT_SECRET"),
         })
     if resp.status_code >= 400:
         raise RuntimeError(f"Keycloak token exchange failed: {resp.status_code} {resp.text[:300]}")
@@ -153,15 +154,14 @@ async def silent_refresh(kc_refresh_token: str) -> Optional[dict]:
     """Refresh-token grant, used to silently re-validate an SSO session (and
     pull current group membership) without any user interaction. Returns
     None if Keycloak rejects it (revoked/expired/user disabled)."""
-    s = get_settings()
     try:
         disc = await _discovery()
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.post(disc["token_endpoint"], data={
                 "grant_type": "refresh_token",
                 "refresh_token": kc_refresh_token,
-                "client_id": s.KEYCLOAK_CLIENT_ID,
-                "client_secret": s.KEYCLOAK_CLIENT_SECRET,
+                "client_id": _kc("KEYCLOAK_CLIENT_ID"),
+                "client_secret": _kc("KEYCLOAK_CLIENT_SECRET"),
             })
         if resp.status_code >= 400:
             logger.info("[keycloak] silent refresh rejected: %s %s", resp.status_code, resp.text[:200])
@@ -175,7 +175,6 @@ async def silent_refresh(kc_refresh_token: str) -> Optional[dict]:
 async def verify_id_token(id_token: str, expected_nonce: str) -> dict:
     """Verify signature (against the realm JWKS), audience, issuer, expiry,
     and nonce. Raises on any failure — callers must not use unverified claims."""
-    s = get_settings()
     disc = await _discovery()
     jwks = await _jwks()
 
@@ -188,7 +187,7 @@ async def verify_id_token(id_token: str, expected_nonce: str) -> dict:
     claims = jose_jwt.decode(
         id_token, key,
         algorithms=[unverified_header.get("alg", "RS256")],
-        audience=s.KEYCLOAK_CLIENT_ID,
+        audience=_kc("KEYCLOAK_CLIENT_ID"),
         issuer=disc["issuer"],
     )
     if claims.get("nonce") != expected_nonce:
@@ -211,17 +210,15 @@ def unverified_claims(token: str) -> dict:
 def extract_groups(claims: dict) -> set[str]:
     """Normalizes Keycloak's full-path ('/g-app-itportal-admin') vs
     short-name group claim formats to bare names."""
-    s = get_settings()
-    raw = claims.get(s.KEYCLOAK_GROUPS_CLAIM) or []
+    raw = claims.get(_kc("KEYCLOAK_GROUPS_CLAIM")) or []
     return {g.rsplit("/", 1)[-1] for g in raw if g}
 
 
 def resolve_role(groups: set[str]) -> Optional[UserRole]:
-    s = get_settings()
-    if s.KEYCLOAK_ADMIN_GROUP in groups:
+    if _kc("KEYCLOAK_ADMIN_GROUP") in groups:
         return UserRole.ADMIN
-    if s.KEYCLOAK_MANAGER_GROUP in groups:
+    if _kc("KEYCLOAK_MANAGER_GROUP") in groups:
         return UserRole.MANAGER
-    if s.KEYCLOAK_ENGINEER_GROUP in groups:
+    if _kc("KEYCLOAK_ENGINEER_GROUP") in groups:
         return UserRole.ENGINEER
     return None

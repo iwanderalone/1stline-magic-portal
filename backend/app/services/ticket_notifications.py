@@ -28,8 +28,11 @@ def _esc(text) -> str:
 
 
 def _target() -> tuple[str, str]:
+    from app.core.dynamic_settings import eff
     s = get_settings()
-    return (s.ZAMMAD_TELEGRAM_CHAT_ID or "").strip(), (s.ZAMMAD_TELEGRAM_THREAD_ID or "").strip()
+    chat_id = eff("ZAMMAD_TELEGRAM_CHAT_ID", s.ZAMMAD_TELEGRAM_CHAT_ID)
+    thread_id = eff("ZAMMAD_TELEGRAM_THREAD_ID", s.ZAMMAD_TELEGRAM_THREAD_ID)
+    return (chat_id or "").strip(), (thread_id or "").strip()
 
 
 def _ticket_link(tk: ZammadTicket) -> str | None:

@@ -30,6 +30,7 @@ services:
       DATABASE_URL: "postgresql+asyncpg://portal:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}@db:5432/portal"
       SECRET_KEY: "${SECRET_KEY:-change-me-in-production}"
       JWT_SECRET: "${JWT_SECRET:-change-me-in-production}"
+      DATA_ENCRYPTION_KEY: "${DATA_ENCRYPTION_KEY:-}"
       TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN:-}"
       TELEGRAM_BOT_USERNAME: "${TELEGRAM_BOT_USERNAME:-}"
       CORS_ORIGINS: "${CORS_ORIGINS:-http://localhost:3000,http://localhost:5173}"
