@@ -24,7 +24,8 @@ class ChatRequest(BaseModel):
 
 @router.get("/status", summary="Is the assistant configured?")
 async def assistant_status(_: User = Depends(get_current_user)):
-    return {"enabled": bool(get_settings().GEMINI_API_KEY)}
+    from app.core.dynamic_settings import eff
+    return {"enabled": bool(eff("GEMINI_API_KEY", get_settings().GEMINI_API_KEY))}
 
 
 @router.post("/chat", summary="Chat with the portal assistant")

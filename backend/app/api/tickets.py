@@ -321,12 +321,14 @@ async def receive_webhook(
     x_hub_signature: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ):
+    from app.core.dynamic_settings import eff
     settings = get_settings()
     raw_body = await request.body()
 
-    if settings.ZAMMAD_WEBHOOK_SECRET:
+    webhook_secret = eff("ZAMMAD_WEBHOOK_SECRET", settings.ZAMMAD_WEBHOOK_SECRET)
+    if webhook_secret:
         expected = "sha1=" + hmac.new(
-            settings.ZAMMAD_WEBHOOK_SECRET.encode(),
+            webhook_secret.encode(),
             raw_body,
             hashlib.sha1,
         ).hexdigest()

@@ -50,8 +50,11 @@ _FS_INVALID = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
 
 
 def enabled() -> bool:
+    from app.core.dynamic_settings import eff
     s = get_settings()
-    return bool(s.S3_BUCKET and s.S3_ACCESS_KEY_ID and s.S3_SECRET_ACCESS_KEY)
+    return bool(s.S3_BUCKET
+                and eff("S3_ACCESS_KEY_ID", s.S3_ACCESS_KEY_ID)
+                and eff("S3_SECRET_ACCESS_KEY", s.S3_SECRET_ACCESS_KEY))
 
 
 # ─── live progress registry ──────────────────────────────────────────
@@ -163,10 +166,12 @@ def _imap_quote(value: bytes) -> bytes:
 def _imap_pull(email_addr: str, password: str, maildir: Path, prog: JobProgress,
                cancel: threading.Event) -> int:
     """Fetch every message from every folder into a Maildir layout."""
+    from app.core.dynamic_settings import eff
     s = get_settings()
+    imap_host = eff("MAILBOX_BACKUP_IMAP_HOST", s.MAILBOX_BACKUP_IMAP_HOST)
 
     def _connect() -> imaplib.IMAP4_SSL:
-        conn = imaplib.IMAP4_SSL(s.MAILBOX_BACKUP_IMAP_HOST, 993, timeout=IMAP_TIMEOUT)
+        conn = imaplib.IMAP4_SSL(imap_host, 993, timeout=IMAP_TIMEOUT)
         try:
             conn.login(email_addr, password)
         except imaplib.IMAP4.error as e:
@@ -320,8 +325,10 @@ def _imap_pull(email_addr: str, password: str, maildir: Path, prog: JobProgress,
 
 def _archive_maildir(maildir: Path, archive: Path, prog: JobProgress) -> None:
     import zstandard as zstd
+    from app.core.dynamic_settings import eff
     s = get_settings()
-    cctx = zstd.ZstdCompressor(level=s.MAILBOX_BACKUP_ZSTD_LEVEL, threads=-1)
+    zstd_level = eff("MAILBOX_BACKUP_ZSTD_LEVEL", s.MAILBOX_BACKUP_ZSTD_LEVEL, cast=int)
+    cctx = zstd.ZstdCompressor(level=zstd_level, threads=-1)
 
     def _touch_filter(tarinfo: tarfile.TarInfo) -> tarfile.TarInfo:
         # Compressing a large mailbox can take far longer than the fetch phase
@@ -373,13 +380,14 @@ def _maildir_to_mboxset(maildir: Path, out_dir: Path, prog: JobProgress) -> list
 def _make_s3_client():
     import boto3
     from botocore.config import Config as BotoConfig
+    from app.core.dynamic_settings import eff
     s = get_settings()
     return boto3.client(
         "s3",
         endpoint_url=s.S3_ENDPOINT_URL,
-        region_name=s.S3_REGION,
-        aws_access_key_id=s.S3_ACCESS_KEY_ID,
-        aws_secret_access_key=s.S3_SECRET_ACCESS_KEY,
+        region_name=eff("S3_REGION", s.S3_REGION),
+        aws_access_key_id=eff("S3_ACCESS_KEY_ID", s.S3_ACCESS_KEY_ID),
+        aws_secret_access_key=eff("S3_SECRET_ACCESS_KEY", s.S3_SECRET_ACCESS_KEY),
         config=BotoConfig(
             signature_version="s3v4",
             retries={"max_attempts": 5, "mode": "standard"},
@@ -391,8 +399,9 @@ def _make_s3_client():
 def _s3_upload(s3, local: Path, key: str, prog: JobProgress, metadata: Optional[dict] = None,
                track_bytes: bool = False) -> dict:
     from botocore.exceptions import BotoCoreError, ClientError
+    from app.core.dynamic_settings import eff
     s = get_settings()
-    extra: dict = {"StorageClass": s.S3_STORAGE_CLASS.upper()}
+    extra: dict = {"StorageClass": eff("S3_STORAGE_CLASS", s.S3_STORAGE_CLASS).upper()}
     if metadata:
         extra["Metadata"] = {k: str(v) for k, v in metadata.items()}
     transferred = 0
@@ -423,6 +432,7 @@ def _s3_upload(s3, local: Path, key: str, prog: JobProgress, metadata: Optional[
 def _run_pipeline(email_addr: str, password: str, prog: JobProgress,
                   cancel: threading.Event) -> dict:
     """Full blocking pipeline. Returns result fields for the DB row."""
+    from app.core.dynamic_settings import eff
     s = get_settings()
     workdir = Path(tempfile.mkdtemp(prefix="mbbackup-"))
     try:
@@ -460,7 +470,7 @@ def _run_pipeline(email_addr: str, password: str, prog: JobProgress,
         prog.bytes_done = 0
         prog.touch()
         s3 = _make_s3_client()
-        prefix = s.S3_PREFIX.strip("/")
+        prefix = eff("S3_PREFIX", s.S3_PREFIX).strip("/")
         backup_dirname = f"{_sanitize_filename(email_addr)}_{ts}"
         key_prefix = f"{prefix}/{backup_dirname}" if prefix else backup_dirname
         archive_key = f"{key_prefix}/{archive_name}"

@@ -27,9 +27,11 @@ router = APIRouter(prefix="/auth/sso", tags=["auth"])
 
 
 def _portal_public_url() -> str:
+    from app.core.dynamic_settings import eff
     s = get_settings()
-    if s.PORTAL_PUBLIC_URL:
-        return s.PORTAL_PUBLIC_URL.rstrip("/")
+    public_url = eff("PORTAL_PUBLIC_URL", s.PORTAL_PUBLIC_URL)
+    if public_url:
+        return public_url.rstrip("/")
     origins = s.cors_origins_list
     return origins[0].rstrip("/") if origins else ""
 

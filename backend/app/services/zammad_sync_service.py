@@ -47,15 +47,17 @@ async def sync_active_zammad_tickets(*, force: bool = False) -> None:
     Pass ``force=True`` to bypass the ZAMMAD_SYNC_ON_STARTUP gate (used by the
     periodic worker, which has its own enable condition).
     """
+    from app.core.dynamic_settings import eff
     settings = get_settings()
     if not force and not settings.ZAMMAD_SYNC_ON_STARTUP:
         return
-    if not settings.ZAMMAD_URL or not settings.ZAMMAD_API_TOKEN:
+    zammad_api_token = eff("ZAMMAD_API_TOKEN", settings.ZAMMAD_API_TOKEN)
+    if not settings.ZAMMAD_URL or not zammad_api_token:
         logger.info("[tickets] Zammad sync skipped: ZAMMAD_URL or ZAMMAD_API_TOKEN is not set")
         return
 
     base_url = settings.ZAMMAD_URL.rstrip("/")
-    headers = {"Authorization": f"Token token={settings.ZAMMAD_API_TOKEN}"}
+    headers = {"Authorization": f"Token token={zammad_api_token}"}
 
     try:
         async with httpx.AsyncClient(timeout=15) as client:
@@ -98,11 +100,13 @@ async def backfill_ticket_articles(ticket_ids: list[int]) -> int:
     from app.api.tickets import _extract_comment
     from app.models.models import ZammadComment, ZammadTicket
 
+    from app.core.dynamic_settings import eff
     settings = get_settings()
-    if not settings.ZAMMAD_URL or not settings.ZAMMAD_API_TOKEN:
+    zammad_api_token = eff("ZAMMAD_API_TOKEN", settings.ZAMMAD_API_TOKEN)
+    if not settings.ZAMMAD_URL or not zammad_api_token:
         return 0
     base_url = settings.ZAMMAD_URL.rstrip("/")
-    headers = {"Authorization": f"Token token={settings.ZAMMAD_API_TOKEN}"}
+    headers = {"Authorization": f"Token token={zammad_api_token}"}
     added = 0
 
     async with httpx.AsyncClient(timeout=15) as client, AsyncSessionFactory() as db:

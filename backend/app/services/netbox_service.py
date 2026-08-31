@@ -48,15 +48,17 @@ class NetboxNotFoundError(NetboxError):
 
 
 def enabled() -> bool:
+    from app.core.dynamic_settings import eff
     s = get_settings()
-    return bool(s.NETBOX_URL and s.NETBOX_API_TOKEN)
+    return bool(s.NETBOX_URL and eff("NETBOX_API_TOKEN", s.NETBOX_API_TOKEN))
 
 
 def _client_kwargs() -> tuple[str, dict]:
+    from app.core.dynamic_settings import eff
     s = get_settings()
     base_url = s.NETBOX_URL.rstrip("/")
     headers = {
-        "Authorization": f"Token {s.NETBOX_API_TOKEN}",
+        "Authorization": f"Token {eff('NETBOX_API_TOKEN', s.NETBOX_API_TOKEN)}",
         "Accept": "application/json",
     }
     return base_url, headers

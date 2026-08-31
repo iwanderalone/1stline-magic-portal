@@ -17,6 +17,13 @@ class Settings(BaseSettings):
     # Database — PostgreSQL (asyncpg)
     DATABASE_URL: str = "postgresql+asyncpg://portal:portal@localhost:5432/portal"
 
+    # Data-at-rest encryption (IMAP passwords, SSO refresh tokens, encrypted
+    # settings). Optional — empty means encryption.py falls back to deriving
+    # the key from SECRET_KEY (legacy behavior). Setting this separates data
+    # encryption from JWT signing so rotating one doesn't require rotating
+    # the other. Generate with: openssl rand -hex 32
+    DATA_ENCRYPTION_KEY: str = ""
+
     # JWT
     JWT_SECRET: str = "change-me-use-openssl-rand-hex-64"
     JWT_ALGORITHM: str = "HS256"

@@ -16,11 +16,13 @@ settings = get_settings()
 
 
 async def send_telegram_message(chat_id: str, text: str, topic_id: str = None) -> bool:
-    if not settings.TELEGRAM_BOT_TOKEN:
+    from app.core.dynamic_settings import eff
+    bot_token = eff("TELEGRAM_BOT_TOKEN", settings.TELEGRAM_BOT_TOKEN)
+    if not bot_token:
         logger.warning("Telegram bot token not configured")
         return False
     import httpx
-    url = f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}/sendMessage"
+    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
     payload = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
     if topic_id:
         payload["message_thread_id"] = int(topic_id)
@@ -301,11 +303,13 @@ async def poll_telegram_updates():
 async def _poll_telegram_updates():
     """Poll for Telegram bot updates via getUpdates short-polling (2s timeout).
     APScheduler runs this every 5s with max_instances=1 so runs never overlap."""
+    from app.core.dynamic_settings import eff
     global _bot_offset
-    if not settings.TELEGRAM_BOT_TOKEN:
+    bot_token = eff("TELEGRAM_BOT_TOKEN", settings.TELEGRAM_BOT_TOKEN)
+    if not bot_token:
         return
     import httpx
-    url = f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}/getUpdates"
+    url = f"https://api.telegram.org/bot{bot_token}/getUpdates"
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.get(url, params={

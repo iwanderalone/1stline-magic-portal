@@ -46,9 +46,11 @@ async def receive_grafana_webhook(
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
 ):
+    from app.core.dynamic_settings import eff
     settings = get_settings()
-    if settings.GRAFANA_WEBHOOK_TOKEN:
-        expected = f"Bearer {settings.GRAFANA_WEBHOOK_TOKEN}"
+    grafana_token = eff("GRAFANA_WEBHOOK_TOKEN", settings.GRAFANA_WEBHOOK_TOKEN)
+    if grafana_token:
+        expected = f"Bearer {grafana_token}"
         if not authorization or authorization.strip() != expected:
             logger.warning("[alerts] Grafana webhook rejected — bad or missing bearer token")
             raise HTTPException(status_code=401, detail="Invalid webhook token")
