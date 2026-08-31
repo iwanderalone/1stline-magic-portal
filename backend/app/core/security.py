@@ -26,17 +26,19 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 # JWT Tokens
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+    from app.core.dynamic_settings import eff
     to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + (
-        expires_delta or timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
-    )
+    minutes = eff("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES, cast=int)
+    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=minutes))
     to_encode.update({"exp": expire, "type": "access"})
     return jwt.encode(to_encode, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
 
 
 def create_refresh_token(data: dict) -> str:
+    from app.core.dynamic_settings import eff
     to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
+    days = eff("JWT_REFRESH_TOKEN_EXPIRE_DAYS", settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS, cast=int)
+    expire = datetime.now(timezone.utc) + timedelta(days=days)
     to_encode.update({"exp": expire, "type": "refresh"})
     return jwt.encode(to_encode, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
 
@@ -55,8 +57,9 @@ def generate_otp_secret() -> str:
 
 
 def get_otp_uri(secret: str, username: str) -> str:
+    from app.core.dynamic_settings import eff
     totp = pyotp.TOTP(secret)
-    return totp.provisioning_uri(name=username, issuer_name=settings.OTP_ISSUER)
+    return totp.provisioning_uri(name=username, issuer_name=eff("OTP_ISSUER", settings.OTP_ISSUER))
 
 
 def generate_otp_qr_base64(secret: str, username: str) -> str:

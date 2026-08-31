@@ -293,7 +293,8 @@ async def generate_handover(
 ):
     """Stateless: fills the .docx template in-memory and streams it back. Not
     gated on NetBox (device lines are free-text), only audit-logged."""
-    assignor_name = get_settings().HANDOVER_ASSIGNOR_NAME
+    from app.core.dynamic_settings import eff
+    assignor_name = eff("HANDOVER_ASSIGNOR_NAME", get_settings().HANDOVER_ASSIGNOR_NAME)
     docx_bytes = generate_handover_docx(payload, assignor_name)
     await log_action(
         db, user, "inventory_handover_generated",

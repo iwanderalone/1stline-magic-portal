@@ -730,13 +730,16 @@ def _system_prompt(user: User) -> str:
 
 async def run_chat(user: User, messages: list[dict]) -> dict:
     """Run one assistant turn. `messages` = [{role: user|model, text: str}, ...]."""
+    from app.core.dynamic_settings import eff
     settings = get_settings()
-    if not settings.GEMINI_API_KEY:
+    gemini_api_key = eff("GEMINI_API_KEY", settings.GEMINI_API_KEY)
+    gemini_model = eff("GEMINI_MODEL", settings.GEMINI_MODEL)
+    if not gemini_api_key:
         return {"reply": None, "error": "Assistant is not configured (GEMINI_API_KEY missing)"}
 
     url = (
         f"https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{settings.GEMINI_MODEL}:generateContent"
+        f"{gemini_model}:generateContent"
     )
     contents = [
         {"role": ("model" if m.get("role") == "model" else "user"), "parts": [{"text": (m.get("text") or "")[:4000]}]}
@@ -754,7 +757,7 @@ async def run_chat(user: User, messages: list[dict]) -> dict:
         for _ in range(MAX_TOOL_ROUNDS):
             # Google intermittently 503s under load ("high demand") — retry with backoff.
             for attempt in range(3):
-                resp = await client.post(url, params={"key": settings.GEMINI_API_KEY}, json=body)
+                resp = await client.post(url, params={"key": gemini_api_key}, json=body)
                 if resp.status_code != 503:
                     break
                 logger.warning("[assistant] Gemini 503 (overloaded), attempt %d/3", attempt + 1)

@@ -395,9 +395,10 @@ def format_message(category: str, extra: dict, sender: str, recipient: str,
     display dict keys: label, hashtag, mention_users, include_body
     Falls back to safe generic template if display is None.
     """
+    from app.core.dynamic_settings import eff
     settings = get_settings()
     try:
-        local_tz = ZoneInfo(settings.PORTAL_TIMEZONE)
+        local_tz = ZoneInfo(eff("PORTAL_TIMEZONE", settings.PORTAL_TIMEZONE))
     except ZoneInfoNotFoundError:
         local_tz = ZoneInfo("UTC")
     local_time = timestamp.astimezone(local_tz).strftime("%Y-%m-%d %H:%M")
@@ -513,10 +514,14 @@ def format_message(category: str, extra: dict, sender: str, recipient: str,
 # ─── Telegram Target Resolution ───────────────────────────────────────
 
 def _resolve_target(telegram_target: str) -> tuple[str, str]:
+    from app.core.dynamic_settings import eff
     settings = get_settings()
     target = (telegram_target or "").strip()
     if not target:
-        return settings.MAIL_DEFAULT_CHAT_ID, settings.MAIL_DEFAULT_THREAD_ID
+        return (
+            eff("MAIL_DEFAULT_CHAT_ID", settings.MAIL_DEFAULT_CHAT_ID),
+            eff("MAIL_DEFAULT_THREAD_ID", settings.MAIL_DEFAULT_THREAD_ID),
+        )
     if ":" in target:
         parts = target.split(":", 1)
         return parts[0].strip(), parts[1].strip()

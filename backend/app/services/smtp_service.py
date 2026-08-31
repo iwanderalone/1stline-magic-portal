@@ -111,6 +111,7 @@ async def send_reply(
     in_reply_to: str | None = None,
 ) -> None:
     """Send a reply from `mailbox` to `to_addr`. Raises SmtpError on failure."""
+    from app.core.dynamic_settings import eff
     settings = get_settings()
     if not to_addr or "@" not in to_addr:
         raise SmtpError(f"Invalid recipient address: {to_addr!r}")
@@ -124,7 +125,7 @@ async def send_reply(
             _send_sync,
             settings.MAIL_SMTP_SERVER, settings.MAIL_SMTP_PORT,
             mailbox.email, password, to_addr, subject, body, in_reply_to,
-            settings.MAIL_FROM_NAME,
+            eff("MAIL_FROM_NAME", settings.MAIL_FROM_NAME),
         )
     except smtplib.SMTPAuthenticationError as exc:
         raise SmtpError(f"SMTP authentication failed for {mailbox.email} — check the mailbox password / app password") from exc

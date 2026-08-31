@@ -609,3 +609,18 @@ class MailboxBackupJob(Base):
     created_at     = Column(DateTime(timezone=True), default=utcnow, nullable=False)
     started_at     = Column(DateTime(timezone=True), nullable=True)
     finished_at    = Column(DateTime(timezone=True), nullable=True)
+
+
+class AppSetting(Base):
+    """Admin-configurable runtime settings that override the env-var defaults
+    in app/core/config.py. Key-value so new settings never need a migration —
+    see app/core/settings_registry.py for the list of recognized keys and
+    app/core/dynamic_settings.py for how the effective value is resolved.
+    """
+    __tablename__ = "app_settings"
+
+    key        = Column(String(100), primary_key=True)   # e.g. "MAIL_POLL_INTERVAL"
+    value      = Column(Text, nullable=True)              # plaintext, or Fernet ciphertext if is_secret
+    is_secret  = Column(Boolean, default=False, nullable=False)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow, server_default=func.now())
+    updated_by = Column(String(100), nullable=True)        # username

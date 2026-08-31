@@ -6,7 +6,7 @@ import { Icon } from '../components/Icons';
 
 // Telegram integration config ("website settings") stays admin-only — managers
 // get everything else (users, groups, shift config, audit logs).
-const ADMIN_ONLY_TABS = new Set(['telegram', 'templates']);
+const ADMIN_ONLY_TABS = new Set(['telegram', 'templates', 'settings']);
 
 export default function AdminPage({ user }) {
   const { t: tr } = useLang();
@@ -18,6 +18,7 @@ export default function AdminPage({ user }) {
     { id: 'telegram',  label: tr('telegram') },
     { id: 'templates', label: 'Templates' },
     { id: 'logs',      label: tr('logs') },
+    { id: 'settings',  label: 'Settings' },
   ];
   const tabs = isAdmin ? allTabs : allTabs.filter(t => !ADMIN_ONLY_TABS.has(t.id));
   const [tab, setTab] = useState('users');
@@ -33,6 +34,7 @@ export default function AdminPage({ user }) {
       {activeTab === 'telegram'  && isAdmin && <TelegramTab />}
       {activeTab === 'templates' && isAdmin && <TelegramTemplatesTab />}
       {activeTab === 'logs'      && <LogsTab />}
+      {activeTab === 'settings'  && isAdmin && <SettingsTab />}
     </div>
   );
 }
@@ -960,5 +962,149 @@ function TelegramTemplateFormOverlay({ initial, onClose, onSave }) {
         </div>
       </div>
     </Overlay>
+  );
+}
+
+// ─── Settings Tab ─────────────────────────────────────
+const CATEGORY_ORDER = [
+  'App & Branding', 'Security & Sessions', 'Mail Reporter', 'Telegram Bot',
+  'Zammad', 'Grafana', 'AI Assistant', 'Mailbox Backup', 'Inventory', 'Keycloak SSO',
+];
+
+function SettingsTab() {
+  const [fields, setFields] = useState([]);
+  const [drafts, setDrafts] = useState({});   // key -> pending edited value
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(null); // category currently saving
+  const [toast, setToast] = useState(null);
+  const [collapsed, setCollapsed] = useState({});
+
+  const load = () => {
+    setLoading(true);
+    api('/admin/settings')
+      .then(d => { setFields(d || []); setDrafts({}); })
+      .catch(e => setToast({ message: e.message, type: 'error' }))
+      .finally(() => setLoading(false));
+  };
+  useEffect(() => { load(); }, []);
+
+  const byCategory = useMemo(() => {
+    const groups = {};
+    for (const f of fields) (groups[f.category] ||= []).push(f);
+    return groups;
+  }, [fields]);
+
+  const setDraft = (key, value) => setDrafts(d => ({ ...d, [key]: value }));
+
+  const saveCategory = async (category) => {
+    const catFields = byCategory[category] || [];
+    const changed = {};
+    for (const f of catFields) {
+      if (Object.prototype.hasOwnProperty.call(drafts, f.key)) changed[f.key] = drafts[f.key];
+    }
+    if (Object.keys(changed).length === 0) return;
+    setSaving(category);
+    try {
+      await api('/admin/settings', { method: 'PATCH', body: JSON.stringify({ values: changed }) });
+      setToast({ message: `Saved ${category}`, type: 'success' });
+      load();
+    } catch (e) {
+      setToast({ message: e.message, type: 'error' });
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  if (loading) return <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>Loading…</div>;
+
+  const categories = CATEGORY_ORDER.filter(c => byCategory[c]?.length);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+      {categories.map(category => {
+        const catFields = byCategory[category];
+        const isCollapsed = collapsed[category];
+        const hasChanges = catFields.some(f => Object.prototype.hasOwnProperty.call(drafts, f.key));
+        return (
+          <Card key={category} style={{ padding: 0 }}>
+            <button
+              onClick={() => setCollapsed(c => ({ ...c, [category]: !c[category] }))}
+              style={{
+                width: '100%', display: 'flex', alignItems: 'center', gap: 8,
+                padding: '12px 16px', background: 'none', border: 'none', cursor: 'pointer',
+                fontFamily: 'inherit', textAlign: 'left',
+              }}
+            >
+              <Icon name={isCollapsed ? 'chevronRight' : 'chevronDown'} size={13} color="var(--text-muted)" />
+              <span className="t-h4" style={{ flex: 1 }}>{category}</span>
+              {hasChanges && <Badge color="yellow">unsaved</Badge>}
+            </button>
+            {!isCollapsed && (
+              <div style={{ padding: '4px 16px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {catFields.map(f => (
+                  <SettingField key={f.key} field={f} value={drafts[f.key]} onChange={v => setDraft(f.key, v)} />
+                ))}
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <Button size="sm" onClick={() => saveCategory(category)} disabled={!hasChanges || saving === category}>
+                    {saving === category ? 'Saving…' : 'Save'}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
+
+function SettingField({ field, value, onChange }) {
+  const label = (
+    <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      {field.label}
+      {field.requires_restart && (
+        <span style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>(restart required)</span>
+      )}
+    </span>
+  );
+
+  if (field.type === 'bool') {
+    const current = value !== undefined ? value === 'true' : field.value === 'true';
+    return (
+      <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-secondary)' }}>
+        <input type="checkbox" checked={current} onChange={e => onChange(e.target.checked ? 'true' : 'false')} />
+        {label}
+      </label>
+    );
+  }
+
+  if (field.is_secret) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <div className="t-eyebrow">{label}</div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <Input
+            type="password"
+            value={value ?? ''}
+            onChange={e => onChange(e.target.value)}
+            placeholder={field.is_set ? 'Configured — leave blank to keep' : 'Not set'}
+            style={{ flex: 1 }}
+          />
+          {field.is_set && (
+            <Button variant="ghost" size="sm" onClick={() => onChange('')}>Clear</Button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <Input
+      label={label}
+      type={field.type === 'int' ? 'number' : 'text'}
+      value={value !== undefined ? value : (field.value ?? '')}
+      onChange={e => onChange(e.target.value)}
+    />
   );
 }

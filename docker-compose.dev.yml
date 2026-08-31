@@ -56,6 +56,7 @@ services:
       DATABASE_URL: "postgresql+asyncpg://portal:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env.dev}@db:5432/portal_dev"
       SECRET_KEY: "${SECRET_KEY:-change-me-dev}"
       JWT_SECRET: "${JWT_SECRET:-change-me-dev}"
+      DATA_ENCRYPTION_KEY: "${DATA_ENCRYPTION_KEY:-}"
       TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN:-}"
       TELEGRAM_BOT_USERNAME: "${TELEGRAM_BOT_USERNAME:-}"
       CORS_ORIGINS: "${CORS_ORIGINS:-https://portal.dev.wanderalone.moe}"
