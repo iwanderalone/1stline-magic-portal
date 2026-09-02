@@ -143,3 +143,31 @@ def test_missing_cert_expiry_stays_null():
     for s in decode_write_request(_push(_series("probe_ssl_earliest_cert_expiry", "http://a.example", 0))):
         _apply(row, s)
     assert row.ssl_expiry_at is None
+
+
+def test_nan_metrics_do_not_raise():
+    """A probe that never connects reports NaN for what it could not measure.
+
+    int(NaN) raises, and because remote_write returns 500 on an unhandled error
+    Prometheus retries the same batch forever — one unreachable host stalled all
+    ingestion until this was guarded.
+    """
+    from app.api.status import _apply
+
+    nan = float("nan")
+    push = _push(
+        _series("probe_success", "https://down.example", 0.0),
+        _series("probe_http_status_code", "https://down.example", nan),
+        _series("probe_ssl_earliest_cert_expiry", "https://down.example", nan),
+        _series("probe_duration_seconds", "https://down.example", nan),
+        _series("probe_ip_protocol", "https://down.example", nan),
+    )
+    row = _blank_row()
+    for s in decode_write_request(push):
+        _apply(row, s)   # must not raise
+
+    assert row.up is False
+    assert row.http_status is None
+    assert row.ssl_expiry_at is None
+    assert row.probe_duration is None
+    assert row.ip_protocol is None
