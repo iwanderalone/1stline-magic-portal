@@ -1,21 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
 import { useLang } from '../components/LangContext';
-import { Avatar, Badge, Button, Card, EmptyState, PageHeader, Tag } from '../components/UI';
-import { Icon } from '../components/Icons';
-import EmailDetailModal from '../components/EmailDetailModal';
-import TicketDetailModal, { stateLabel, fmtDuration } from '../components/TicketDetailModal';
+import { Avatar, Button } from '../components/UI';
+import { stateLabel } from '../components/TicketDetailModal';
 
-// Home ticket ordering: new+open first, then in_progress, on_pause, closed.
+// Home shows the head of every queue and summarises the tail — nothing here
+// scrolls or renders unbounded.
+const CARD_ROWS = 5;
+const CARD_MIN_HEIGHT = 320;
+const TICKET_STALE_DAYS = 14;   // past this, a ticket's age turns red
 const STATE_RANK = { new: 0, open: 0, in_progress: 1, on_pause: 2, closed: 3 };
-const STATE_BADGE = { new: 'blue', open: 'blue', in_progress: 'yellow', on_pause: 'orange', closed: 'green' };
-const ATTN_SECTION_MAX = 5;
-
-function ticketTs(tk) {
-  if (!tk.state_changed_at) return 0;
-  const raw = `${tk.state_changed_at}`;
-  return new Date(raw.endsWith('Z') || raw.includes('+') ? raw : `${raw}Z`).getTime();
-}
 
 const dateKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const addDays = (d, n) => {
@@ -23,6 +17,12 @@ const addDays = (d, n) => {
   copy.setDate(copy.getDate() + n);
   return copy;
 };
+
+function parseTs(value) {
+  if (!value) return 0;
+  const raw = String(value);
+  return new Date(raw.endsWith('Z') || raw.includes('+') ? raw : `${raw}Z`).getTime();
+}
 
 function localNow(timezone) {
   try {
@@ -56,20 +56,17 @@ function fmtShiftTime(value, date, tz) {
   }
 }
 
-function fmtSince(dt) {
-  if (!dt) return '';
-  const raw = String(dt);
-  const d = new Date(raw.endsWith('Z') || raw.includes('+') ? raw : `${raw}Z`);
-  const diff = Math.max(0, Math.floor((Date.now() - d.getTime()) / 1000));
-  if (diff < 60) return `${diff}s ago`;
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  return `${Math.floor(diff / 86400)}d ago`;
+/** Compact age: 45s / 12m / 3h / 22d. */
+function fmtAge(seconds) {
+  if (seconds == null) return '—';
+  const s = Math.max(0, Math.round(seconds));
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h`;
+  return `${Math.floor(s / 86400)}d`;
 }
 
-function plural(count, one, many) {
-  return count === 1 ? one : many;
-}
+const ageSince = (value) => (value ? (Date.now() - parseTs(value)) / 1000 : null);
 
 function shiftStartMs(shift) {
   const start = shift.start_time || '00:00';
@@ -86,61 +83,140 @@ function shiftEndMs(shift) {
   return base.getTime();
 }
 
-function statusTone(status) {
-  return {
-    unchecked: 'yellow',
-    on_pause: 'blue',
-    blocked: 'red',
-    solved: 'green',
-  }[status] || 'gray';
+const hostOf = (url) => String(url || '').replace(/^https?:\/\//, '').replace(/\/$/, '');
+const prettyGroup = (name) => String(name || '').replace(/[_-]+/g, ' ');
+
+/* ── shared bits ─────────────────────────────────────────────── */
+
+function Eyebrow({ children, style }) {
+  return (
+    <div style={{
+      fontSize: 11, textTransform: 'uppercase', letterSpacing: '.08em',
+      color: 'var(--text-muted)', ...style,
+    }}>{children}</div>
+  );
 }
 
-function Stat({ icon, color, value, label }) {
+function Mono({ children, color = 'var(--text-muted)', size = 12, weight = 500 }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-      <Icon name={icon} size={14} color={color} />
-      <span style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 600, color: 'var(--text)', lineHeight: 1 }}>{value}</span>
-      <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{label}</span>
+    <span style={{ fontFamily: 'var(--font-mono)', fontSize: size, color, fontWeight: weight, whiteSpace: 'nowrap' }}>
+      {children}
+    </span>
+  );
+}
+
+function Dot({ color }) {
+  return <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, flexShrink: 0 }} />;
+}
+
+function SectionHead({ title, count, linkLabel, onLink }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 16 }}>
+      <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: 'var(--text)' }}>{title}</h2>
+      {count != null && <Mono>{count}</Mono>}
+      <span style={{ flex: 1 }} />
+      {onLink && (
+        <button onClick={onLink} style={{
+          background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+          fontFamily: 'inherit', fontSize: 12, color: 'var(--text-muted)',
+        }}>{linkLabel} →</button>
+      )}
     </div>
   );
 }
 
-function AttnSection({ icon, color, label, count, showAll, onShowAll, children }) {
-  const [open, setOpen] = useState(true);
+/** One queue column: capped rows, a one-line tail summary, all-clear at full size. */
+function QueueCard({ label, count, tone, allLabel, onAll, rows, footer, emptyTitle, emptyLine }) {
   return (
-    <div style={{ borderBottom: '1px solid var(--border-light)' }}>
-      <div
-        onClick={() => setOpen(o => !o)}
-        style={{
-          display: 'flex', alignItems: 'center', gap: 8, padding: '11px 18px',
-          cursor: 'pointer', userSelect: 'none',
-        }}
-      >
-        <Icon name={open ? 'chevronDown' : 'chevronRight'} size={13} color="var(--text-muted)" />
-        <Icon name={icon} size={14} color={color} />
-        <span style={{ fontSize: 13, fontWeight: 700 }}>{label}</span>
-        <span style={{
-          fontSize: 11, fontWeight: 700, fontFamily: 'var(--font-mono)',
-          color: count > 0 ? color : 'var(--text-muted)',
-          background: 'var(--surface-alt)', padding: '1px 8px', borderRadius: 10,
-        }}>{count}</span>
+    <div style={{
+      border: '1px solid var(--border)', borderRadius: 'var(--radius)',
+      background: 'var(--surface)', minHeight: CARD_MIN_HEIGHT,
+      display: 'flex', flexDirection: 'column', minWidth: 0,
+    }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px',
+        borderBottom: '1px solid var(--border-light)',
+      }}>
+        <Dot color={tone} />
+        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{label}</span>
+        <Mono>{count}</Mono>
         <span style={{ flex: 1 }} />
-        {count > ATTN_SECTION_MAX && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onShowAll?.(); }}
-            style={{
-              background: 'none', border: 'none', cursor: 'pointer', padding: 0,
-              fontSize: 11, color: 'var(--text-muted)', fontFamily: 'inherit',
-            }}
-          >{showAll} →</button>
+        {onAll && (
+          <button onClick={onAll} style={{
+            background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+            fontFamily: 'inherit', fontSize: 11, color: 'var(--text-muted)',
+          }}>{allLabel} →</button>
         )}
       </div>
-      {open && children}
+
+      {rows.length === 0 ? (
+        <div style={{
+          flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center',
+          justifyContent: 'center', gap: 6, padding: '20px 22px', textAlign: 'center',
+        }}>
+          <span style={{ fontSize: 18 }}>✨</span>
+          <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-secondary)' }}>{emptyTitle}</div>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', maxWidth: '28ch', lineHeight: 1.5 }}>{emptyLine}</div>
+        </div>
+      ) : (
+        <div style={{ flex: 1 }}>
+          {rows.map(row => <QueueRow key={row.key} {...row} />)}
+        </div>
+      )}
+
+      {footer && (
+        <div style={{
+          padding: '9px 14px', borderTop: '1px solid var(--border-light)',
+          fontSize: 12, color: 'var(--text-muted)',
+        }}>{footer}</div>
+      )}
     </div>
   );
 }
 
-export default function HomePage({ user, unread = 0, onNavigate }) {
+function QueueRow({ title, sub, value, valueTone, onClick }) {
+  return (
+    <div
+      onClick={onClick}
+      style={{
+        display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 10,
+        alignItems: 'center', padding: '9px 14px', cursor: 'pointer',
+        transition: 'background 120ms ease',
+      }}
+      onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface-alt)'; }}
+      onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+    >
+      <div style={{ minWidth: 0 }}>
+        <div style={{
+          fontSize: 13, fontWeight: 500, color: 'var(--text)',
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+        }}>{title}</div>
+        <div style={{
+          fontSize: 11, color: 'var(--text-muted)', marginTop: 2,
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+        }}>{sub}</div>
+      </div>
+      <Mono color={valueTone || 'var(--text-secondary)'} size={12} weight={600}>{value}</Mono>
+    </div>
+  );
+}
+
+function RailRow({ label, value }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, padding: '5px 0' }}>
+      <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{label}</span>
+      <span style={{ flex: 1 }} />
+      <span style={{
+        fontSize: 12, color: 'var(--text-secondary)', textAlign: 'right',
+        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '62%',
+      }}>{value}</span>
+    </div>
+  );
+}
+
+/* ── page ────────────────────────────────────────────────────── */
+
+export default function HomePage({ user, onNavigate }) {
   const { lang, t: tr } = useLang();
   const [now, setNow] = useState(() => new Date());
   const [loading, setLoading] = useState(true);
@@ -148,16 +224,17 @@ export default function HomePage({ user, unread = 0, onNavigate }) {
   const [reminders, setReminders] = useState([]);
   const [shifts, setShifts] = useState([]);
   const [tickets, setTickets] = useState([]);
-  const [error, setError] = useState('');
-  const [openEmailId, setOpenEmailId] = useState(null);
-  const [openTicketId, setOpenTicketId] = useState(null);
   const [statusBoard, setStatusBoard] = useState(null);
   const [statusSummary, setStatusSummary] = useState(null);
+  const [checkedAt, setCheckedAt] = useState(null);
+  const [error, setError] = useState('');
 
-  const loadTickets = () => api('/tickets/board?limit=50').then(d => setTickets(d || [])).catch(() => {});
-  const loadStatus = () => {
+  const loadLive = () => {
+    api('/tickets/board?limit=100').then(d => setTickets(d || [])).catch(() => {});
     api('/status').then(d => setStatusBoard(d)).catch(() => {});
     api('/status/summary').then(d => setStatusSummary(d)).catch(() => {});
+    api('/mail-reporter/emails?limit=100').then(d => setEmails(d || [])).catch(() => {});
+    setCheckedAt(Date.now());
   };
 
   useEffect(() => {
@@ -165,11 +242,10 @@ export default function HomePage({ user, unread = 0, onNavigate }) {
     return () => clearInterval(timer);
   }, []);
 
-  // Keep tickets + service status live — tickets arrive via webhook, probe
-  // state is pushed by Prometheus, both within seconds.
+  // Tickets arrive by webhook and probe state is pushed by Prometheus, so the
+  // live blocks refresh on their own; the slower context loads once.
   useEffect(() => {
-    loadStatus();
-    const timer = setInterval(() => { loadTickets(); loadStatus(); }, 30000);
+    const timer = setInterval(loadLive, 30000);
     return () => clearInterval(timer);
   }, []);
 
@@ -179,20 +255,26 @@ export default function HomePage({ user, unread = 0, onNavigate }) {
       setLoading(true);
       setError('');
       const today = new Date();
-      const start = dateKey(today);
+      // A week back for the recap, a few days forward for "who is next".
+      const start = dateKey(addDays(today, -6));
       const end = dateKey(addDays(today, 5));
       try {
-        const [mailData, reminderData, shiftData, ticketData] = await Promise.all([
-          api('/mail-reporter/emails?limit=50').catch(() => []),
+        const [mailData, reminderData, shiftData, ticketData, board, summary] = await Promise.all([
+          api('/mail-reporter/emails?limit=100').catch(() => []),
           api('/reminders/active').catch(() => []),
           api(`/schedule/shifts?start_date=${start}&end_date=${end}`).catch(() => []),
-          api('/tickets/board?limit=50').catch(() => []),
+          api('/tickets/board?limit=100').catch(() => []),
+          api('/status').catch(() => null),
+          api('/status/summary').catch(() => null),
         ]);
         if (cancelled) return;
         setEmails(mailData || []);
         setReminders(reminderData || []);
         setShifts(shiftData || []);
         setTickets(ticketData || []);
+        setStatusBoard(board);
+        setStatusSummary(summary);
+        setCheckedAt(Date.now());
       } catch (e) {
         if (!cancelled) setError(e.message || 'Failed to load home data');
       } finally {
@@ -209,263 +291,361 @@ export default function HomePage({ user, unread = 0, onNavigate }) {
     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
   });
 
-  const unresolvedEmails = emails.filter(e => e.status !== 'solved');
-  const blockedEmails = emails.filter(e => e.status === 'blocked').length;
-  const uncheckedEmails = emails.filter(e => e.status === 'unchecked').length;
+  /* — queues — */
 
-  // Unsolved tickets, ordered new+open → in_progress → on_pause, recent-first within a group.
-  const attnTickets = useMemo(() => {
-    return tickets
+  const serviceIssues = useMemo(() => {
+    const targets = (statusBoard?.groups || []).flatMap(g => g.targets.map(x => ({ ...x, group: g.name })));
+    const kind = x => (x.up === false ? 0 : x.stale ? 1 : 3);
+    return targets
+      .map(x => ({ ...x, kind: kind(x) }))
+      .filter(x => x.kind < 3)
+      .sort((a, b) => a.kind - b.kind || (b.in_state_seconds || 0) - (a.in_state_seconds || 0));
+  }, [statusBoard]);
+
+  const openTickets = useMemo(() => (
+    tickets
       .filter(tk => tk.bucket !== 'closed')
       .sort((a, b) => {
         const ra = STATE_RANK[a.state] ?? 1;
         const rb = STATE_RANK[b.state] ?? 1;
         if (ra !== rb) return ra - rb;
-        return ticketTs(b) - ticketTs(a);
-      });
-  }, [tickets]);
+        return parseTs(b.state_changed_at) - parseTs(a.state_changed_at);
+      })
+  ), [tickets]);
 
-  const uncheckedList = useMemo(() => emails.filter(e => e.status === 'unchecked'), [emails]);
+  const mailQueue = useMemo(() => (
+    emails
+      .filter(e => e.status === 'unchecked')
+      .sort((a, b) => parseTs(b.created_at) - parseTs(a.created_at))
+  ), [emails]);
 
-  // Anything on the status board a first-line engineer should act on, worst first:
-  // a target that is down, one nobody has heard from, then certs about to expire.
-  const statusIssues = useMemo(() => {
-    const targets = (statusBoard?.groups || []).flatMap(g => g.targets.map(x => ({ ...x, group: g.name })));
-    const kind = x => (x.up === false ? 0 : x.stale ? 1 : x.ssl_expiry_days != null && x.ssl_expiry_days < 7 ? 2 : 3);
-    return targets
-      .map(x => ({ ...x, kind: kind(x) }))
-      .filter(x => x.kind < 3)
-      .sort((a, b) => a.kind - b.kind || a.instance.localeCompare(b.instance));
-  }, [statusBoard]);
+  const downCount = serviceIssues.filter(x => x.kind === 0).length;
+  const attnTotal = serviceIssues.length + openTickets.length + mailQueue.length;
 
-  const servicesUp = statusSummary
-    ? `${statusSummary.total - statusSummary.down - statusSummary.stale}/${statusSummary.total}`
-    : '—';
+  /* — shift context — */
 
-  const attnTotal = statusIssues.length + attnTickets.length + uncheckedList.length;
-
-  const currentShift = useMemo(() => {
-    const currentUserId = String(user?.id || '');
+  const myShiftNow = useMemo(() => {
+    const me = String(user?.id || '');
     const ts = Date.now();
-    return shifts.find(s => String(s.user_id) === currentUserId && shiftStartMs(s) <= ts && shiftEndMs(s) >= ts)
-      || shifts.find(s => String(s.user_id) === currentUserId && s.date === dateKey(new Date()))
-      || null;
+    return shifts.find(s => String(s.user_id) === me && shiftStartMs(s) <= ts && shiftEndMs(s) >= ts) || null;
   }, [shifts, user?.id]);
 
-  const nextShift = useMemo(() => {
+  const myNextShift = useMemo(() => {
+    const me = String(user?.id || '');
     const ts = Date.now();
     return [...shifts]
-      .filter(s => shiftStartMs(s) > ts)
+      .filter(s => String(s.user_id) === me && shiftStartMs(s) > ts)
       .sort((a, b) => shiftStartMs(a) - shiftStartMs(b))[0] || null;
+  }, [shifts, user?.id]);
+
+  const onNowShift = useMemo(() => {
+    const ts = Date.now();
+    return shifts.find(s => shiftStartMs(s) <= ts && shiftEndMs(s) >= ts) || null;
   }, [shifts]);
 
-  const nextEngineer = nextShift?.user?.display_name || (nextShift ? tr('homeAssignedEngineer') : tr('homeNoUpcomingShift'));
-  const greetingPrefix = greetingFor(userNow, lang);
+  const nextUpShift = useMemo(() => {
+    const ts = Date.now();
+    return [...shifts].filter(s => shiftStartMs(s) > ts).sort((a, b) => shiftStartMs(a) - shiftStartMs(b))[0] || null;
+  }, [shifts]);
+
+  const todayShifts = useMemo(() => {
+    const today = dateKey(new Date());
+    return shifts.filter(s => s.date === today).sort((a, b) => shiftStartMs(a) - shiftStartMs(b));
+  }, [shifts]);
+
+  /* — this week — */
+
+  const weekAgo = Date.now() - 7 * 86400000;
+  const recap = useMemo(() => ({
+    ticketsClosed: tickets.filter(tk => tk.bucket === 'closed' && parseTs(tk.state_changed_at) > weekAgo).length,
+    mailHandled: emails.filter(e => e.status === 'solved' && parseTs(e.created_at) > weekAgo).length,
+    myShifts: shifts.filter(s => String(s.user_id) === String(user?.id || '') && parseTs(`${s.date}T00:00:00`) > weekAgo).length,
+    monitored: statusSummary?.total ?? 0,
+  }), [tickets, emails, shifts, statusSummary, user?.id, weekAgo]);
+
+  /* — the verdict line — */
+
+  const shiftUntil = myShiftNow
+    ? fmtShiftTime(myShiftNow.end_time, myShiftNow.date, user?.timezone)
+    : null;
+
+  // Russian needs three plural forms; English collapses to two.
+  const pl = (n, key) => {
+    if (lang !== 'ru') return tr(`${key}${n === 1 ? '1' : '2'}`);
+    const mod10 = n % 10;
+    const mod100 = n % 100;
+    if (mod10 === 1 && mod100 !== 11) return tr(`${key}1`);
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return tr(`${key}2`);
+    return tr(`${key}5`);
+  };
+  const clause = (n, key, zeroKey, danger = false) => (
+    n > 0
+      ? <><b style={{ color: danger ? 'var(--danger)' : 'var(--text)', fontWeight: 600 }}>{n}</b> {pl(n, key)}</>
+      : tr(zeroKey)
+  );
+
   const displayName = user?.display_name || user?.username || tr('homeEngineerFallback');
 
-  const shiftDetail = currentShift
-    ? `${tr(`shift_${currentShift.shift_type}`)}${currentShift.start_time ? ` · ${fmtShiftTime(currentShift.start_time, currentShift.date, user?.timezone)}-${fmtShiftTime(currentShift.end_time, currentShift.date, user?.timezone)}` : ''}`
-    : tr('homeNoActiveShift');
-  const mailAttention = unresolvedEmails.length > 0
-    ? `${unresolvedEmails.length} ${plural(unresolvedEmails.length, tr('homeMailItem'), tr('homeMailItems'))} ${tr('homeNeedAttention')}`
-    : tr('homeNoMailItems');
+  /* — render — */
+
+  const freshness = checkedAt ? `${tr('homeLastChecked')} ${fmtAge((Date.now() - checkedAt) / 1000)}` : '';
+
+  const serviceRows = serviceIssues.slice(0, CARD_ROWS).map(x => ({
+    key: x.instance,
+    title: hostOf(x.instance),
+    sub: `${prettyGroup(x.group)} · ${x.kind === 0 ? tr('homeDownFor') : tr('homeQuietFor')} ${fmtAge(x.kind === 0 ? x.in_state_seconds : x.age_seconds)}`,
+    value: x.kind === 0 ? (x.http_status || tr('homeStatusNoReply')) : tr('homeStatusNoData'),
+    valueTone: 'var(--danger)',
+    onClick: () => onNavigate?.('status'),
+  }));
+
+  const ticketRows = openTickets.slice(0, CARD_ROWS).map(tk => {
+    const age = ageSince(tk.zammad_created_at || tk.state_changed_at);
+    return {
+      key: tk.id,
+      title: tk.title || '—',
+      sub: `#${tk.number || tk.id} · ${stateLabel(tk.state, tr)} ${fmtAge(ageSince(tk.state_changed_at))}`,
+      value: fmtAge(age),
+      valueTone: age > TICKET_STALE_DAYS * 86400 ? 'var(--danger)' : 'var(--text-secondary)',
+      onClick: () => onNavigate?.(`tickets/${tk.id}`),
+    };
+  });
+
+  const mailRows = mailQueue.slice(0, CARD_ROWS).map(email => ({
+    key: email.id,
+    title: email.subject || tr('homeNoSubject'),
+    sub: `${email.sender || '—'} · ${fmtAge(ageSince(email.created_at))}`,
+    value: fmtAge(ageSince(email.created_at)),
+    onClick: () => onNavigate?.(`mail/${email.id}`),
+  }));
+
+  const tailFooter = (list, oldestSeconds) => {
+    const rest = list.length - CARD_ROWS;
+    if (rest <= 0) return null;
+    return `${rest} ${tr('homeMore')} · ${tr('homeOldest')} ${fmtAge(oldestSeconds)}`;
+  };
 
   return (
-    <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
-      <PageHeader
-        eyebrow={`${todayLabel} · ${userNow.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`}
-        title={<>{greetingPrefix}, <span style={{ color: 'var(--accent)' }}>{displayName}</span>.</>}
-        subtitle={`${shiftDetail}. ${mailAttention}`}
-        actions={<>
-          <Button icon="calendar" onClick={() => onNavigate?.('schedule')}>{tr('homeMyShifts')}</Button>
-          <Button variant="primary" icon="mail" onClick={() => onNavigate?.('mail')}>{tr('homeOpenMail')}</Button>
-        </>}
-      />
-
-      {/* Slim stat strip — replaces the old full-size metric cards */}
+    <div className="fade-in" style={{
+      maxWidth: 1240, margin: '0 auto', paddingTop: 20,
+      display: 'flex', flexDirection: 'column', gap: 40,
+    }}>
+      {/* 1. Status hero */}
       <section style={{
-        display: 'flex', alignItems: 'center', gap: 22, flexWrap: 'wrap',
-        padding: '9px 16px', border: '1px solid var(--border-light)',
-        borderRadius: 'var(--radius)', background: 'var(--surface-alt)',
-      }}>
-        <Stat icon="mail" color="var(--accent)" value={unresolvedEmails.length} label={tr('homeMailQueue')} />
-        <Stat icon="bell" color="var(--warning)" value={reminders.length} label={tr('homeActiveReminders')} />
-        <Stat icon="message" color="var(--success)" value={unread} label={tr('homeUnreadNotices')} />
-        <Stat
-          icon="server"
-          color={statusSummary && (statusSummary.down || statusSummary.stale) ? 'var(--danger)' : 'var(--success)'}
-          value={servicesUp}
-          label={tr('homeServicesUp')}
-        />
-        <span style={{ flex: 1 }} />
-        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-          {tr('homeNextEngineer')}: <b style={{ color: 'var(--text-secondary)' }}>{nextShift ? nextEngineer.split(' ')[0] : '—'}</b>
-          {nextShift ? ` · ${nextShift.date} ${fmtShiftTime(nextShift.start_time, nextShift.date, user?.timezone)}` : ''}
-        </span>
-      </section>
+        display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 320px',
+        gap: 40, alignItems: 'start',
+      }} className="home-hero">
+        <div style={{ minWidth: 0 }}>
+          <Eyebrow>
+            {todayLabel} · {userNow.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+          </Eyebrow>
+          <h1 style={{
+            margin: '10px 0 14px', fontSize: 40, fontWeight: 400,
+            letterSpacing: '-0.025em', lineHeight: 1.1, color: 'var(--text)',
+          }}>
+            {greetingFor(userNow, lang)}, <span style={{ color: 'var(--accent)' }}>{displayName}</span>.
+          </h1>
+          <p style={{
+            margin: 0, fontSize: 20, lineHeight: 1.45, color: 'var(--text-secondary)', maxWidth: '30ch',
+          }}>
+            {clause(downCount, 'homePlSvcDown', 'homeVAllUp', true)}, {clause(openTickets.length, 'homePlTicketOpen', 'homeVNoTickets')}, {clause(mailQueue.length, 'homePlMailUnchecked', 'homeVMailClear')} — {tr('homeVAnd')} {myShiftNow
+              ? `${tr('homeVOnShift')} ${shiftUntil}`
+              : tr('homeVOffShift')}.
+          </p>
+          <div style={{ display: 'flex', gap: 10, marginTop: 22 }}>
+            <Button variant="primary" icon="mail" onClick={() => onNavigate?.('mail')}>{tr('homeOpenMail')}</Button>
+            <Button icon="calendar" onClick={() => onNavigate?.('schedule')}>{tr('homeMyShifts')}</Button>
+          </div>
+        </div>
 
-      <section style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'flex-start' }}>
-        <Card
-          accent="var(--warning)"
-          style={{ flex: '2 1 480px', minWidth: 0 }}
-          header={<><Icon name="alertTriangle" size={18} color="var(--warning)" /><h2 style={{ margin: 0, fontSize: 22 }}>{tr('homeAttention')}</h2><span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--text-muted)' }}>{attnTotal}</span></>}
-        >
-          {loading ? (
-            <div style={{ padding: 34, color: 'var(--text-muted)' }}>{tr('homeLoadingQueue')}</div>
-          ) : attnTotal === 0 ? (
-            <EmptyState title={tr('homeAttnEmpty')} />
-          ) : (
-            <div>
-              {statusIssues.length > 0 && (
-                <AttnSection icon="server" color="var(--danger)" label={tr('homeAttnStatus')} count={statusIssues.length} showAll={tr('homeShowAll')} onShowAll={() => onNavigate?.('status')}>
-                  {statusIssues.slice(0, ATTN_SECTION_MAX).map(x => (
-                    <div
-                      key={x.instance}
-                      onClick={() => onNavigate?.('status')}
-                      style={{
-                        padding: '9px 18px 9px 39px', display: 'grid',
-                        gridTemplateColumns: 'auto minmax(0, 1fr) auto', gap: 10, alignItems: 'center',
-                        cursor: 'pointer', transition: 'background 120ms ease',
-                      }}
-                      onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-alt)'}
-                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                    >
-                      <Badge color={x.kind === 0 ? 'red' : x.kind === 1 ? 'gray' : 'orange'}>
-                        {x.kind === 0 ? tr('stDown') : x.kind === 1 ? tr('stStale') : tr('stCert')}
-                      </Badge>
-                      <div style={{ minWidth: 0, fontWeight: 650, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {x.instance.replace(/^https?:\/\//, '')}
-                        <span style={{ color: 'var(--text-muted)', fontSize: 12, fontWeight: 400, marginLeft: 8 }}>{x.group.replace(/[_-]+/g, ' ')}</span>
-                      </div>
-                      <div style={{ whiteSpace: 'nowrap', fontSize: 12, fontWeight: 600, color: x.kind === 2 ? 'var(--warning)' : 'var(--danger)' }}>
-                        {x.kind === 0 ? (x.http_status || tr('homeStatusNoReply'))
-                          : x.kind === 1 ? tr('homeStatusNoData')
-                          : `${Math.floor(x.ssl_expiry_days)}d`}
-                      </div>
-                    </div>
-                  ))}
-                </AttnSection>
-              )}
-
-              <AttnSection icon="ticket" color="var(--accent)" label={tr('homeAttnTickets')} count={attnTickets.length} showAll={tr('homeShowAll')} onShowAll={() => onNavigate?.('tickets')}>
-                {attnTickets.slice(0, ATTN_SECTION_MAX).map(tk => (
-                  <div
-                    key={tk.id}
-                    onClick={() => setOpenTicketId(tk.id)}
-                    style={{
-                      padding: '9px 18px 9px 39px', display: 'grid',
-                      gridTemplateColumns: 'auto minmax(0, 1fr) auto', gap: 10, alignItems: 'center',
-                      cursor: 'pointer', transition: 'background 120ms ease',
-                    }}
-                    onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-alt)'}
-                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                  >
-                    <Badge color={STATE_BADGE[tk.state] || 'gray'}>{stateLabel(tk.state, tr)}</Badge>
-                    <div style={{ minWidth: 0, fontWeight: 650, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginRight: 6, fontWeight: 400 }}>#{tk.number || tk.id}</span>
-                      {tk.title || '—'}
-                    </div>
-                    <div style={{ textAlign: 'right', whiteSpace: 'nowrap', fontSize: 12, color: 'var(--text-muted)' }}>
-                      {fmtDuration(tk.state_changed_at, lang)} · {tr('tkInStatus')}
-                    </div>
-                  </div>
-                ))}
-              </AttnSection>
-
-              <AttnSection icon="mail" color="var(--warning)" label={tr('homeAttnUnchecked')} count={uncheckedList.length} showAll={tr('homeShowAll')} onShowAll={() => onNavigate?.('mail')}>
-                {uncheckedList.slice(0, ATTN_SECTION_MAX).map(email => (
-                  <div
-                    key={email.id}
-                    onClick={() => setOpenEmailId(email.id)}
-                    style={{
-                      padding: '9px 18px 9px 39px', display: 'grid',
-                      gridTemplateColumns: 'auto minmax(0, 1fr) auto', gap: 10, alignItems: 'center',
-                      cursor: 'pointer', transition: 'background 120ms ease',
-                    }}
-                    onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-alt)'}
-                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                  >
-                    <StatusMarker status={email.status} />
-                    <div style={{ minWidth: 0, fontWeight: 650, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {email.subject || '(no subject)'}
-                      <span style={{ color: 'var(--text-muted)', fontSize: 12, fontWeight: 400, marginLeft: 8 }}>{email.sender || ''}</span>
-                    </div>
-                    <div style={{ whiteSpace: 'nowrap', fontSize: 12, color: 'var(--text-muted)' }}>{fmtSince(email.created_at)}</div>
-                  </div>
-                ))}
-              </AttnSection>
-
-            </div>
-          )}
-        </Card>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, flex: '1 1 300px', minWidth: 0 }}>
-          <Card
-            accent="var(--success)"
-            header={<><Icon name="calendar" size={18} color="var(--success)" /><h2 style={{ margin: 0, fontSize: 22 }}>{tr('homeShiftContext')}</h2></>}
-          >
-            <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 16 }}>
-              <div>
-                <div className="t-eyebrow">{tr('homeYou')}</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
-                  <Avatar name={user?.display_name || user?.username} color={user?.name_color} />
-                  <div>
-                    <div style={{ fontWeight: 700 }}>{user?.display_name || user?.username}</div>
-                    <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>{shiftDetail}</div>
-                  </div>
-                </div>
+        {/* Your shift rail */}
+        <div style={{
+          border: '1px solid var(--border)', borderRadius: 'var(--radius)',
+          background: 'var(--surface)', padding: '14px 16px', minWidth: 0,
+        }}>
+          <Eyebrow>{tr('homeYourShift')}</Eyebrow>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '12px 0 14px' }}>
+            <Avatar name={displayName} color={user?.name_color} />
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
+                {myShiftNow ? `${tr('homeOnShift')} · ${tr('homeUntil')} ${shiftUntil}` : tr('homeOffShiftToday')}
               </div>
-              <div style={{ height: 1, background: 'var(--border-light)' }} />
-              <div>
-                <div className="t-eyebrow">{tr('homeNextEngineer')}</div>
-                {nextShift ? (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
-                    <Avatar name={nextShift.user?.display_name || nextEngineer} color={nextShift.user?.name_color || 'var(--accent)'} />
-                    <div>
-                      <div style={{ fontWeight: 700 }}>{nextEngineer}</div>
-                      <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>{nextShift.date} · {tr(`shift_${nextShift.shift_type}`)} {fmtShiftTime(nextShift.start_time, nextShift.date, user?.timezone)}</div>
-                    </div>
-                  </div>
-                ) : (
-                  <p style={{ margin: '8px 0 0', color: 'var(--text-muted)', fontSize: 13 }}>{tr('homeNoShiftNextDays')}</p>
-                )}
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                {myShiftNow
+                  ? tr(`shift_${myShiftNow.shift_type}`)
+                  : (myNextShift ? `${tr('homeNextOn')} ${myNextShift.date}` : tr('homeNoShiftNextDays'))}
               </div>
             </div>
-          </Card>
-
+          </div>
+          <div style={{ height: 1, background: 'var(--border-light)', margin: '0 0 8px' }} />
+          <RailRow
+            label={tr('homeYourNextShift')}
+            value={myNextShift
+              ? `${myNextShift.date} · ${fmtShiftTime(myNextShift.start_time, myNextShift.date, user?.timezone)}`
+              : '—'}
+          />
+          <RailRow
+            label={tr('homeOnNow')}
+            value={onNowShift ? (onNowShift.user?.display_name || tr('homeAssignedEngineer')) : '—'}
+          />
+          <RailRow
+            label={tr('homeNextUp')}
+            value={nextUpShift
+              ? `${nextUpShift.user?.display_name || tr('homeAssignedEngineer')} · ${fmtShiftTime(nextUpShift.start_time, nextUpShift.date, user?.timezone)}`
+              : '—'}
+          />
+          <div style={{ height: 1, background: 'var(--border-light)', margin: '8px 0' }} />
+          <button onClick={() => onNavigate?.('schedule')} style={{
+            background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+            fontFamily: 'inherit', fontSize: 12, color: 'var(--text-muted)',
+          }}>{tr('homeOpenSchedule')} →</button>
         </div>
       </section>
 
-      {error && <Tag style={{ color: 'var(--danger)' }}>{error}</Tag>}
+      {/* 2. Needs attention */}
+      <section>
+        <SectionHead title={tr('homeAttention')} count={loading ? '—' : attnTotal} />
+        <div className="home-queues" style={{
+          display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+          gap: 16, alignItems: 'stretch',
+        }}>
+          <QueueCard
+            label={tr('homeQueueServices')}
+            count={serviceIssues.length}
+            tone={downCount > 0 ? 'var(--danger)' : serviceIssues.length ? 'var(--text-muted)' : 'var(--success)'}
+            allLabel={`${tr('homeAll')} ${statusSummary?.total ?? ''}`.trim()}
+            onAll={() => onNavigate?.('status')}
+            rows={serviceRows}
+            footer={tailFooter(serviceIssues, serviceIssues[serviceIssues.length - 1]?.in_state_seconds)}
+            emptyTitle={tr('homeAllClear')}
+            emptyLine={`${tr('homeServicesClearLine')} ${freshness}`}
+          />
+          <QueueCard
+            label={tr('homeQueueTickets')}
+            count={openTickets.length}
+            tone={openTickets.length ? 'var(--text-muted)' : 'var(--success)'}
+            allLabel={`${tr('homeAll')} ${tickets.length}`}
+            onAll={() => onNavigate?.('tickets')}
+            rows={ticketRows}
+            footer={tailFooter(openTickets, ageSince(openTickets[openTickets.length - 1]?.zammad_created_at))}
+            emptyTitle={tr('homeAllClear')}
+            emptyLine={`${tr('homeTicketsClearLine')} ${freshness}`}
+          />
+          <QueueCard
+            label={tr('homeQueueMail')}
+            count={mailQueue.length}
+            tone={mailQueue.length ? 'var(--text-muted)' : 'var(--success)'}
+            allLabel={`${tr('homeAll')} ${emails.length}`}
+            onAll={() => onNavigate?.('mail')}
+            rows={mailRows}
+            footer={tailFooter(mailQueue, ageSince(mailQueue[mailQueue.length - 1]?.created_at))}
+            emptyTitle={tr('homeAllClear')}
+            emptyLine={`${tr('homeMailClearLine')} ${freshness}`}
+          />
+        </div>
+      </section>
 
-      {openEmailId && (
-        <EmailDetailModal
-          emailId={openEmailId}
-          onClose={() => setOpenEmailId(null)}
-          onChange={(updated) => setEmails(prev => prev.map(e => e.id === updated.id ? { ...e, ...updated } : e))}
-          user={user}
-        />
-      )}
+      {/* 3. Team on shift today */}
+      <section>
+        <SectionHead title={tr('homeTeamToday')} linkLabel={tr('schedule')} onLink={() => onNavigate?.('schedule')} />
+        <div style={{
+          border: '1px solid var(--border)', borderRadius: 'var(--radius)',
+          background: 'var(--surface)', display: 'grid',
+          gridTemplateColumns: `repeat(${Math.max(1, Math.min(3, todayShifts.length || 1))}, minmax(0, 1fr))`,
+        }} className="home-team">
+          {todayShifts.length === 0 ? (
+            <div style={{ padding: '22px 16px', textAlign: 'center', fontSize: 13, color: 'var(--text-muted)' }}>
+              {tr('homeNobodyToday')}
+            </div>
+          ) : todayShifts.slice(0, 3).map((s, i) => (
+            <div key={s.id || i} style={{
+              display: 'flex', alignItems: 'center', gap: 10, padding: '14px 16px', minWidth: 0,
+              borderLeft: i === 0 ? 'none' : '1px solid var(--border-light)',
+            }}>
+              <Avatar name={s.user?.display_name || '—'} color={s.user?.name_color} />
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{
+                  fontSize: 13, fontWeight: 500, color: 'var(--text)',
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                }}>{s.user?.display_name || tr('homeAssignedEngineer')}</div>
+                <Mono size={11}>
+                  {fmtShiftTime(s.start_time, s.date, user?.timezone)}–{fmtShiftTime(s.end_time, s.date, user?.timezone)}
+                </Mono>
+              </div>
+              <span style={{
+                fontSize: 10, textTransform: 'uppercase', letterSpacing: '.06em',
+                color: 'var(--text-muted)', border: '1px solid var(--border)',
+                borderRadius: 'var(--radius-sm)', padding: '2px 6px', whiteSpace: 'nowrap',
+              }}>{tr(`shift_${s.shift_type}`)}</span>
+            </div>
+          ))}
+        </div>
+      </section>
 
-      {openTicketId && (
-        <TicketDetailModal
-          ticketId={openTicketId}
-          onClose={() => setOpenTicketId(null)}
-          onError={(message) => setError(message)}
-          onChanged={loadTickets}
-          user={user}
+      {/* 4. Reminders + this week */}
+      <section className="home-bottom" style={{
+        display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 16, alignItems: 'stretch',
+      }}>
+        <QueueCard
+          label={tr('reminders')}
+          count={reminders.length}
+          tone={reminders.length ? 'var(--text-muted)' : 'var(--success)'}
+          allLabel={tr('homeAdd')}
+          onAll={() => onNavigate?.('reminders')}
+          rows={reminders.slice(0, CARD_ROWS).map(r => ({
+            key: r.id,
+            title: r.title || '—',
+            sub: new Date(parseTs(r.remind_at)).toLocaleString(locale, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }),
+            value: fmtAge((parseTs(r.remind_at) - Date.now()) / 1000),
+            onClick: () => onNavigate?.('reminders'),
+          }))}
+          footer={tailFooter(reminders, null)}
+          emptyTitle={tr('homeAllClear')}
+          emptyLine={`${tr('homeRemindersClearLine')} ${freshness}`}
         />
-      )}
+
+        <div style={{
+          border: '1px solid var(--border)', borderRadius: 'var(--radius)',
+          background: 'var(--surface)', minHeight: CARD_MIN_HEIGHT,
+          display: 'flex', flexDirection: 'column',
+        }}>
+          <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border-light)' }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{tr('homeThisWeek')}</span>
+          </div>
+          <div style={{
+            flex: 1, display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+            gridTemplateRows: 'repeat(2, minmax(0, 1fr))',
+          }}>
+            {[
+              [recap.ticketsClosed, tr('homeRecapTickets')],
+              [recap.mailHandled, tr('homeRecapMail')],
+              [recap.myShifts, tr('homeRecapShifts')],
+              [recap.monitored, tr('homeRecapMonitored')],
+            ].map(([value, label], i) => (
+              <div key={label} style={{
+                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                gap: 6, padding: 14,
+                borderLeft: i % 2 ? '1px solid var(--border-light)' : 'none',
+                borderTop: i > 1 ? '1px solid var(--border-light)' : 'none',
+              }}>
+                <span style={{ fontFamily: 'var(--font-display)', fontSize: 34, fontWeight: 500, color: 'var(--text)', lineHeight: 1 }}>{value}</span>
+                <span style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'center' }}>{label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {error && <div style={{ fontSize: 12, color: 'var(--danger)' }}>{error}</div>}
+
+      <style>{`
+        @media (max-width: 1000px) {
+          .home-hero { grid-template-columns: minmax(0, 1fr) !important; gap: 24px !important; }
+          .home-queues { grid-template-columns: minmax(0, 1fr) !important; }
+          .home-bottom { grid-template-columns: minmax(0, 1fr) !important; }
+          .home-team { grid-template-columns: minmax(0, 1fr) !important; }
+        }
+      `}</style>
     </div>
   );
-}
-
-function StatusMarker({ status }) {
-  const color = {
-    unchecked: 'var(--warning)',
-    on_pause: 'var(--accent)',
-    blocked: 'var(--danger)',
-    solved: 'var(--success)',
-  }[status] || 'var(--text-muted)';
-  return <span style={{ width: 10, height: 10, borderRadius: '50%', background: color, display: 'block' }} />;
 }

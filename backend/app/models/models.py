@@ -587,6 +587,7 @@ class ServiceProbe(Base):
     dns_lookup     = Column(Float, nullable=True)          # probe_dns_lookup_time_seconds
     ip_protocol    = Column(String(10), nullable=True)     # probe_ip_protocol (4/6)
     sample_at      = Column(DateTime(timezone=True), nullable=True)  # newest sample timestamp seen
+    state_changed_at = Column(DateTime(timezone=True), nullable=True)  # when up last flipped — drives "down for 20m"
     updated_at     = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
 
 
