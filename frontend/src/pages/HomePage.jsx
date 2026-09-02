@@ -422,7 +422,8 @@ export default function HomePage({ user, onNavigate }) {
   const tailFooter = (list, oldestSeconds) => {
     const rest = list.length - CARD_ROWS;
     if (rest <= 0) return null;
-    return `${rest} ${tr('homeMore')} · ${tr('homeOldest')} ${fmtAge(oldestSeconds)}`;
+    const more = `${rest} ${tr('homeMore')}`;
+    return oldestSeconds == null ? more : `${more} · ${tr('homeOldest')} ${fmtAge(oldestSeconds)}`;
   };
 
   return (
@@ -547,7 +548,12 @@ export default function HomePage({ user, onNavigate }) {
 
       {/* 3. Team on shift today */}
       <section>
-        <SectionHead title={tr('homeTeamToday')} linkLabel={tr('schedule')} onLink={() => onNavigate?.('schedule')} />
+        <SectionHead
+          title={tr('homeTeamToday')}
+          count={todayShifts.length || null}
+          linkLabel={tr('schedule')}
+          onLink={() => onNavigate?.('schedule')}
+        />
         <div style={{
           border: '1px solid var(--border)', borderRadius: 'var(--radius)',
           background: 'var(--surface)', display: 'grid',
