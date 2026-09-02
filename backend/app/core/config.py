@@ -104,6 +104,16 @@ class Settings(BaseSettings):
     # (Authorization: Bearer <token>). Empty = accept unauthenticated posts.
     GRAFANA_WEBHOOK_TOKEN: str = ""
 
+    # Service Status board, fed by Prometheus `remote_write`.
+    # The token is mandatory — with none configured the endpoint refuses writes.
+    PROMETHEUS_REMOTE_WRITE_TOKEN: str = ""
+    # A probe whose newest sample is older than this is shown as stale, not green.
+    STATUS_STALE_AFTER_SECONDS: int = 180
+    # Targets that stop being pushed are dropped after this many hours.
+    STATUS_PRUNE_AFTER_HOURS: int = 24
+    # Label whose value groups targets into sections on the status page.
+    STATUS_GROUP_LABEL: str = "job"
+
     # AI assistant (Gemini). Empty key = assistant disabled.
     # Privacy boundary: only TEAM data (schedule, time-off, runbooks) is ever
     # sent to the model — never customer ticket/email content.

@@ -42,6 +42,12 @@ SETTINGS_REGISTRY = [
     # ── Grafana ─────────────────────────────────────────────────────
     {"key": "GRAFANA_WEBHOOK_TOKEN", "category": "Grafana", "label": "Webhook bearer token", "type": "str", "is_secret": True},
 
+    # ── Service Status ──────────────────────────────────────────────
+    {"key": "PROMETHEUS_REMOTE_WRITE_TOKEN", "category": "Service Status", "label": "Prometheus remote_write bearer token", "type": "str", "is_secret": True},
+    {"key": "STATUS_STALE_AFTER_SECONDS", "category": "Service Status", "label": "Mark a probe stale after (seconds)", "type": "int"},
+    {"key": "STATUS_PRUNE_AFTER_HOURS", "category": "Service Status", "label": "Drop targets not pushed for (hours)", "type": "int"},
+    {"key": "STATUS_GROUP_LABEL", "category": "Service Status", "label": "Label used to group targets into sections", "type": "str"},
+
     # ── AI Assistant ────────────────────────────────────────────────
     {"key": "GEMINI_API_KEY", "category": "AI Assistant", "label": "Gemini API key", "type": "str", "is_secret": True},
     {"key": "GEMINI_MODEL", "category": "AI Assistant", "label": "Gemini model", "type": "str"},
