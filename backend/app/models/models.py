@@ -561,6 +561,35 @@ class GrafanaAlert(Base):
     updated_at    = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
 
 
+class ServiceProbe(Base):
+    """Current blackbox-exporter state for one probed target.
+
+    Fed by Prometheus `remote_write` (see api/status.py) — one row per
+    `instance` label, overwritten on every push. This is deliberately
+    state-only: history stays in Prometheus, the portal just renders "now".
+    """
+    __tablename__ = "service_probes"
+    __table_args__ = (
+        UniqueConstraint("instance", name="uq_service_probes_instance"),
+        Index("ix_service_probes_sample_at", "sample_at"),
+    )
+
+    id             = Column(Integer, primary_key=True, autoincrement=True)
+    instance       = Column(String(500), nullable=False)   # probed URL/target
+    job            = Column(String(200), nullable=True)
+    labels         = Column(Text, nullable=True)           # identity labels JSON (grouping is derived from these)
+    up             = Column(Boolean, nullable=True)        # probe_success
+    http_status    = Column(Integer, nullable=True)        # probe_http_status_code
+    ssl_ok         = Column(Boolean, nullable=True)        # probe_http_ssl
+    tls_version    = Column(String(20), nullable=True)     # probe_tls_version_info{version=...}
+    ssl_expiry_at  = Column(DateTime(timezone=True), nullable=True)  # probe_ssl_earliest_cert_expiry
+    probe_duration = Column(Float, nullable=True)          # probe_duration_seconds
+    dns_lookup     = Column(Float, nullable=True)          # probe_dns_lookup_time_seconds
+    ip_protocol    = Column(String(10), nullable=True)     # probe_ip_protocol (4/6)
+    sample_at      = Column(DateTime(timezone=True), nullable=True)  # newest sample timestamp seen
+    updated_at     = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+
+
 class ZammadComment(Base):
     __tablename__ = "zammad_comments"
     __table_args__ = (

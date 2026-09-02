@@ -20,5 +20,6 @@ pytest>=8.0
 pytest-asyncio>=0.23
 greenlet>=3.0
 zstandard>=0.20
+cramjam>=2.8        # snappy for Prometheus remote_write
 boto3>=1.28
 docxtpl==0.20.2
