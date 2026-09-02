@@ -157,11 +157,17 @@ async def remote_write(
 
     for instance, series_group in by_instance.items():
         row = existing.get(instance)
-        if row is None:
+        is_new = row is None
+        if is_new:
             row = ServiceProbe(instance=instance)
             db.add(row)
+        was_up = row.up
         for series in series_group:
             _apply(row, series)
+        # Track when up/down last flipped so the UI can say "down for 20m"
+        # instead of only "down".
+        if is_new or row.up is not was_up:
+            row.state_changed_at = row.sample_at or utcnow()
         # Descriptive labels come from any series of the group; they are identical
         # across metrics for a given target apart from the noise ones.
         labels = {
@@ -208,6 +214,10 @@ def _serialize(row: ServiceProbe, now: datetime, stale_after: int) -> dict:
         "dns_lookup": row.dns_lookup,
         "ip_protocol": row.ip_protocol,
         "sample_at": row.sample_at,
+        "state_changed_at": row.state_changed_at,
+        "in_state_seconds": (
+            round((now - row.state_changed_at).total_seconds()) if row.state_changed_at else None
+        ),
         "age_seconds": round(age) if age is not None else None,
         "stale": age is None or age > stale_after,
     }

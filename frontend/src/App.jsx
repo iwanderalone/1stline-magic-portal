@@ -241,11 +241,17 @@ export default function App() {
     try { return JSON.parse(localStorage.getItem('navCollapsed') || '[]'); } catch { return []; }
   });
 
-  const navigate = useCallback((p, runbookId = null) => {
+  // Accepts 'tickets' or a deep link like 'tickets/1234' / 'mail/57' — the
+  // same shape parseLocation() reads back out of the hash.
+  const navigate = useCallback((target, runbookId = null) => {
+    const [p, ...rest] = String(target).split('/');
+    if (!PAGES.includes(p)) return;
     if (p === 'admin' && !canAccessAdmin(auth.user)) return;
+    const sub = rest.join('/') || null;
     setInitialRunbookId(runbookId);
     setPage(p);
-    window.history.pushState(null, '', `/#${p}`);
+    setSubPath(sub);
+    window.history.pushState(null, '', `/#${sub ? `${p}/${sub}` : p}`);
     setSidebarOpen(false);
   }, [auth.user]);
 
