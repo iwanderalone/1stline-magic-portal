@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
 import { useLang } from '../components/LangContext';
 import { Avatar, Button } from '../components/UI';
-import { stateLabel } from '../components/TicketDetailModal';
+import EmailDetailModal from '../components/EmailDetailModal';
+import TicketDetailModal, { stateLabel } from '../components/TicketDetailModal';
 
 // Home shows the head of every queue and summarises the tail — nothing here
 // scrolls or renders unbounded.
@@ -228,6 +229,9 @@ export default function HomePage({ user, onNavigate }) {
   const [statusSummary, setStatusSummary] = useState(null);
   const [checkedAt, setCheckedAt] = useState(null);
   const [error, setError] = useState('');
+  const [openTicketId, setOpenTicketId] = useState(null);
+  const [openEmailId, setOpenEmailId] = useState(null);
+  const [weekScope, setWeekScope] = useState('mine');   // mine | team
 
   const loadLive = () => {
     api('/tickets/board?limit=100').then(d => setTickets(d || [])).catch(() => {});
@@ -356,12 +360,30 @@ export default function HomePage({ user, onNavigate }) {
   /* — this week — */
 
   const weekAgo = Date.now() - 7 * 86400000;
-  const recap = useMemo(() => ({
-    ticketsClosed: tickets.filter(tk => tk.bucket === 'closed' && parseTs(tk.state_changed_at) > weekAgo).length,
-    mailHandled: emails.filter(e => e.status === 'solved' && parseTs(e.created_at) > weekAgo).length,
-    myShifts: shifts.filter(s => String(s.user_id) === String(user?.id || '') && parseTs(`${s.date}T00:00:00`) > weekAgo).length,
-    monitored: statusSummary?.total ?? 0,
-  }), [tickets, emails, shifts, statusSummary, user?.id, weekAgo]);
+
+  // "Mine" filters by whatever attribution each source actually has: Zammad
+  // assignee (a display name), the username that cleared a mail item, and the
+  // shift's user id.
+  const isMineTicket = (tk) => {
+    const who = String(tk.assignee || '').trim().toLowerCase();
+    if (!who) return false;
+    return who === String(user?.display_name || '').toLowerCase()
+      || who === String(user?.username || '').toLowerCase();
+  };
+
+  const recap = useMemo(() => {
+    const mine = weekScope === 'mine';
+    const closed = tickets.filter(tk => tk.bucket === 'closed' && parseTs(tk.state_changed_at) > weekAgo);
+    const handled = emails.filter(e => e.status === 'solved' && parseTs(e.solved_at || e.created_at) > weekAgo);
+    const worked = shifts.filter(s => parseTs(`${s.date}T00:00:00`) > weekAgo);
+    return {
+      ticketsClosed: (mine ? closed.filter(isMineTicket) : closed).length,
+      mailHandled: (mine
+        ? handled.filter(e => String(e.solved_by || '').toLowerCase() === String(user?.username || '').toLowerCase())
+        : handled).length,
+      shifts: (mine ? worked.filter(s => String(s.user_id) === String(user?.id || '')) : worked).length,
+    };
+  }, [tickets, emails, shifts, user?.id, user?.username, user?.display_name, weekAgo, weekScope]);
 
   /* — the verdict line — */
 
@@ -407,7 +429,7 @@ export default function HomePage({ user, onNavigate }) {
       sub: `#${tk.number || tk.id} · ${stateLabel(tk.state, tr)} ${fmtAge(ageSince(tk.state_changed_at))}`,
       value: fmtAge(age),
       valueTone: age > TICKET_STALE_DAYS * 86400 ? 'var(--danger)' : 'var(--text-secondary)',
-      onClick: () => onNavigate?.(`tickets/${tk.id}`),
+      onClick: () => setOpenTicketId(tk.id),
     };
   });
 
@@ -416,7 +438,7 @@ export default function HomePage({ user, onNavigate }) {
     title: email.subject || tr('homeNoSubject'),
     sub: `${email.sender || '—'} · ${fmtAge(ageSince(email.created_at))}`,
     value: fmtAge(ageSince(email.created_at)),
-    onClick: () => onNavigate?.(`mail/${email.id}`),
+    onClick: () => setOpenEmailId(email.id),
   }));
 
   const tailFooter = (list, oldestSeconds) => {
@@ -615,24 +637,38 @@ export default function HomePage({ user, onNavigate }) {
           background: 'var(--surface)', minHeight: CARD_MIN_HEIGHT,
           display: 'flex', flexDirection: 'column',
         }}>
-          <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border-light)' }}>
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            padding: '12px 14px', borderBottom: '1px solid var(--border-light)',
+          }}>
             <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{tr('homeThisWeek')}</span>
+            <span style={{ flex: 1 }} />
+            <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', overflow: 'hidden' }}>
+              {[['mine', tr('homeScopeMine')], ['team', tr('homeScopeTeam')]].map(([id, label]) => (
+                <button
+                  key={id}
+                  onClick={() => setWeekScope(id)}
+                  style={{
+                    background: weekScope === id ? 'var(--surface-alt)' : 'transparent',
+                    border: 'none', padding: '3px 10px', cursor: 'pointer', fontFamily: 'inherit',
+                    fontSize: 11, color: weekScope === id ? 'var(--text)' : 'var(--text-muted)',
+                  }}
+                >{label}</button>
+              ))}
+            </div>
           </div>
           <div style={{
-            flex: 1, display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-            gridTemplateRows: 'repeat(2, minmax(0, 1fr))',
+            flex: 1, display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
           }}>
             {[
               [recap.ticketsClosed, tr('homeRecapTickets')],
               [recap.mailHandled, tr('homeRecapMail')],
-              [recap.myShifts, tr('homeRecapShifts')],
-              [recap.monitored, tr('homeRecapMonitored')],
+              [recap.shifts, tr('homeRecapShifts')],
             ].map(([value, label], i) => (
               <div key={label} style={{
                 display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
                 gap: 6, padding: 14,
-                borderLeft: i % 2 ? '1px solid var(--border-light)' : 'none',
-                borderTop: i > 1 ? '1px solid var(--border-light)' : 'none',
+                borderLeft: i ? '1px solid var(--border-light)' : 'none',
               }}>
                 <span style={{ fontFamily: 'var(--font-display)', fontSize: 34, fontWeight: 500, color: 'var(--text)', lineHeight: 1 }}>{value}</span>
                 <span style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'center' }}>{label}</span>
@@ -643,6 +679,25 @@ export default function HomePage({ user, onNavigate }) {
       </section>
 
       {error && <div style={{ fontSize: 12, color: 'var(--danger)' }}>{error}</div>}
+
+      {openTicketId && (
+        <TicketDetailModal
+          ticketId={openTicketId}
+          onClose={() => setOpenTicketId(null)}
+          onError={(message) => setError(message)}
+          onChanged={loadLive}
+          user={user}
+        />
+      )}
+
+      {openEmailId && (
+        <EmailDetailModal
+          emailId={openEmailId}
+          onClose={() => setOpenEmailId(null)}
+          onChange={(updated) => setEmails(prev => prev.map(e => (e.id === updated.id ? { ...e, ...updated } : e)))}
+          user={user}
+        />
+      )}
 
       <style>{`
         @media (max-width: 1000px) {

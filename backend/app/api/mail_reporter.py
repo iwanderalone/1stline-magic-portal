@@ -202,7 +202,7 @@ async def update_email_log(
     email_id: int,
     body: EmailLogUpdate,
     db: AsyncSession = Depends(get_db),
-    _=Depends(get_current_user),
+    user=Depends(get_current_user),
 ):
     """Mark an email as solved / add a comment. Accessible to all authenticated users."""
     from datetime import datetime, timezone
@@ -214,10 +214,14 @@ async def update_email_log(
 
     # Maintain solved_at based on status
     if "status" in updates:
-        if updates["status"] == "solved" and not log.solved_at:
-            log.solved_at = datetime.now(timezone.utc)
-        elif updates["status"] != "solved":
+        if updates["status"] == "solved":
+            if not log.solved_at:
+                log.solved_at = datetime.now(timezone.utc)
+            # Credit whoever cleared it, for the per-agent home stats.
+            log.solved_by = getattr(user, "username", None)
+        else:
             log.solved_at = None
+            log.solved_by = None
 
     await db.commit()
     await db.refresh(log)

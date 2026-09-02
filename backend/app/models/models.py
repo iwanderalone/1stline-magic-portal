@@ -403,6 +403,7 @@ class EmailLog(Base):
     status = Column(String(20), default="unchecked", nullable=False)  # unchecked | solved | on_pause | blocked
     solver_comment = Column(Text, nullable=True)
     solved_at = Column(DateTime(timezone=True), nullable=True)
+    solved_by = Column(String(100), nullable=True)   # username that marked it solved — powers per-agent stats
     message_id = Column(String(500), nullable=True)  # RFC 5322 Message-ID — enables In-Reply-To threading
 
     mailbox = relationship("MailboxConfig", back_populates="logs")
