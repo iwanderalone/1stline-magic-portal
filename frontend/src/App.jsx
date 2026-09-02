@@ -15,7 +15,6 @@ import RemindersPage from './pages/RemindersPage';
 import HomePage from './pages/HomePage';
 import RunbooksPage from './pages/RunbooksPage';
 import TicketsPage from './pages/TicketsPage';
-import AlertsPage from './pages/AlertsPage';
 import StatusPage from './pages/StatusPage';
 import MailboxBackupPanel from './pages/tools/MailboxBackupPanel';
 import InventoryPanel from './pages/tools/InventoryPanel';
@@ -46,7 +45,6 @@ const NAV_ICONS = {
   schedule:   'calendar',
   mail:       'mail',
   tickets:    'ticket',
-  alerts:     'siren',
   status:     'server',
   runbooks:   'bookmark',
   timeoff:    'sun',
@@ -203,7 +201,7 @@ export default function App() {
   // Admin and manager both get the admin page/nav; manager is a narrower role
   // (no Telegram integration settings — gated per-tab inside AdminPage itself).
   const canAccessAdmin = (u) => u?.role === 'admin' || u?.role === 'manager';
-  const PAGES = ['home', 'schedule', 'timeoff', 'profile', 'admin', 'mail', 'reminders', 'runbooks', 'tickets', 'alerts', 'status', 'tools', 'inventory', 'handover'];
+  const PAGES = ['home', 'schedule', 'timeoff', 'profile', 'admin', 'mail', 'reminders', 'runbooks', 'tickets', 'status', 'tools', 'inventory', 'handover'];
   // HR is restricted to a fixed page allowlist (enforced for real on the
   // backend too — see get_current_user in deps.py); every other role sees
   // everything it always has. A page outside the list renders NoAccessPage
@@ -355,7 +353,6 @@ export default function App() {
       items: [
         { id: 'mail',    label: lang === 'ru' ? 'Почта'  : 'Mail' },
         { id: 'tickets', label: lang === 'ru' ? 'Тикеты' : 'Tickets' },
-        { id: 'alerts',  label: lang === 'ru' ? 'Алерты' : 'Alerts' },
         { id: 'status',  label: lang === 'ru' ? 'Статус' : 'Status' },
       ],
     },
@@ -600,7 +597,6 @@ export default function App() {
                 {page === 'admin'      && canAccessAdmin(auth.user) && <AdminPage user={auth.user} />}
                 {page === 'mail'       && <MailReporterPage user={auth.user} initialEmailId={subPath} />}
                 {page === 'tickets'    && <TicketsPage user={auth.user} initialTicket={subPath} />}
-                {page === 'alerts'     && <AlertsPage />}
                 {page === 'status'     && <StatusPage />}
                 {page === 'runbooks'   && <RunbooksPage user={auth.user} initialRunbookId={initialRunbookId} initialSlug={subPath} />}
                 {page === 'reminders'  && <RemindersPage user={auth.user} />}

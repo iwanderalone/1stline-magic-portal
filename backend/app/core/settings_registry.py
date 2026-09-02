@@ -47,6 +47,7 @@ SETTINGS_REGISTRY = [
     {"key": "STATUS_STALE_AFTER_SECONDS", "category": "Service Status", "label": "Mark a probe stale after (seconds)", "type": "int"},
     {"key": "STATUS_PRUNE_AFTER_HOURS", "category": "Service Status", "label": "Drop targets not pushed for (hours)", "type": "int"},
     {"key": "STATUS_GROUP_LABEL", "category": "Service Status", "label": "Label used to group targets into sections", "type": "str"},
+    {"key": "STATUS_GROUP_ORDER", "category": "Service Status", "label": "Section order, comma-separated (unlisted groups follow alphabetically)", "type": "str"},
 
     # ── AI Assistant ────────────────────────────────────────────────
     {"key": "GEMINI_API_KEY", "category": "AI Assistant", "label": "Gemini API key", "type": "str", "is_secret": True},

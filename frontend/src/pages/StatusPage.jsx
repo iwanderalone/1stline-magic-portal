@@ -19,6 +19,16 @@ function fmtSeconds(v) {
   return v == null ? '—' : `${v.toFixed(2)}s`;
 }
 
+// Section names come from a Prometheus label ("viory", "external_sites"), so
+// tidy them for display without touching the value used for ordering.
+function sectionName(raw) {
+  return String(raw)
+    .split(/[_\-\s]+/)
+    .filter(Boolean)
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+}
+
 function Tile({ label, value, tone, unit }) {
   const { theme: t } = useTheme();
   const tones = {
@@ -70,7 +80,7 @@ function GroupTable({ group, tr }) {
   return (
     <section style={{ marginBottom: 26 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-        <h2 className="t-h2" style={{ fontSize: 16, margin: 0, color: t.text }}>{group.name}</h2>
+        <h2 className="t-h2" style={{ fontSize: 16, margin: 0, color: t.text }}>{sectionName(group.name)}</h2>
         <span style={{ fontSize: 12, color: t.textMuted }}>{group.targets.length}</span>
         {problems > 0 && <Badge color="red">{problems}</Badge>}
       </div>
