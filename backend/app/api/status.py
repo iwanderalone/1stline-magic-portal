@@ -236,14 +236,18 @@ async def status_board(
         name = item["labels"].get(group_label) or row.job or "other"
         groups.setdefault(name, []).append(item)
 
-    # Sections with something wrong float to the top; the rest stay alphabetical.
+    # Fixed section order (STATUS_GROUP_ORDER), so the board reads the same way
+    # every time; anything unlisted follows alphabetically. Problems surface via
+    # the summary tiles and per-row colour rather than by reordering sections.
+    order = [x.strip().lower() for x in (_eff("STATUS_GROUP_ORDER") or "").split(",") if x.strip()]
+
     def section_rank(entry):
-        name, targets = entry
-        troubled = any(t["up"] is False or t["stale"] for t in targets)
-        return (0 if troubled else 1, name.lower())
+        name = entry[0].lower()
+        return (order.index(name), "") if name in order else (len(order), name)
 
     return {
         "group_label": group_label,
+        "group_order": order,
         "stale_after_seconds": stale_after,
         "groups": [
             {"name": name, "targets": targets}

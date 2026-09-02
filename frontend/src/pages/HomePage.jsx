@@ -151,20 +151,25 @@ export default function HomePage({ user, unread = 0, onNavigate }) {
   const [error, setError] = useState('');
   const [openEmailId, setOpenEmailId] = useState(null);
   const [openTicketId, setOpenTicketId] = useState(null);
-  const [firingList, setFiringList] = useState([]);
+  const [statusBoard, setStatusBoard] = useState(null);
+  const [statusSummary, setStatusSummary] = useState(null);
 
   const loadTickets = () => api('/tickets/board?limit=50').then(d => setTickets(d || [])).catch(() => {});
-  const loadAlerts = () => api('/alerts?status=firing&limit=50').then(d => setFiringList(d || [])).catch(() => {});
+  const loadStatus = () => {
+    api('/status').then(d => setStatusBoard(d)).catch(() => {});
+    api('/status/summary').then(d => setStatusSummary(d)).catch(() => {});
+  };
 
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 30000);
     return () => clearInterval(timer);
   }, []);
 
-  // Keep tickets + alerts live — both arrive via webhooks within seconds.
+  // Keep tickets + service status live — tickets arrive via webhook, probe
+  // state is pushed by Prometheus, both within seconds.
   useEffect(() => {
-    loadAlerts();
-    const timer = setInterval(() => { loadTickets(); loadAlerts(); }, 30000);
+    loadStatus();
+    const timer = setInterval(() => { loadTickets(); loadStatus(); }, 30000);
     return () => clearInterval(timer);
   }, []);
 
@@ -221,7 +226,23 @@ export default function HomePage({ user, unread = 0, onNavigate }) {
   }, [tickets]);
 
   const uncheckedList = useMemo(() => emails.filter(e => e.status === 'unchecked'), [emails]);
-  const attnTotal = firingList.length + attnTickets.length + uncheckedList.length;
+
+  // Anything on the status board a first-line engineer should act on, worst first:
+  // a target that is down, one nobody has heard from, then certs about to expire.
+  const statusIssues = useMemo(() => {
+    const targets = (statusBoard?.groups || []).flatMap(g => g.targets.map(x => ({ ...x, group: g.name })));
+    const kind = x => (x.up === false ? 0 : x.stale ? 1 : x.ssl_expiry_days != null && x.ssl_expiry_days < 7 ? 2 : 3);
+    return targets
+      .map(x => ({ ...x, kind: kind(x) }))
+      .filter(x => x.kind < 3)
+      .sort((a, b) => a.kind - b.kind || a.instance.localeCompare(b.instance));
+  }, [statusBoard]);
+
+  const servicesUp = statusSummary
+    ? `${statusSummary.total - statusSummary.down - statusSummary.stale}/${statusSummary.total}`
+    : '—';
+
+  const attnTotal = statusIssues.length + attnTickets.length + uncheckedList.length;
 
   const currentShift = useMemo(() => {
     const currentUserId = String(user?.id || '');
@@ -270,6 +291,12 @@ export default function HomePage({ user, unread = 0, onNavigate }) {
         <Stat icon="mail" color="var(--accent)" value={unresolvedEmails.length} label={tr('homeMailQueue')} />
         <Stat icon="bell" color="var(--warning)" value={reminders.length} label={tr('homeActiveReminders')} />
         <Stat icon="message" color="var(--success)" value={unread} label={tr('homeUnreadNotices')} />
+        <Stat
+          icon="server"
+          color={statusSummary && (statusSummary.down || statusSummary.stale) ? 'var(--danger)' : 'var(--success)'}
+          value={servicesUp}
+          label={tr('homeServicesUp')}
+        />
         <span style={{ flex: 1 }} />
         <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
           {tr('homeNextEngineer')}: <b style={{ color: 'var(--text-secondary)' }}>{nextShift ? nextEngineer.split(' ')[0] : '—'}</b>
@@ -289,12 +316,12 @@ export default function HomePage({ user, unread = 0, onNavigate }) {
             <EmptyState title={tr('homeAttnEmpty')} />
           ) : (
             <div>
-              {firingList.length > 0 && (
-                <AttnSection icon="siren" color="var(--danger)" label={tr('homeAttnAlerts')} count={firingList.length} showAll={tr('homeShowAll')} onShowAll={() => onNavigate?.('alerts')}>
-                  {firingList.slice(0, ATTN_SECTION_MAX).map(a => (
+              {statusIssues.length > 0 && (
+                <AttnSection icon="server" color="var(--danger)" label={tr('homeAttnStatus')} count={statusIssues.length} showAll={tr('homeShowAll')} onShowAll={() => onNavigate?.('status')}>
+                  {statusIssues.slice(0, ATTN_SECTION_MAX).map(x => (
                     <div
-                      key={a.id}
-                      onClick={() => onNavigate?.('alerts')}
+                      key={x.instance}
+                      onClick={() => onNavigate?.('status')}
                       style={{
                         padding: '9px 18px 9px 39px', display: 'grid',
                         gridTemplateColumns: 'auto minmax(0, 1fr) auto', gap: 10, alignItems: 'center',
@@ -303,13 +330,17 @@ export default function HomePage({ user, unread = 0, onNavigate }) {
                       onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-alt)'}
                       onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
                     >
-                      <Badge color="red">{a.severity || 'firing'}</Badge>
+                      <Badge color={x.kind === 0 ? 'red' : x.kind === 1 ? 'gray' : 'orange'}>
+                        {x.kind === 0 ? tr('stDown') : x.kind === 1 ? tr('stStale') : tr('stCert')}
+                      </Badge>
                       <div style={{ minWidth: 0, fontWeight: 650, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {a.alertname || '(unnamed alert)'}
-                        {a.summary && <span style={{ color: 'var(--text-muted)', fontSize: 12, fontWeight: 400, marginLeft: 8 }}>{a.summary}</span>}
+                        {x.instance.replace(/^https?:\/\//, '')}
+                        <span style={{ color: 'var(--text-muted)', fontSize: 12, fontWeight: 400, marginLeft: 8 }}>{x.group.replace(/[_-]+/g, ' ')}</span>
                       </div>
-                      <div style={{ whiteSpace: 'nowrap', fontSize: 12, color: 'var(--danger)', fontWeight: 600 }}>
-                        {fmtDuration(a.starts_at || a.received_at, lang)}
+                      <div style={{ whiteSpace: 'nowrap', fontSize: 12, fontWeight: 600, color: x.kind === 2 ? 'var(--warning)' : 'var(--danger)' }}>
+                        {x.kind === 0 ? (x.http_status || tr('homeStatusNoReply'))
+                          : x.kind === 1 ? tr('homeStatusNoData')
+                          : `${Math.floor(x.ssl_expiry_days)}d`}
                       </div>
                     </div>
                   ))}

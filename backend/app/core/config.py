@@ -113,6 +113,9 @@ class Settings(BaseSettings):
     STATUS_PRUNE_AFTER_HOURS: int = 24
     # Label whose value groups targets into sections on the status page.
     STATUS_GROUP_LABEL: str = "job"
+    # Section order on the status board, most important first. Groups not
+    # listed here follow, alphabetically.
+    STATUS_GROUP_ORDER: str = "viory,ruptly,external,yandex"
 
     # AI assistant (Gemini). Empty key = assistant disabled.
     # Privacy boundary: only TEAM data (schedule, time-off, runbooks) is ever
