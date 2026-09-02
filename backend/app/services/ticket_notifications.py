@@ -21,6 +21,7 @@ from app.services.telegram_service import send_telegram_message
 logger = logging.getLogger(__name__)
 
 ESCALATION_STEPS = (15, 30, 60)  # minutes
+DESCRIPTION_LIMIT = 3000  # hard cap on ticket text (Telegram messages max out at 4096)
 
 
 def _esc(text) -> str:
@@ -35,18 +36,24 @@ def _target() -> tuple[str, str]:
     return (chat_id or "").strip(), (thread_id or "").strip()
 
 
-def _ticket_link(tk: ZammadTicket) -> str | None:
-    base = (get_settings().ZAMMAD_URL or "").rstrip("/")
-    return f"{base}/#ticket/zoom/{tk.id}" if base else None
+def _body(text: str, limit: int = DESCRIPTION_LIMIT) -> str:
+    """Ticket text as a collapsed, tap-to-expand Telegram blockquote (same as mail alerts)."""
+    text = "\n".join(line.strip() for line in (text or "").splitlines()).strip()
+    if len(text) > limit:
+        text = text[: limit - 1].rstrip() + "…"
+    return f"<blockquote expandable>{_esc(text)}</blockquote>"
 
 
 def _format(emoji: str, label: str, tk: ZammadTicket) -> str:
     lines = [f"{emoji} <b>{_esc(label)}</b>", f"#{_esc(tk.number or tk.id)} — {_esc(tk.title or '—')}"]
     if tk.customer:
         lines.append(f"Customer: {_esc(tk.customer)}")
-    link = _ticket_link(tk)
-    if link:
-        lines.append(f'<a href="{link}">Open ticket</a>')
+    category = tk.request_type or tk.group_name
+    if category:
+        lines.append(f"Category: {_esc(category)}")
+    if tk.description:
+        lines.append("")
+        lines.append(_body(tk.description))
     return "\n".join(lines)
 
 
