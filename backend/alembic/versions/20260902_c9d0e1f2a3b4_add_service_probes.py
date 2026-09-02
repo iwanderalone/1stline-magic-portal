@@ -1,6 +1,6 @@
 """add service_probes table (Prometheus remote_write status board)
 
-Revision ID: a1b2c3d4e5f6
+Revision ID: c9d0e1f2a3b4
 Revises: f5a6b7c8d9e0
 Branch labels: None
 Depends on: None
@@ -9,7 +9,7 @@ Depends on: None
 from alembic import op
 import sqlalchemy as sa
 
-revision = 'a1b2c3d4e5f6'
+revision = 'c9d0e1f2a3b4'
 down_revision = 'f5a6b7c8d9e0'
 branch_labels = None
 depends_on = None
