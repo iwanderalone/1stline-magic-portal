@@ -14,6 +14,7 @@ only the newest value per target and render it. Prometheus config:
 """
 import json
 import logging
+import math
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -56,6 +57,11 @@ def _eff(key: str, cast=None):
     return eff(key, default, cast=cast) if cast else eff(key, default)
 
 
+def _finite(value: float) -> Optional[float]:
+    """None for NaN/inf, which blackbox emits for metrics it could not measure."""
+    return value if isinstance(value, (int, float)) and math.isfinite(value) else None
+
+
 def _ts(millis: int) -> Optional[datetime]:
     if not millis:
         return None
@@ -70,20 +76,25 @@ def _apply(row: ServiceProbe, series: Series) -> None:
     value, millis = latest
     name = series.name
 
+    # A probe that never connects reports NaN for the metrics it could not
+    # measure (status code, cert expiry), so every numeric read goes through
+    # _finite — int(NaN) raises, and one such sample used to 500 the batch.
+    finite = _finite(value)
+
     if name == "probe_success":
         row.up = value == 1
     elif name == "probe_http_status_code":
-        row.http_status = int(value) or None
+        row.http_status = int(finite) or None if finite is not None else None
     elif name == "probe_http_ssl":
         row.ssl_ok = value == 1
     elif name == "probe_ssl_earliest_cert_expiry":
-        row.ssl_expiry_at = _ts(int(value * 1000)) if value > 0 else None
+        row.ssl_expiry_at = _ts(int(finite * 1000)) if finite and finite > 0 else None
     elif name == "probe_duration_seconds":
-        row.probe_duration = value
+        row.probe_duration = finite
     elif name == "probe_dns_lookup_time_seconds":
-        row.dns_lookup = value
+        row.dns_lookup = finite
     elif name == "probe_ip_protocol":
-        row.ip_protocol = str(int(value))
+        row.ip_protocol = str(int(finite)) if finite is not None else None
     elif name == "probe_tls_version_info":
         # An info metric: the value is 1, the TLS version rides on a label.
         if value == 1 and series.labels.get("version"):
@@ -163,7 +174,12 @@ async def remote_write(
             db.add(row)
         was_up = row.up
         for series in series_group:
-            _apply(row, series)
+            try:
+                _apply(row, series)
+            except Exception:
+                logger.warning(
+                    "[status] skipped unusable series %s for %s", series.name, instance, exc_info=True
+                )
         # Track when up/down last flipped so the UI can say "down for 20m"
         # instead of only "down".
         if is_new or row.up is not was_up:
