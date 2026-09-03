@@ -11,9 +11,9 @@ const CARD_MIN_HEIGHT = 276;
 const TICKET_OVERDUE_DAYS = 14;   // past this, a ticket's age turns --danger
 const STATE_RANK = { new: 0, open: 0, in_progress: 1, on_pause: 2, closed: 3 };
 
-// Values are mono with tabular figures; words are Inter. The serif display
-// family is deliberately absent here — it makes the page read as a different
-// product.
+// Values are mono with tabular figures; words are Inter — except the greeting,
+// which keeps the portal's serif display family so home matches every other
+// page's PageHeader title (see UI.jsx, .t-h1).
 const MONO = { fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums' };
 
 const dateKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -577,9 +577,11 @@ export default function HomePage({ user, onNavigate }) {
             <span style={MONO}>{userNow.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span>
           </div>
 
+          {/* Serif, like every other page's title — at the redesign's 28px
+              rather than the old --fs-h1. */}
           <h1 style={{
-            margin: '6px 0 0', fontFamily: 'var(--font-sans)', fontSize: 28, fontWeight: 600,
-            letterSpacing: '-0.02em', lineHeight: 1.2, color: 'var(--text)',
+            margin: '6px 0 0', fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 600,
+            letterSpacing: '-0.01em', lineHeight: 1.2, color: 'var(--text)',
           }}>
             {greetingFor(userNow, lang)}, <span style={{ color: 'var(--accent)' }}>{displayName}</span>.
           </h1>
