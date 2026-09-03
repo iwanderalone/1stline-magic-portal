@@ -1,16 +1,20 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
 import { useLang } from '../components/LangContext';
-import { Avatar, Button } from '../components/UI';
 import EmailDetailModal from '../components/EmailDetailModal';
 import TicketDetailModal, { stateLabel } from '../components/TicketDetailModal';
 
 // Home shows the head of every queue and summarises the tail — nothing here
-// scrolls or renders unbounded.
+// scrolls or renders an unbounded list.
 const CARD_ROWS = 5;
-const CARD_MIN_HEIGHT = 320;
-const TICKET_STALE_DAYS = 14;   // past this, a ticket's age turns red
+const CARD_MIN_HEIGHT = 276;
+const TICKET_OVERDUE_DAYS = 14;   // past this, a ticket's age turns --danger
 const STATE_RANK = { new: 0, open: 0, in_progress: 1, on_pause: 2, closed: 3 };
+
+// Values are mono with tabular figures; words are Inter. The serif display
+// family is deliberately absent here — it makes the page read as a different
+// product.
+const MONO = { fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums' };
 
 const dateKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const addDays = (d, n) => {
@@ -57,9 +61,9 @@ function fmtShiftTime(value, date, tz) {
   }
 }
 
-/** Compact age: 45s / 12m / 3h / 22d. */
+/** Compact age: 45s / 12m / 3h / 22d. Null when there is nothing to show. */
 function fmtAge(seconds) {
-  if (seconds == null) return '—';
+  if (seconds == null || Number.isNaN(seconds)) return null;
   const s = Math.max(0, Math.round(seconds));
   if (s < 60) return `${s}s`;
   if (s < 3600) return `${Math.floor(s / 60)}m`;
@@ -87,20 +91,19 @@ function shiftEndMs(shift) {
 const hostOf = (url) => String(url || '').replace(/^https?:\/\//, '').replace(/\/$/, '');
 const prettyGroup = (name) => String(name || '').replace(/[_-]+/g, ' ');
 
-/* ── shared bits ─────────────────────────────────────────────── */
-
-function Eyebrow({ children, style }) {
-  return (
-    <div style={{
-      fontSize: 11, textTransform: 'uppercase', letterSpacing: '.08em',
-      color: 'var(--text-muted)', ...style,
-    }}>{children}</div>
-  );
+/** Monday 00:00 of the week containing `d`. */
+function weekStart(d) {
+  const copy = new Date(d);
+  copy.setHours(0, 0, 0, 0);
+  copy.setDate(copy.getDate() - ((copy.getDay() + 6) % 7));
+  return copy;
 }
 
-function Mono({ children, color = 'var(--text-muted)', size = 12, weight = 500 }) {
+/* ── primitives ──────────────────────────────────────────────── */
+
+function Mono({ children, size = 12, color = 'var(--text-muted)', weight = 400, style }) {
   return (
-    <span style={{ fontFamily: 'var(--font-mono)', fontSize: size, color, fontWeight: weight, whiteSpace: 'nowrap' }}>
+    <span style={{ ...MONO, fontSize: size, color, fontWeight: weight, whiteSpace: 'nowrap', ...style }}>
       {children}
     </span>
   );
@@ -110,67 +113,90 @@ function Dot({ color }) {
   return <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, flexShrink: 0 }} />;
 }
 
-function SectionHead({ title, count, linkLabel, onLink }) {
+function AvatarChip({ name, color, size = 32 }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 16 }}>
-      <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: 'var(--text)' }}>{title}</h2>
+    <span style={{
+      width: size, height: size, borderRadius: 10, flexShrink: 0,
+      background: color || 'var(--accent)', color: '#fff',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      fontFamily: 'var(--font-sans)', fontSize: 13, fontWeight: 700,
+    }}>{String(name || '?').trim().charAt(0).toUpperCase()}</span>
+  );
+}
+
+function LinkButton({ children, onClick, size = 12, weight = 400, color = 'var(--text-muted)' }) {
+  const [hover, setHover] = useState(false);
+  return (
+    <button
+      onClick={onClick}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+        fontFamily: 'var(--font-sans)', fontSize: size, fontWeight: weight,
+        color: hover ? 'var(--accent)' : color, whiteSpace: 'nowrap',
+      }}
+    >{children}</button>
+  );
+}
+
+function HeroButton({ children, primary, onClick }) {
+  const [hover, setHover] = useState(false);
+  return (
+    <button
+      onClick={onClick}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+        fontFamily: 'var(--font-sans)', borderRadius: 'var(--radius-sm)',
+        transition: 'all 140ms ease',
+        transform: primary && hover ? 'translateY(-1px)' : 'none',
+        background: primary ? (hover ? 'var(--accent-hover)' : 'var(--accent)') : 'var(--surface)',
+        color: primary ? 'var(--accent-on)' : (hover ? 'var(--accent)' : 'var(--text)'),
+        border: primary ? '1px solid transparent' : `1px solid ${hover ? 'var(--accent)' : 'var(--border)'}`,
+        boxShadow: primary ? '0 2px 10px var(--accent-glow)' : 'none',
+      }}
+    >{children}</button>
+  );
+}
+
+function CardShell({ children, style }) {
+  return (
+    <div style={{
+      border: '1px solid var(--border)', borderRadius: 'var(--radius)',
+      background: 'var(--surface)', boxShadow: 'var(--shadow)',
+      display: 'flex', flexDirection: 'column', minWidth: 0, ...style,
+    }}>{children}</div>
+  );
+}
+
+function CardHeader({ dot, title, count, link, onLink, extra }) {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 8,
+      padding: '14px 16px', borderBottom: '1px solid var(--border-light)',
+    }}>
+      {dot && <Dot color={dot} />}
+      <span style={{ fontFamily: 'var(--font-sans)', fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{title}</span>
       {count != null && <Mono>{count}</Mono>}
       <span style={{ flex: 1 }} />
-      {onLink && (
-        <button onClick={onLink} style={{
-          background: 'none', border: 'none', padding: 0, cursor: 'pointer',
-          fontFamily: 'inherit', fontSize: 12, color: 'var(--text-muted)',
-        }}>{linkLabel} →</button>
-      )}
+      {extra}
+      {link && <LinkButton onClick={onLink}>{link} →</LinkButton>}
     </div>
   );
 }
 
-/** One queue column: capped rows, a one-line tail summary, all-clear at full size. */
-function QueueCard({ label, count, tone, allLabel, onAll, rows, footer, emptyTitle, emptyLine }) {
+function AllClear({ line }) {
+  const { t: tr } = useLang();
   return (
     <div style={{
-      border: '1px solid var(--border)', borderRadius: 'var(--radius)',
-      background: 'var(--surface)', minHeight: CARD_MIN_HEIGHT,
-      display: 'flex', flexDirection: 'column', minWidth: 0,
+      flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center',
+      justifyContent: 'center', gap: 8, padding: 24, textAlign: 'center',
     }}>
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px',
-        borderBottom: '1px solid var(--border-light)',
-      }}>
-        <Dot color={tone} />
-        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{label}</span>
-        <Mono>{count}</Mono>
-        <span style={{ flex: 1 }} />
-        {onAll && (
-          <button onClick={onAll} style={{
-            background: 'none', border: 'none', padding: 0, cursor: 'pointer',
-            fontFamily: 'inherit', fontSize: 11, color: 'var(--text-muted)',
-          }}>{allLabel} →</button>
-        )}
-      </div>
-
-      {rows.length === 0 ? (
-        <div style={{
-          flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center',
-          justifyContent: 'center', gap: 6, padding: '20px 22px', textAlign: 'center',
-        }}>
-          <span style={{ fontSize: 18 }}>✨</span>
-          <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-secondary)' }}>{emptyTitle}</div>
-          <div style={{ fontSize: 11, color: 'var(--text-muted)', maxWidth: '28ch', lineHeight: 1.5 }}>{emptyLine}</div>
-        </div>
-      ) : (
-        <div style={{ flex: 1 }}>
-          {rows.map(row => <QueueRow key={row.key} {...row} />)}
-        </div>
-      )}
-
-      {footer && (
-        <div style={{
-          padding: '9px 14px', borderTop: '1px solid var(--border-light)',
-          fontSize: 12, color: 'var(--text-muted)',
-        }}>{footer}</div>
-      )}
+      <span style={{ fontSize: 22 }}>✨</span>
+      <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{tr('homeAllClear')}</div>
+      <div style={{ fontSize: 12, color: 'var(--text-muted)', maxWidth: '22ch', lineHeight: 1.5 }}>{line}</div>
     </div>
   );
 }
@@ -180,8 +206,8 @@ function QueueRow({ title, sub, value, valueTone, onClick }) {
     <div
       onClick={onClick}
       style={{
-        display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 10,
-        alignItems: 'center', padding: '9px 14px', cursor: 'pointer',
+        display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 8,
+        alignItems: 'baseline', padding: '10px 16px', cursor: 'pointer',
         transition: 'background 120ms ease',
       }}
       onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface-alt)'; }}
@@ -189,27 +215,52 @@ function QueueRow({ title, sub, value, valueTone, onClick }) {
     >
       <div style={{ minWidth: 0 }}>
         <div style={{
-          fontSize: 13, fontWeight: 500, color: 'var(--text)',
+          fontFamily: 'var(--font-sans)', fontSize: 13, fontWeight: 500, color: 'var(--text)',
           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
         }}>{title}</div>
         <div style={{
-          fontSize: 11, color: 'var(--text-muted)', marginTop: 2,
+          fontSize: 11, color: 'var(--text-muted)', marginTop: 3,
           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
         }}>{sub}</div>
       </div>
-      <Mono color={valueTone || 'var(--text-secondary)'} size={12} weight={600}>{value}</Mono>
+      <Mono size={12} color={valueTone || 'var(--text-muted)'} style={{ textAlign: 'right' }}>{value}</Mono>
     </div>
   );
 }
 
-function RailRow({ label, value }) {
+function QueueCard({ dot, title, count, link, onLink, rows, footer, emptyLine }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, padding: '5px 0' }}>
-      <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{label}</span>
+    <CardShell style={{ minHeight: CARD_MIN_HEIGHT }}>
+      <CardHeader dot={dot} title={title} count={count} link={link} onLink={onLink} />
+      {rows.length === 0 ? (
+        <AllClear line={emptyLine} />
+      ) : (
+        <>
+          <div style={{ padding: '4px 0' }}>
+            {rows.map(row => <QueueRow key={row.key} {...row} />)}
+          </div>
+          <div style={{ flex: 1 }} />
+          {footer && (
+            <div style={{
+              padding: '12px 16px', borderTop: '1px solid var(--border-light)',
+              fontSize: 12, color: 'var(--text-muted)',
+            }}>{footer}</div>
+          )}
+        </>
+      )}
+    </CardShell>
+  );
+}
+
+function RailRow({ label, value, mono }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+      <span style={{ fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{label}</span>
       <span style={{ flex: 1 }} />
       <span style={{
-        fontSize: 12, color: 'var(--text-secondary)', textAlign: 'right',
-        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '62%',
+        fontSize: 12, color: 'var(--text)', textAlign: 'right',
+        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '64%',
+        ...(mono ? MONO : null),
       }}>{value}</span>
     </div>
   );
@@ -237,7 +288,7 @@ export default function HomePage({ user, onNavigate }) {
     api('/tickets/board?limit=100').then(d => setTickets(d || [])).catch(() => {});
     api('/status').then(d => setStatusBoard(d)).catch(() => {});
     api('/status/summary').then(d => setStatusSummary(d)).catch(() => {});
-    api('/mail-reporter/emails?limit=100').then(d => setEmails(d || [])).catch(() => {});
+    api('/mail-reporter/emails?limit=200').then(d => setEmails(d || [])).catch(() => {});
     setCheckedAt(Date.now());
   };
 
@@ -247,7 +298,7 @@ export default function HomePage({ user, onNavigate }) {
   }, []);
 
   // Tickets arrive by webhook and probe state is pushed by Prometheus, so the
-  // live blocks refresh on their own; the slower context loads once.
+  // live blocks refresh on their own.
   useEffect(() => {
     const timer = setInterval(loadLive, 30000);
     return () => clearInterval(timer);
@@ -259,12 +310,13 @@ export default function HomePage({ user, onNavigate }) {
       setLoading(true);
       setError('');
       const today = new Date();
-      // A week back for the recap, a few days forward for "who is next".
-      const start = dateKey(addDays(today, -6));
+      // Two weeks back so the recap can compare with last week, a few days
+      // forward for "next engineer".
+      const start = dateKey(addDays(today, -13));
       const end = dateKey(addDays(today, 5));
       try {
         const [mailData, reminderData, shiftData, ticketData, board, summary] = await Promise.all([
-          api('/mail-reporter/emails?limit=100').catch(() => []),
+          api('/mail-reporter/emails?limit=200').catch(() => []),
           api('/reminders/active').catch(() => []),
           api(`/schedule/shifts?start_date=${start}&end_date=${end}`).catch(() => []),
           api('/tickets/board?limit=100').catch(() => []),
@@ -291,20 +343,21 @@ export default function HomePage({ user, onNavigate }) {
 
   const userNow = useMemo(() => localNow(user?.timezone), [now, user?.timezone]);
   const locale = lang === 'ru' ? 'ru-RU' : 'en-GB';
-  const todayLabel = userNow.toLocaleDateString(locale, {
-    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
-  });
 
   /* — queues — */
 
-  const serviceIssues = useMemo(() => {
-    const targets = (statusBoard?.groups || []).flatMap(g => g.targets.map(x => ({ ...x, group: g.name })));
-    const kind = x => (x.up === false ? 0 : x.stale ? 1 : 3);
-    return targets
-      .map(x => ({ ...x, kind: kind(x) }))
-      .filter(x => x.kind < 3)
-      .sort((a, b) => a.kind - b.kind || (b.in_state_seconds || 0) - (a.in_state_seconds || 0));
-  }, [statusBoard]);
+  const allTargets = useMemo(() => (
+    (statusBoard?.groups || []).flatMap(g => g.targets.map(x => ({ ...x, group: g.name })))
+  ), [statusBoard]);
+
+  // The card counts down targets only, so the verdict sentence and the card
+  // can never disagree; targets nobody has heard from go in the footer line.
+  const downTargets = useMemo(() => (
+    allTargets
+      .filter(x => x.up === false)
+      .sort((a, b) => (b.in_state_seconds || 0) - (a.in_state_seconds || 0))
+  ), [allTargets]);
+  const staleTargets = useMemo(() => allTargets.filter(x => x.up !== false && x.stale), [allTargets]);
 
   const openTickets = useMemo(() => (
     tickets
@@ -323,24 +376,21 @@ export default function HomePage({ user, onNavigate }) {
       .sort((a, b) => parseTs(b.created_at) - parseTs(a.created_at))
   ), [emails]);
 
-  const downCount = serviceIssues.filter(x => x.kind === 0).length;
-  const attnTotal = serviceIssues.length + openTickets.length + mailQueue.length;
+  const attnTotal = downTargets.length + openTickets.length + mailQueue.length;
 
   /* — shift context — */
 
+  const me = String(user?.id || '');
   const myShiftNow = useMemo(() => {
-    const me = String(user?.id || '');
     const ts = Date.now();
     return shifts.find(s => String(s.user_id) === me && shiftStartMs(s) <= ts && shiftEndMs(s) >= ts) || null;
-  }, [shifts, user?.id]);
+  }, [shifts, me]);
 
   const myNextShift = useMemo(() => {
-    const me = String(user?.id || '');
     const ts = Date.now();
-    return [...shifts]
-      .filter(s => String(s.user_id) === me && shiftStartMs(s) > ts)
+    return [...shifts].filter(s => String(s.user_id) === me && shiftStartMs(s) > ts)
       .sort((a, b) => shiftStartMs(a) - shiftStartMs(b))[0] || null;
-  }, [shifts, user?.id]);
+  }, [shifts, me]);
 
   const onNowShift = useMemo(() => {
     const ts = Date.now();
@@ -357,41 +407,58 @@ export default function HomePage({ user, onNavigate }) {
     return shifts.filter(s => s.date === today).sort((a, b) => shiftStartMs(a) - shiftStartMs(b));
   }, [shifts]);
 
-  /* — this week — */
+  /* — this week, against the same slice of last week — */
 
-  const weekAgo = Date.now() - 7 * 86400000;
-
-  // "Mine" filters by whatever attribution each source actually has: Zammad
-  // assignee (a display name), the username that cleared a mail item, and the
-  // shift's user id.
-  const isMineTicket = (tk) => {
-    const who = String(tk.assignee || '').trim().toLowerCase();
-    if (!who) return false;
-    return who === String(user?.display_name || '').toLowerCase()
-      || who === String(user?.username || '').toLowerCase();
-  };
+  const thisWeekStart = useMemo(() => weekStart(new Date()), [now]);
+  const lastWeekStart = useMemo(() => addDays(thisWeekStart, -7), [thisWeekStart]);
+  const lastWeekCutoff = useMemo(() => addDays(new Date(), -7), [now]);
 
   const recap = useMemo(() => {
     const mine = weekScope === 'mine';
-    const closed = tickets.filter(tk => tk.bucket === 'closed' && parseTs(tk.state_changed_at) > weekAgo);
-    const handled = emails.filter(e => e.status === 'solved' && parseTs(e.solved_at || e.created_at) > weekAgo);
-    const worked = shifts.filter(s => parseTs(`${s.date}T00:00:00`) > weekAgo);
-    return {
-      ticketsClosed: (mine ? closed.filter(isMineTicket) : closed).length,
-      mailHandled: (mine
-        ? handled.filter(e => String(e.solved_by || '').toLowerCase() === String(user?.username || '').toLowerCase())
-        : handled).length,
-      shifts: (mine ? worked.filter(s => String(s.user_id) === String(user?.id || '')) : worked).length,
+    const isMineTicket = (tk) => {
+      const who = String(tk.assignee || '').trim().toLowerCase();
+      return !!who && (who === String(user?.display_name || '').toLowerCase()
+        || who === String(user?.username || '').toLowerCase());
     };
-  }, [tickets, emails, shifts, user?.id, user?.username, user?.display_name, weekAgo, weekScope]);
+    const isMineMail = (e) => (
+      !!e.solved_by && String(e.solved_by).toLowerCase() === String(user?.username || '').toLowerCase()
+    );
+    const count = (list, tsOf, isMine, from, to) => list.filter(x => {
+      const ts = tsOf(x);
+      return ts >= from.getTime() && ts <= to.getTime() && (!mine || isMine(x));
+    }).length;
 
-  /* — the verdict line — */
+    const solved = emails.filter(e => e.status === 'solved' && e.solved_at);
+    const closed = tickets.filter(tk => tk.bucket === 'closed' && tk.state_changed_at);
+    const worked = shifts.filter(s => parseTs(`${s.date}T00:00:00`) <= Date.now());
+    const nowDate = new Date();
 
-  const shiftUntil = myShiftNow
-    ? fmtShiftTime(myShiftNow.end_time, myShiftNow.date, user?.timezone)
-    : null;
+    return [
+      {
+        key: 'mail',
+        label: tr('homeRecapMail'),
+        value: count(solved, e => parseTs(e.solved_at), isMineMail, thisWeekStart, nowDate),
+        prev: count(solved, e => parseTs(e.solved_at), isMineMail, lastWeekStart, lastWeekCutoff),
+      },
+      {
+        key: 'tickets',
+        label: tr('homeRecapTickets'),
+        value: count(closed, tk => parseTs(tk.state_changed_at), isMineTicket, thisWeekStart, nowDate),
+        prev: count(closed, tk => parseTs(tk.state_changed_at), isMineTicket, lastWeekStart, lastWeekCutoff),
+      },
+      {
+        key: 'shifts',
+        label: tr('homeRecapShifts'),
+        value: count(worked, s => parseTs(`${s.date}T00:00:00`), s => String(s.user_id) === me, thisWeekStart, nowDate),
+        prev: count(worked, s => parseTs(`${s.date}T00:00:00`), s => String(s.user_id) === me, lastWeekStart, lastWeekCutoff),
+      },
+    ];
+  }, [emails, tickets, shifts, weekScope, me, user?.username, user?.display_name, thisWeekStart, lastWeekStart, lastWeekCutoff, tr]);
 
-  // Russian needs three plural forms; English collapses to two.
+  const weekRange = `${thisWeekStart.toLocaleDateString(locale, { weekday: 'short' })}–${userNow.toLocaleDateString(locale, { weekday: 'short' })}`;
+
+  /* — verdict line — */
+
   const pl = (n, key) => {
     if (lang !== 'ru') return tr(`${key}${n === 1 ? '1' : '2'}`);
     const mod10 = n % 10;
@@ -407,28 +474,36 @@ export default function HomePage({ user, onNavigate }) {
   );
 
   const displayName = user?.display_name || user?.username || tr('homeEngineerFallback');
+  const shiftUntil = myShiftNow ? fmtShiftTime(myShiftNow.end_time, myShiftNow.date, user?.timezone) : null;
+  const daysToNextShift = myNextShift
+    ? Math.max(0, Math.round((parseTs(`${myNextShift.date}T00:00:00`) - Date.now()) / 86400000))
+    : null;
 
-  /* — render — */
+  /* — card contents — */
 
-  const freshness = checkedAt ? `${tr('homeLastChecked')} ${fmtAge((Date.now() - checkedAt) / 1000)}` : '';
+  const freshness = checkedAt ? `${tr('homeLastChecked')} ${fmtAge((Date.now() - checkedAt) / 1000) || '0s'}.` : '';
 
-  const serviceRows = serviceIssues.slice(0, CARD_ROWS).map(x => ({
+  const serviceRows = downTargets.slice(0, CARD_ROWS).map(x => ({
     key: x.instance,
     title: hostOf(x.instance),
-    sub: `${prettyGroup(x.group)} · ${x.kind === 0 ? tr('homeDownFor') : tr('homeQuietFor')} ${fmtAge(x.kind === 0 ? x.in_state_seconds : x.age_seconds)}`,
-    value: x.kind === 0 ? (x.http_status || tr('homeStatusNoReply')) : tr('homeStatusNoData'),
+    sub: `${prettyGroup(x.group)} · ${tr('homeDownFor')} ${fmtAge(x.in_state_seconds) || fmtAge(x.age_seconds) || ''}`,
+    value: x.http_status || tr('homeStatusNoReply'),
     valueTone: 'var(--danger)',
     onClick: () => onNavigate?.('status'),
   }));
 
   const ticketRows = openTickets.slice(0, CARD_ROWS).map(tk => {
     const age = ageSince(tk.zammad_created_at || tk.state_changed_at);
+    const inState = fmtAge(ageSince(tk.state_changed_at));
     return {
       key: tk.id,
-      title: tk.title || '—',
-      sub: `#${tk.number || tk.id} · ${stateLabel(tk.state, tr)} ${fmtAge(ageSince(tk.state_changed_at))}`,
-      value: fmtAge(age),
-      valueTone: age > TICKET_STALE_DAYS * 86400 ? 'var(--danger)' : 'var(--text-secondary)',
+      title: tk.title || tr('homeNoSubject'),
+      sub: <>
+        <span style={MONO}>#{tk.number || tk.id}</span>
+        {` · ${String(stateLabel(tk.state, tr)).toLowerCase()}${inState ? ` ${inState}` : ''}`}
+      </>,
+      value: fmtAge(age) || '',
+      valueTone: age > TICKET_OVERDUE_DAYS * 86400 ? 'var(--danger)' : 'var(--text-muted)',
       onClick: () => setOpenTicketId(tk.id),
     };
   });
@@ -436,246 +511,297 @@ export default function HomePage({ user, onNavigate }) {
   const mailRows = mailQueue.slice(0, CARD_ROWS).map(email => ({
     key: email.id,
     title: email.subject || tr('homeNoSubject'),
-    sub: `${email.sender || '—'} · ${fmtAge(ageSince(email.created_at))}`,
-    value: fmtAge(ageSince(email.created_at)),
+    sub: email.sender || '',
+    value: fmtAge(ageSince(email.created_at)) || '',
     onClick: () => setOpenEmailId(email.id),
   }));
 
-  const tailFooter = (list, oldestSeconds) => {
-    const rest = list.length - CARD_ROWS;
-    if (rest <= 0) return null;
-    const more = `${rest} ${tr('homeMore')}`;
-    return oldestSeconds == null ? more : `${more} · ${tr('homeOldest')} ${fmtAge(oldestSeconds)}`;
-  };
+  const totalTargets = statusSummary?.total ?? allTargets.length;
+  const upTargets = Math.max(0, totalTargets - downTargets.length - staleTargets.length);
+  const serviceFooter = [
+    downTargets.length > CARD_ROWS ? `${downTargets.length - CARD_ROWS} ${tr('homeMoreDown')}` : null,
+    `${upTargets} ${tr('homeOf')} ${totalTargets} ${tr('homeUpTail')}`,
+    staleTargets.length ? `${staleTargets.length} ${tr('homeNoDataTail')}` : null,
+  ].filter(Boolean).join(' · ');
+
+  const oldestTicketAge = fmtAge(ageSince(openTickets[openTickets.length - 1]?.zammad_created_at));
+  const ticketFooter = [
+    openTickets.length > CARD_ROWS ? `${openTickets.length - CARD_ROWS} ${tr('homeMore')}` : null,
+    oldestTicketAge ? `${tr('homeOldest')} ${oldestTicketAge}` : null,
+  ].filter(Boolean).join(' · ');
+
+  const todayKey = dateKey(new Date());
+  const solvedToday = emails.filter(e => (
+    e.status === 'solved' && e.solved_at && dateKey(new Date(parseTs(e.solved_at))) === todayKey
+  )).length;
+  const onPause = emails.filter(e => e.status === 'on_pause').length;
+  const mailFooter = [
+    mailQueue.length > CARD_ROWS ? `${mailQueue.length - CARD_ROWS} ${tr('homeMore')}` : null,
+    `${solvedToday} ${tr('homeSolvedToday')}`,
+    onPause ? `${onPause} ${tr('homeOnPause')}` : null,
+  ].filter(Boolean).join(' · ');
+
+  /* — render — */
 
   return (
     <div className="fade-in" style={{
-      maxWidth: 1240, margin: '0 auto', paddingTop: 20,
-      display: 'flex', flexDirection: 'column', gap: 40,
+      maxWidth: 1240, margin: '0 auto', padding: '28px 32px 72px',
+      display: 'flex', flexDirection: 'column', gap: 28, fontFamily: 'var(--font-sans)',
     }}>
       {/* 1. Status hero */}
-      <section style={{
-        display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 320px',
-        gap: 40, alignItems: 'start',
-      }} className="home-hero">
+      <section className="home-hero" style={{
+        display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 300px', gap: 32, alignItems: 'start',
+      }}>
         <div style={{ minWidth: 0 }}>
-          <Eyebrow>
-            {todayLabel} · {userNow.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
-          </Eyebrow>
+          <div style={{
+            fontSize: 11, fontWeight: 600, textTransform: 'uppercase',
+            letterSpacing: '.08em', color: 'var(--text-muted)',
+          }}>
+            {userNow.toLocaleDateString(locale, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+            {' · '}
+            <span style={MONO}>{userNow.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span>
+          </div>
+
           <h1 style={{
-            margin: '10px 0 14px', fontSize: 40, fontWeight: 400,
-            letterSpacing: '-0.025em', lineHeight: 1.1, color: 'var(--text)',
+            margin: '6px 0 0', fontFamily: 'var(--font-sans)', fontSize: 28, fontWeight: 600,
+            letterSpacing: '-0.02em', lineHeight: 1.2, color: 'var(--text)',
           }}>
             {greetingFor(userNow, lang)}, <span style={{ color: 'var(--accent)' }}>{displayName}</span>.
           </h1>
+
           <p style={{
-            margin: 0, fontSize: 20, lineHeight: 1.45, color: 'var(--text-secondary)', maxWidth: '30ch',
+            margin: '10px 0 0', fontSize: 17, lineHeight: 1.5,
+            color: 'var(--text-secondary)', maxWidth: '54ch', textWrap: 'pretty',
           }}>
-            {clause(downCount, 'homePlSvcDown', 'homeVAllUp', true)}, {clause(openTickets.length, 'homePlTicketOpen', 'homeVNoTickets')}, {clause(mailQueue.length, 'homePlMailUnchecked', 'homeVMailClear')} — {tr('homeVAnd')} {myShiftNow
+            {clause(downTargets.length, 'homePlSvcDown', 'homeVAllUp', true)}, {clause(openTickets.length, 'homePlTicketOpen', 'homeVNoTickets')}, {clause(mailQueue.length, 'homePlMailUnchecked', 'homeVMailClear')} — {tr('homeVAnd')} {myShiftNow
               ? `${tr('homeVOnShift')} ${shiftUntil}`
               : tr('homeVOffShift')}.
           </p>
-          <div style={{ display: 'flex', gap: 10, marginTop: 22 }}>
-            <Button variant="primary" icon="mail" onClick={() => onNavigate?.('mail')}>{tr('homeOpenMail')}</Button>
-            <Button icon="calendar" onClick={() => onNavigate?.('schedule')}>{tr('homeMyShifts')}</Button>
+
+          <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
+            <HeroButton primary onClick={() => onNavigate?.('mail')}>📧 {tr('homeOpenMail')}</HeroButton>
+            <HeroButton onClick={() => onNavigate?.('schedule')}>📅 {tr('homeMyShifts')}</HeroButton>
           </div>
         </div>
 
         {/* Your shift rail */}
-        <div style={{
-          border: '1px solid var(--border)', borderRadius: 'var(--radius)',
-          background: 'var(--surface)', padding: '14px 16px', minWidth: 0,
-        }}>
-          <Eyebrow>{tr('homeYourShift')}</Eyebrow>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '12px 0 14px' }}>
-            <Avatar name={displayName} color={user?.name_color} />
-            <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
-                {myShiftNow ? `${tr('homeOnShift')} · ${tr('homeUntil')} ${shiftUntil}` : tr('homeOffShiftToday')}
-              </div>
-              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
-                {myShiftNow
-                  ? tr(`shift_${myShiftNow.shift_type}`)
-                  : (myNextShift ? `${tr('homeNextOn')} ${myNextShift.date}` : tr('homeNoShiftNextDays'))}
+        <CardShell>
+          <div style={{
+            padding: '10px 14px', borderBottom: '1px solid var(--border-light)',
+            fontSize: 10, fontWeight: 600, textTransform: 'uppercase',
+            letterSpacing: '.1em', color: 'var(--text-muted)',
+          }}>{tr('homeYourShift')}</div>
+
+          <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <AvatarChip name={displayName} color={user?.name_color} size={30} />
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
+                  {myShiftNow ? `${tr('homeOnShift')} · ${tr('homeUntil')} ${shiftUntil}` : tr('homeOffShiftToday')}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                  {myShiftNow
+                    ? tr(`shift_${myShiftNow.shift_type}`)
+                    : (daysToNextShift != null
+                      ? `${tr('homeNextIn')} ${daysToNextShift} ${daysToNextShift === 1 ? tr('homeDay') : tr('homeDays')}`
+                      : tr('homeNoShiftNextDays'))}
+                </div>
               </div>
             </div>
+
+            {/* Only rows whose value is actually known — never a column of em dashes. */}
+            {(myNextShift || onNowShift || nextUpShift) && <>
+              <div style={{ height: 1, background: 'var(--border-light)' }} />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {myNextShift && (
+                  <RailRow
+                    label={tr('homeYourNextShift')}
+                    mono
+                    value={`${myNextShift.date} ${fmtShiftTime(myNextShift.start_time, myNextShift.date, user?.timezone)}`}
+                  />
+                )}
+                {onNowShift && (
+                  <RailRow label={tr('homeOnNow')} value={onNowShift.user?.display_name || tr('homeAssignedEngineer')} />
+                )}
+                {nextUpShift && (
+                  <RailRow label={tr('homeNextUp')} value={nextUpShift.user?.display_name || tr('homeAssignedEngineer')} />
+                )}
+              </div>
+            </>}
+
+            <LinkButton size={12} weight={600} color="var(--accent)" onClick={() => onNavigate?.('schedule')}>
+              {tr('homeOpenSchedule')} →
+            </LinkButton>
           </div>
-          <div style={{ height: 1, background: 'var(--border-light)', margin: '0 0 8px' }} />
-          <RailRow
-            label={tr('homeYourNextShift')}
-            value={myNextShift
-              ? `${myNextShift.date} · ${fmtShiftTime(myNextShift.start_time, myNextShift.date, user?.timezone)}`
-              : '—'}
-          />
-          <RailRow
-            label={tr('homeOnNow')}
-            value={onNowShift ? (onNowShift.user?.display_name || tr('homeAssignedEngineer')) : '—'}
-          />
-          <RailRow
-            label={tr('homeNextUp')}
-            value={nextUpShift
-              ? `${nextUpShift.user?.display_name || tr('homeAssignedEngineer')} · ${fmtShiftTime(nextUpShift.start_time, nextUpShift.date, user?.timezone)}`
-              : '—'}
-          />
-          <div style={{ height: 1, background: 'var(--border-light)', margin: '8px 0' }} />
-          <button onClick={() => onNavigate?.('schedule')} style={{
-            background: 'none', border: 'none', padding: 0, cursor: 'pointer',
-            fontFamily: 'inherit', fontSize: 12, color: 'var(--text-muted)',
-          }}>{tr('homeOpenSchedule')} →</button>
-        </div>
+        </CardShell>
       </section>
 
       {/* 2. Needs attention */}
       <section>
-        <SectionHead title={tr('homeAttention')} count={loading ? '—' : attnTotal} />
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 16 }}>
+          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, letterSpacing: '-0.01em', color: 'var(--text)' }}>
+            {tr('homeAttention')}
+          </h2>
+          <Mono size={13}>{loading ? '' : `${attnTotal} ${tr('homeItems')}`}</Mono>
+        </div>
+
         <div className="home-queues" style={{
-          display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-          gap: 16, alignItems: 'stretch',
+          display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 16, alignItems: 'stretch',
         }}>
           <QueueCard
-            label={tr('homeQueueServices')}
-            count={serviceIssues.length}
-            tone={downCount > 0 ? 'var(--danger)' : serviceIssues.length ? 'var(--text-muted)' : 'var(--success)'}
-            allLabel={`${tr('homeAll')} ${statusSummary?.total ?? ''}`.trim()}
-            onAll={() => onNavigate?.('status')}
+            dot={downTargets.length ? 'var(--danger)' : 'var(--success)'}
+            title={tr('homeQueueServices')}
+            count={downTargets.length}
+            link={`${tr('homeAll')} ${totalTargets}`}
+            onLink={() => onNavigate?.('status')}
             rows={serviceRows}
-            footer={tailFooter(serviceIssues, serviceIssues[serviceIssues.length - 1]?.in_state_seconds)}
-            emptyTitle={tr('homeAllClear')}
+            footer={serviceFooter}
             emptyLine={`${tr('homeServicesClearLine')} ${freshness}`}
           />
           <QueueCard
-            label={tr('homeQueueTickets')}
+            dot={openTickets.length ? 'var(--text-muted)' : 'var(--success)'}
+            title={tr('homeQueueTickets')}
             count={openTickets.length}
-            tone={openTickets.length ? 'var(--text-muted)' : 'var(--success)'}
-            allLabel={`${tr('homeAll')} ${tickets.length}`}
-            onAll={() => onNavigate?.('tickets')}
+            link={`${tr('homeAll')} ${tickets.length}`}
+            onLink={() => onNavigate?.('tickets')}
             rows={ticketRows}
-            footer={tailFooter(openTickets, ageSince(openTickets[openTickets.length - 1]?.zammad_created_at))}
-            emptyTitle={tr('homeAllClear')}
+            footer={ticketFooter}
             emptyLine={`${tr('homeTicketsClearLine')} ${freshness}`}
           />
           <QueueCard
-            label={tr('homeQueueMail')}
+            dot={mailQueue.length ? 'var(--text-muted)' : 'var(--success)'}
+            title={tr('homeQueueMail')}
             count={mailQueue.length}
-            tone={mailQueue.length ? 'var(--text-muted)' : 'var(--success)'}
-            allLabel={`${tr('homeAll')} ${emails.length}`}
-            onAll={() => onNavigate?.('mail')}
+            link={`${tr('homeAll')} ${emails.length}`}
+            onLink={() => onNavigate?.('mail')}
             rows={mailRows}
-            footer={tailFooter(mailQueue, ageSince(mailQueue[mailQueue.length - 1]?.created_at))}
-            emptyTitle={tr('homeAllClear')}
+            footer={mailFooter}
             emptyLine={`${tr('homeMailClearLine')} ${freshness}`}
           />
         </div>
       </section>
 
-      {/* 3. Team on shift today */}
-      <section>
-        <SectionHead
-          title={tr('homeTeamToday')}
-          count={todayShifts.length || null}
-          linkLabel={tr('schedule')}
-          onLink={() => onNavigate?.('schedule')}
-        />
-        <div style={{
-          border: '1px solid var(--border)', borderRadius: 'var(--radius)',
-          background: 'var(--surface)', display: 'grid',
-          gridTemplateColumns: `repeat(${Math.max(1, Math.min(3, todayShifts.length || 1))}, minmax(0, 1fr))`,
-        }} className="home-team">
-          {todayShifts.length === 0 ? (
-            <div style={{ padding: '22px 16px', textAlign: 'center', fontSize: 13, color: 'var(--text-muted)' }}>
-              {tr('homeNobodyToday')}
-            </div>
-          ) : todayShifts.slice(0, 3).map((s, i) => (
-            <div key={s.id || i} style={{
-              display: 'flex', alignItems: 'center', gap: 10, padding: '14px 16px', minWidth: 0,
-              borderLeft: i === 0 ? 'none' : '1px solid var(--border-light)',
+      {/* 3. Team on shift today — no height reserved when nobody is working */}
+      {todayShifts.length > 0 && (
+        <section>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 16 }}>
+            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, letterSpacing: '-0.01em', color: 'var(--text)' }}>
+              {tr('homeTeamToday')}
+            </h2>
+            <span style={{ flex: 1 }} />
+            <LinkButton size={12} weight={600} onClick={() => onNavigate?.('schedule')}>{tr('schedule')} →</LinkButton>
+          </div>
+          <CardShell>
+            <div className="home-team" style={{
+              display: 'grid', gridTemplateColumns: `repeat(${todayShifts.length}, minmax(0, 1fr))`,
             }}>
-              <Avatar name={s.user?.display_name || '—'} color={s.user?.name_color} />
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <div style={{
-                  fontSize: 13, fontWeight: 500, color: 'var(--text)',
-                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                }}>{s.user?.display_name || tr('homeAssignedEngineer')}</div>
-                <Mono size={11}>
-                  {fmtShiftTime(s.start_time, s.date, user?.timezone)}–{fmtShiftTime(s.end_time, s.date, user?.timezone)}
-                </Mono>
-              </div>
-              <span style={{
-                fontSize: 10, textTransform: 'uppercase', letterSpacing: '.06em',
-                color: 'var(--text-muted)', border: '1px solid var(--border)',
-                borderRadius: 'var(--radius-sm)', padding: '2px 6px', whiteSpace: 'nowrap',
-              }}>{tr(`shift_${s.shift_type}`)}</span>
+              {todayShifts.map((s, i) => (
+                <div key={s.id || i} style={{
+                  display: 'flex', alignItems: 'center', gap: 12, padding: 18, minWidth: 0,
+                  borderLeft: i === 0 ? 'none' : '1px solid var(--border-light)',
+                }}>
+                  <AvatarChip name={s.user?.display_name} color={s.user?.name_color} size={32} />
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{
+                      fontSize: 13, fontWeight: 600, color: 'var(--text)',
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    }}>{s.user?.display_name || tr('homeAssignedEngineer')}</div>
+                    <Mono size={11}>
+                      {fmtShiftTime(s.start_time, s.date, user?.timezone)}–{fmtShiftTime(s.end_time, s.date, user?.timezone)}
+                    </Mono>
+                  </div>
+                  <span style={{ flex: 1 }} />
+                  <span style={{
+                    fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.06em',
+                    color: 'var(--text-muted)', border: '1px solid var(--border)',
+                    borderRadius: 'var(--radius-sm)', padding: '3px 7px', whiteSpace: 'nowrap',
+                  }}>{tr(`shift_${s.shift_type}`)}</span>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-      </section>
+          </CardShell>
+        </section>
+      )}
 
       {/* 4. Reminders + this week */}
       <section className="home-bottom" style={{
         display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 16, alignItems: 'stretch',
       }}>
-        <QueueCard
-          label={tr('reminders')}
-          count={reminders.length}
-          tone={reminders.length ? 'var(--text-muted)' : 'var(--success)'}
-          allLabel={tr('homeAdd')}
-          onAll={() => onNavigate?.('reminders')}
-          rows={reminders.slice(0, CARD_ROWS).map(r => ({
-            key: r.id,
-            title: r.title || '—',
-            sub: new Date(parseTs(r.remind_at)).toLocaleString(locale, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }),
-            value: fmtAge((parseTs(r.remind_at) - Date.now()) / 1000),
-            onClick: () => onNavigate?.('reminders'),
-          }))}
-          footer={tailFooter(reminders, null)}
-          emptyTitle={tr('homeAllClear')}
-          emptyLine={`${tr('homeRemindersClearLine')} ${freshness}`}
-        />
-
-        <div style={{
-          border: '1px solid var(--border)', borderRadius: 'var(--radius)',
-          background: 'var(--surface)', minHeight: CARD_MIN_HEIGHT,
-          display: 'flex', flexDirection: 'column',
-        }}>
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 8,
-            padding: '12px 14px', borderBottom: '1px solid var(--border-light)',
-          }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{tr('homeThisWeek')}</span>
-            <span style={{ flex: 1 }} />
-            <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', overflow: 'hidden' }}>
-              {[['mine', tr('homeScopeMine')], ['team', tr('homeScopeTeam')]].map(([id, label]) => (
-                <button
-                  key={id}
-                  onClick={() => setWeekScope(id)}
-                  style={{
-                    background: weekScope === id ? 'var(--surface-alt)' : 'transparent',
-                    border: 'none', padding: '3px 10px', cursor: 'pointer', fontFamily: 'inherit',
-                    fontSize: 11, color: weekScope === id ? 'var(--text)' : 'var(--text-muted)',
-                  }}
-                >{label}</button>
+        <CardShell>
+          <CardHeader
+            dot="var(--success)"
+            title={tr('reminders')}
+            count={reminders.length}
+            link={tr('homeAdd')}
+            onLink={() => onNavigate?.('reminders')}
+          />
+          {reminders.length === 0 ? (
+            <div style={{ padding: 16, display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+              <span style={{ fontSize: 16, lineHeight: 1.2 }}>✨</span>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{tr('homeAllClear')}</div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{tr('homeRemindersClearLine')}</div>
+              </div>
+            </div>
+          ) : (
+            <div style={{ padding: '4px 0' }}>
+              {reminders.slice(0, CARD_ROWS).map(r => (
+                <QueueRow
+                  key={r.id}
+                  title={r.title || ''}
+                  sub={new Date(parseTs(r.remind_at)).toLocaleString(locale, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                  value={fmtAge((parseTs(r.remind_at) - Date.now()) / 1000) || ''}
+                  onClick={() => onNavigate?.('reminders')}
+                />
               ))}
             </div>
-          </div>
-          <div style={{
-            flex: 1, display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-          }}>
-            {[
-              [recap.ticketsClosed, tr('homeRecapTickets')],
-              [recap.mailHandled, tr('homeRecapMail')],
-              [recap.shifts, tr('homeRecapShifts')],
-            ].map(([value, label], i) => (
-              <div key={label} style={{
-                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                gap: 6, padding: 14,
-                borderLeft: i ? '1px solid var(--border-light)' : 'none',
+          )}
+        </CardShell>
+
+        <CardShell>
+          <CardHeader
+            title={tr('homeThisWeek')}
+            extra={<>
+              <Mono size={12}>{weekRange}</Mono>
+              <div style={{
+                display: 'flex', gap: 2, padding: 2, marginLeft: 10,
+                background: 'var(--surface-sunken)', borderRadius: 'var(--radius-sm)',
               }}>
-                <span style={{ fontFamily: 'var(--font-display)', fontSize: 34, fontWeight: 500, color: 'var(--text)', lineHeight: 1 }}>{value}</span>
-                <span style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'center' }}>{label}</span>
+                {[['mine', tr('homeScopeMine')], ['team', tr('homeScopeTeam')]].map(([id, label]) => (
+                  <button
+                    key={id}
+                    onClick={() => setWeekScope(id)}
+                    style={{
+                      background: weekScope === id ? 'var(--surface)' : 'transparent',
+                      border: 'none', borderRadius: 'var(--radius-sm)', padding: '3px 9px',
+                      cursor: 'pointer', fontFamily: 'var(--font-sans)', fontSize: 11, fontWeight: 600,
+                      color: weekScope === id ? 'var(--text)' : 'var(--text-muted)',
+                    }}
+                  >{label}</button>
+                ))}
               </div>
-            ))}
+            </>}
+          />
+          <div style={{ padding: '8px 0' }}>
+            {recap.map(row => {
+              const delta = row.value - row.prev;
+              return (
+                <div key={row.key} style={{
+                  display: 'grid', gridTemplateColumns: '52px minmax(0, 1fr) auto',
+                  gap: 12, alignItems: 'center', padding: '8px 16px',
+                }}>
+                  <span style={{ ...MONO, fontSize: 17, fontWeight: 500, color: 'var(--text)', textAlign: 'left' }}>
+                    {row.value}
+                  </span>
+                  <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{row.label}</span>
+                  <Mono size={11}>
+                    {delta === 0 ? tr('homeOnTrack') : `${delta > 0 ? '+' : '−'}${Math.abs(delta)} ${tr('homeVsLastWk')}`}
+                  </Mono>
+                </div>
+              );
+            })}
           </div>
-        </div>
+        </CardShell>
       </section>
 
       {error && <div style={{ fontSize: 12, color: 'var(--danger)' }}>{error}</div>}
