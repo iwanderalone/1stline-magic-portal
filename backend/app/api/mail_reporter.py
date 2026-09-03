@@ -1,5 +1,6 @@
 """Mail Reporter API — CRUD for mailbox configs + email log viewer."""
 import asyncio
+import json
 import logging
 from datetime import datetime, timezone
 from typing import Optional
@@ -16,6 +17,7 @@ from app.schemas.schemas import (
     EmailLogDetailResponse, EmailLogUpdate, EmailCommentCreate, EmailCommentResponse,
     EmailReplyCreate, EmailReplyResponse,
     MailRoutingRuleCreate, MailRoutingRuleUpdate, MailRoutingRuleResponse,
+    MailRuleTestRequest, MailRuleTestResponse,
 )
 from app.services.smtp_service import send_reply, extract_address, SmtpError
 from app.services.mail_reporter_service import (
@@ -294,13 +296,24 @@ async def list_rules(
     return result.scalars().all()
 
 
+def _stored(updates: dict) -> dict:
+    """Conditions and the notify list are lists on the wire, JSON text in the DB."""
+    if "conditions" in updates:
+        conditions = updates["conditions"]
+        updates["conditions"] = json.dumps(conditions, ensure_ascii=False) if conditions else None
+    if "notify_user_ids" in updates:
+        ids = updates["notify_user_ids"]
+        updates["notify_user_ids"] = json.dumps([str(i) for i in ids]) if ids else None
+    return updates
+
+
 @router.post("/rules", response_model=MailRoutingRuleResponse, status_code=201)
 async def create_rule(
     body: MailRoutingRuleCreate,
     db: AsyncSession = Depends(get_db),
     _=Depends(require_admin_or_manager),
 ):
-    rule = MailRoutingRule(**body.model_dump(), is_builtin=False)
+    rule = MailRoutingRule(**_stored(body.model_dump(mode="json")), is_builtin=False)
     db.add(rule)
     await db.commit()
     await db.refresh(rule)
@@ -317,12 +330,12 @@ async def update_rule(
 ):
     rule = await get_or_404(db, MailRoutingRule, rule_id)
 
-    updates = body.model_dump(exclude_unset=True)
+    updates = _stored(body.model_dump(exclude_unset=True, mode="json"))
 
     # General built-in is a pure catch-all — match conditions don't apply to it.
     # All other built-in rules can have custom match_values to extend detection.
     if rule.is_builtin and rule.builtin_key == "general":
-        forbidden = {"match_type", "match_values", "priority"}
+        forbidden = {"match_type", "match_values", "conditions", "match_mode", "priority"}
         blocked = forbidden & set(updates.keys())
         if blocked:
             raise HTTPException(
@@ -338,6 +351,35 @@ async def update_rule(
     await db.refresh(rule)
     logger.info(f"[mail-reporter] Rule updated: {rule.name}")
     return rule
+
+
+@router.post(
+    "/rules/test",
+    response_model=MailRuleTestResponse,
+    summary="Try conditions against a sample email",
+    description=(
+        "Evaluates a rule's conditions without saving anything, returning the "
+        "overall verdict plus the result of each condition in order — so a rule "
+        "can be checked against a real subject/body before it goes live."
+    ),
+)
+async def test_rule(
+    body: MailRuleTestRequest,
+    _=Depends(require_admin_or_manager),
+):
+    from app.services.mail_rules import evaluate
+
+    conditions = [c.model_dump() for c in body.conditions]
+    per_condition = [
+        evaluate([c], "all", subject=body.subject, body=body.body,
+                 sender=body.sender, recipient=body.recipient)
+        for c in conditions
+    ]
+    return MailRuleTestResponse(
+        matched=evaluate(conditions, body.match_mode, subject=body.subject, body=body.body,
+                         sender=body.sender, recipient=body.recipient),
+        results=per_condition,
+    )
 
 
 @router.delete("/rules/{rule_id}")

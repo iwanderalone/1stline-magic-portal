@@ -24,6 +24,171 @@ const MATCH_TYPE_LABELS = {
   sender_domain: 'Sender domain',
 };
 
+// Condition builder vocabulary. Matching is substring-based and folds case and
+// ё/е, so a fragment finds the inflected word in either language.
+const COND_FIELDS = {
+  subject: 'Subject',
+  body: 'Body',
+  sender: 'Sender',
+  recipient: 'Recipient',
+  any: 'Anywhere',
+};
+const COND_OPS = {
+  contains: 'contains',
+  not_contains: 'does not contain',
+  starts_with: 'starts with',
+  ends_with: 'ends with',
+  equals: 'equals',
+  regex: 'matches regex',
+};
+
+const SELECT_STYLE = {
+  padding: '8px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)',
+  background: 'var(--surface-alt)', color: 'var(--text)', fontFamily: 'inherit', fontSize: 13,
+};
+
+/** if/then condition list with a live test against a sample email. */
+function ConditionEditor({ conditions, mode, onChange, onMode }) {
+  const [sample, setSample] = useState({ subject: '', body: '', sender: '' });
+  const [result, setResult] = useState(null);
+  const [testing, setTesting] = useState(false);
+
+  const update = (i, key) => e => onChange(conditions.map((c, idx) => (
+    idx === i ? { ...c, [key]: e.target.value } : c
+  )));
+  const remove = i => () => onChange(conditions.filter((_, idx) => idx !== i));
+  const add = () => onChange([...conditions, { field: 'subject', op: 'contains', value: '' }]);
+
+  async function runTest() {
+    setTesting(true);
+    setResult(null);
+    try {
+      const usable = conditions.filter(c => (c.value || '').trim());
+      if (!usable.length) { setResult({ error: 'Add a condition with a value first' }); return; }
+      setResult(await api('/mail-reporter/rules/test', {
+        method: 'POST',
+        body: JSON.stringify({ conditions: usable, match_mode: mode, ...sample }),
+      }));
+    } catch (e) {
+      setResult({ error: e.message || 'Test failed' });
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <label className="t-eyebrow" style={{ margin: 0 }}>Conditions</label>
+        <select style={{ ...SELECT_STYLE, padding: '3px 8px', fontSize: 12 }} value={mode} onChange={e => onMode(e.target.value)}>
+          <option value="all">match ALL of</option>
+          <option value="any">match ANY of</option>
+        </select>
+      </div>
+
+      {conditions.length === 0 && (
+        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+          No conditions — this rule will not match anything until you add one.
+        </div>
+      )}
+
+      {conditions.map((c, i) => (
+        <div key={i} style={{ display: 'grid', gridTemplateColumns: '112px 140px 1fr auto', gap: 6, alignItems: 'center' }}>
+          <select style={SELECT_STYLE} value={c.field} onChange={update(i, 'field')}>
+            {Object.entries(COND_FIELDS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+          <select style={SELECT_STYLE} value={c.op} onChange={update(i, 'op')}>
+            {Object.entries(COND_OPS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+          <Input value={c.value} onChange={update(i, 'value')} placeholder={c.op === 'regex' ? 'счёт\\s*№\\s*\\d+' : 'счёт, invoic, …'} />
+          <button type="button" onClick={remove(i)} title="Remove" style={{
+            background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)',
+            fontSize: 16, padding: '0 4px',
+          }}>×</button>
+          {result?.results?.[i] != null && (
+            <div style={{ gridColumn: '1 / -1', fontSize: 11, marginTop: -4,
+              color: result.results[i] ? 'var(--success)' : 'var(--text-muted)' }}>
+              {result.results[i] ? '✓ matches the sample' : '· no match in the sample'}
+            </div>
+          )}
+        </div>
+      ))}
+
+      <div>
+        <Button type="button" variant="ghost" onClick={add}>+ Add condition</Button>
+      </div>
+
+      <details style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '8px 10px' }}>
+        <summary style={{ cursor: 'pointer', fontSize: 12, color: 'var(--text-muted)' }}>
+          Test against a sample email
+        </summary>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
+          <Input label="Subject" value={sample.subject} onChange={e => setSample(s => ({ ...s, subject: e.target.value }))} />
+          <Input label="Sender" value={sample.sender} onChange={e => setSample(s => ({ ...s, sender: e.target.value }))} />
+          <Input label="Body" value={sample.body} onChange={e => setSample(s => ({ ...s, body: e.target.value }))} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <Button type="button" variant="ghost" onClick={runTest} disabled={testing}>
+              {testing ? '…' : 'Test'}
+            </Button>
+            {result?.error && <span style={{ fontSize: 12, color: 'var(--danger)' }}>{result.error}</span>}
+            {result && !result.error && (
+              <span style={{ fontSize: 13, fontWeight: 600, color: result.matched ? 'var(--success)' : 'var(--text-muted)' }}>
+                {result.matched ? 'Rule matches' : 'Rule does not match'}
+              </span>
+            )}
+          </div>
+        </div>
+      </details>
+    </div>
+  );
+}
+
+/** Portal users to DM when the rule fires — needs a linked Telegram account. */
+function NotifyPicker({ selected, onChange }) {
+  const [users, setUsers] = useState([]);
+  useEffect(() => { api('/users').then(d => setUsers(d || [])).catch(() => {}); }, []);
+
+  const toggle = (id) => () => onChange(
+    selected.includes(id) ? selected.filter(x => x !== id) : [...selected, id]
+  );
+
+  if (!users.length) return null;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <label className="t-eyebrow" style={{ margin: 0 }}>Notify in Telegram</label>
+      <div style={{
+        display: 'flex', flexWrap: 'wrap', gap: 6, maxHeight: 128, overflowY: 'auto',
+        border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: 8,
+      }}>
+        {users.map(u => {
+          const linked = !!u.telegram_chat_id;
+          const on = selected.includes(u.id);
+          return (
+            <button
+              key={u.id}
+              type="button"
+              onClick={toggle(u.id)}
+              disabled={!linked}
+              title={linked ? '' : 'No Telegram account linked — this user cannot be notified'}
+              style={{
+                padding: '3px 9px', fontSize: 12, cursor: linked ? 'pointer' : 'not-allowed',
+                borderRadius: 'var(--radius-sm)', fontFamily: 'inherit',
+                border: `1px solid ${on ? 'var(--accent)' : 'var(--border)'}`,
+                background: on ? 'var(--accent)' : 'transparent',
+                color: on ? 'var(--accent-on)' : (linked ? 'var(--text-secondary)' : 'var(--text-muted)'),
+                opacity: linked ? 1 : 0.55,
+              }}
+            >{u.display_name || u.username}{linked ? '' : ' · no TG'}</button>
+          );
+        })}
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+        Each selected user gets a direct message. Mentions above only tag people in the channel post.
+      </div>
+    </div>
+  );
+}
+
 // --- Helpers ---
 
 function toUtc(dt) {
@@ -185,6 +350,16 @@ function RuleModal({ rule, onClose, onSave, mailboxes = [] }) {
   const matchLocked = isBuiltin && isGeneral;
 
   const parsedTg = parseTelegramTarget(rule?.telegram_target);
+  // A rule matches either through the condition list or the older single-field
+  // pair. Existing rules open in whichever form they were written in.
+  const [useConditions, setUseConditions] = useState(
+    (rule?.conditions?.length ?? 0) > 0 || !isEdit
+  );
+  const [conditions, setConditions] = useState(
+    rule?.conditions?.length ? rule.conditions : [{ field: 'subject', op: 'contains', value: '' }]
+  );
+  const [matchMode, setMatchMode] = useState(rule?.match_mode || 'all');
+  const [notifyIds, setNotifyIds] = useState(rule?.notify_user_ids || []);
   const [form, setForm] = useState({
     name: rule?.name || '',
     match_type: rule?.match_type || 'keyword',
@@ -212,11 +387,24 @@ function RuleModal({ rule, onClose, onSave, mailboxes = [] }) {
   async function submit(e) {
     e.preventDefault(); setSaving(true); setErr('');
     const telegram_target = buildTelegramTarget(tgChatId, tgThreadId) || null;
-    const payload = { ...form, priority: Number(form.priority), telegram_target, mailbox_id: form.mailbox_id || null };
+    const usableConditions = conditions.filter(c => (c.value || '').trim());
+    const payload = {
+      ...form,
+      priority: Number(form.priority),
+      telegram_target,
+      mailbox_id: form.mailbox_id || null,
+      notify_user_ids: notifyIds,
+      // Sending an empty list clears conditions, so the legacy pair takes over.
+      conditions: useConditions ? usableConditions : [],
+      match_mode: matchMode,
+    };
+    if (useConditions) {
+      payload.match_values = '';
+    }
 
     if (isBuiltin) {
       const body = isGeneral
-        ? (() => { const { name, match_type, match_values, priority, mailbox_id, ...d } = payload; return d; })()
+        ? (() => { const { name, match_type, match_values, conditions, match_mode, priority, mailbox_id, ...d } = payload; return d; })()
         : (() => { const { ...d } = payload; return d; })();
       try {
         const result = await api(`/mail-reporter/rules/${rule.id}`, { method: 'PATCH', body: JSON.stringify(body) });
@@ -270,18 +458,48 @@ function RuleModal({ rule, onClose, onSave, mailboxes = [] }) {
           </span>
         </label>
         <TelegramTargetFields chatId={tgChatId} threadId={tgThreadId} onChatId={setTgChatId} onThreadId={setTgThreadId} templates={templates} />
+        <NotifyPicker selected={notifyIds} onChange={setNotifyIds} />
         {!matchLocked && (
           <>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                <label className="t-eyebrow">Match type</label>
-                <select style={{ padding: '8px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', background: 'var(--surface-alt)', color: 'var(--text)' }} value={form.match_type} onChange={set('match_type')}>
-                  {Object.entries(MATCH_TYPE_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                </select>
+            <div style={{ display: 'flex', gap: 6 }}>
+              {[[true, 'Conditions'], [false, 'Simple keywords']].map(([mode, label]) => (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => setUseConditions(mode)}
+                  style={{
+                    padding: '4px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                    borderRadius: 'var(--radius-sm)', fontFamily: 'inherit',
+                    border: `1px solid ${useConditions === mode ? 'var(--accent)' : 'var(--border)'}`,
+                    background: useConditions === mode ? 'var(--accent)' : 'transparent',
+                    color: useConditions === mode ? 'var(--accent-on)' : 'var(--text-muted)',
+                  }}
+                >{label}</button>
+              ))}
+              <span style={{ flex: 1 }} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <label className="t-eyebrow" style={{ margin: 0 }}>Priority</label>
+                <Input type="number" value={form.priority} onChange={set('priority')} style={{ width: 72 }} />
               </div>
-              <Input label="Priority" type="number" value={form.priority} onChange={set('priority')} />
             </div>
-            <Input label="Match values (comma-separated)" value={form.match_values} onChange={set('match_values')} placeholder="keyword1, keyword2" />
+            {useConditions ? (
+              <ConditionEditor
+                conditions={conditions}
+                mode={matchMode}
+                onChange={setConditions}
+                onMode={setMatchMode}
+              />
+            ) : (
+              <>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                  <label className="t-eyebrow">Match type</label>
+                  <select style={SELECT_STYLE} value={form.match_type} onChange={set('match_type')}>
+                    {Object.entries(MATCH_TYPE_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                  </select>
+                </div>
+                <Input label="Match values (comma-separated)" value={form.match_values} onChange={set('match_values')} placeholder="keyword1, keyword2" />
+              </>
+            )}
           </>
         )}
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
