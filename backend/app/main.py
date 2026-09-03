@@ -27,6 +27,7 @@ from app.api import runbooks
 from app.api import tools
 from app.api import tickets
 from app.api import alerts
+from app.api import status as status_api
 from app.api import assistant
 from app.api import sso
 from app.api import settings as settings_api
@@ -403,6 +404,7 @@ app.include_router(mail_reporter.router, prefix="/api")
 app.include_router(runbooks.router, prefix="/api")
 app.include_router(tickets.router, prefix="/api")
 app.include_router(alerts.router, prefix="/api")
+app.include_router(status_api.router, prefix="/api")
 app.include_router(assistant.router, prefix="/api")
 app.include_router(tools.router, prefix="/api")
 app.include_router(settings_api.router, prefix="/api")

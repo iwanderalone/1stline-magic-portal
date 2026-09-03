@@ -27,6 +27,7 @@ export default function CommandPalette({ open, onClose, navigate, user }) {
     { id: 'schedule',  label: tr('schedule'),    icon: 'calendar', hint: tr('cmdHintSchedule') },
     { id: 'mail',      label: tr('mailReporter'), icon: 'mail',    hint: tr('cmdHintMail') },
     { id: 'tickets',   label: 'Tickets',          icon: 'ticket',  hint: tr('cmdHintTickets') },
+    { id: 'status',    label: tr('stTitle'),      icon: 'server',  hint: tr('stSubtitle') },
     { id: 'runbooks',  label: tr('cmdRunbooksSection'), icon: 'bookmark', hint: tr('cmdHintRunbooks') },
     { id: 'timeoff',   label: tr('timeOff'),      icon: 'sun',     hint: tr('cmdHintTimeoff') },
     { id: 'reminders', label: tr('reminders'),    icon: 'bell',    hint: tr('cmdHintReminders') },
