@@ -192,7 +192,7 @@ function AllClear({ line }) {
   return (
     <div style={{
       flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center',
-      justifyContent: 'center', gap: 8, padding: 24, textAlign: 'center',
+      justifyContent: 'center', gap: 8, padding: 24, textAlign: 'center', minWidth: 0,
     }}>
       <span style={{ fontSize: 22 }}>✨</span>
       <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{tr('homeAllClear')}</div>
@@ -229,24 +229,24 @@ function QueueRow({ title, sub, value, valueTone, onClick }) {
 }
 
 function QueueCard({ dot, title, count, link, onLink, rows, footer, emptyLine }) {
+  const empty = rows.length === 0;
   return (
-    <CardShell style={{ minHeight: CARD_MIN_HEIGHT }}>
+    // The 276px floor is what keeps an all-clear column present. A populated
+    // card takes its content's height instead — the grid is align-items:start,
+    // so a ragged bottom edge is correct and there is never a void between the
+    // last row and the footer.
+    <CardShell style={empty ? { minHeight: CARD_MIN_HEIGHT } : null}>
       <CardHeader dot={dot} title={title} count={count} link={link} onLink={onLink} />
-      {rows.length === 0 ? (
-        <AllClear line={emptyLine} />
-      ) : (
-        <>
-          <div style={{ padding: '4px 0' }}>
-            {rows.map(row => <QueueRow key={row.key} {...row} />)}
-          </div>
-          <div style={{ flex: 1 }} />
-          {footer && (
-            <div style={{
-              padding: '12px 16px', borderTop: '1px solid var(--border-light)',
-              fontSize: 12, color: 'var(--text-muted)',
-            }}>{footer}</div>
-          )}
-        </>
+      {empty ? <AllClear line={emptyLine} /> : (
+        <div style={{ padding: '4px 0' }}>
+          {rows.map(row => <QueueRow key={row.key} {...row} />)}
+        </div>
+      )}
+      {footer && (
+        <div style={{
+          padding: '12px 16px', borderTop: '1px solid var(--border-light)',
+          fontSize: 12, color: 'var(--text-muted)',
+        }}>{footer}</div>
       )}
     </CardShell>
   );
@@ -467,9 +467,11 @@ export default function HomePage({ user, onNavigate }) {
     if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return tr(`${key}2`);
     return tr(`${key}5`);
   };
+  // The whole fact is bold and coloured — "3 services down", not a red 3
+  // followed by grey words, which reads like a typo.
   const clause = (n, key, zeroKey, danger = false) => (
     n > 0
-      ? <><b style={{ color: danger ? 'var(--danger)' : 'var(--text)', fontWeight: 600 }}>{n}</b> {pl(n, key)}</>
+      ? <b style={{ color: danger ? 'var(--danger)' : 'var(--text)', fontWeight: 600 }}>{n} {pl(n, key)}</b>
       : tr(zeroKey)
   );
 
@@ -481,26 +483,40 @@ export default function HomePage({ user, onNavigate }) {
 
   /* — card contents — */
 
-  const freshness = checkedAt ? `${tr('homeLastChecked')} ${fmtAge((Date.now() - checkedAt) / 1000) || '0s'}.` : '';
+  // "Checked 2 min ago" / "Checked just now" — never a raw "0s".
+  const checkedAgo = checkedAt ? (Date.now() - checkedAt) / 1000 : null;
+  const freshness = checkedAgo == null
+    ? ''
+    : `${tr('homeChecked')} ${checkedAgo < 60 ? tr('homeJustNow') : fmtAge(checkedAgo)}.`;
 
-  const serviceRows = downTargets.slice(0, CARD_ROWS).map(x => ({
-    key: x.instance,
-    title: hostOf(x.instance),
-    sub: `${prettyGroup(x.group)} · ${tr('homeDownFor')} ${fmtAge(x.in_state_seconds) || fmtAge(x.age_seconds) || ''}`,
-    value: x.http_status || tr('homeStatusNoReply'),
-    valueTone: 'var(--danger)',
-    onClick: () => onNavigate?.('status'),
-  }));
+  // A link to zero things reads as a bug; fall back to the module name.
+  const allLink = (total, fallbackKey) => (total > 0 ? `${tr('homeAll')} ${total}` : tr(fallbackKey));
+
+  // in_state_seconds is time since the probe last flipped — the length of the
+  // outage. Never fall back to the sample age: that is the age of the last
+  // poll, which is identical for every target and says nothing about the
+  // incident. Unknown means the duration is simply omitted.
+  const serviceRows = downTargets.slice(0, CARD_ROWS).map(x => {
+    const outage = fmtAge(x.in_state_seconds);
+    return {
+      key: x.instance,
+      title: hostOf(x.instance),
+      sub: `${prettyGroup(x.group)} · ${tr('homeDownFor')}${outage ? ` ${outage}` : ''}`,
+      value: x.http_status || tr('homeStatusNoReply'),
+      valueTone: 'var(--danger)',
+      onClick: () => onNavigate?.('status'),
+    };
+  });
 
   const ticketRows = openTickets.slice(0, CARD_ROWS).map(tk => {
     const age = ageSince(tk.zammad_created_at || tk.state_changed_at);
-    const inState = fmtAge(ageSince(tk.state_changed_at));
     return {
       key: tk.id,
       title: tk.title || tr('homeNoSubject'),
+      // Duration appears exactly once per row — here it is the right column.
       sub: <>
         <span style={MONO}>#{tk.number || tk.id}</span>
-        {` · ${String(stateLabel(tk.state, tr)).toLowerCase()}${inState ? ` ${inState}` : ''}`}
+        {` · ${String(stateLabel(tk.state, tr)).toLowerCase()}`}
       </>,
       value: fmtAge(age) || '',
       valueTone: age > TICKET_OVERDUE_DAYS * 86400 ? 'var(--danger)' : 'var(--text-muted)',
@@ -646,13 +662,13 @@ export default function HomePage({ user, onNavigate }) {
         </div>
 
         <div className="home-queues" style={{
-          display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 16, alignItems: 'stretch',
+          display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 16, alignItems: 'start',
         }}>
           <QueueCard
             dot={downTargets.length ? 'var(--danger)' : 'var(--success)'}
             title={tr('homeQueueServices')}
             count={downTargets.length}
-            link={`${tr('homeAll')} ${totalTargets}`}
+            link={allLink(totalTargets, 'homeOpenMonitor')}
             onLink={() => onNavigate?.('status')}
             rows={serviceRows}
             footer={serviceFooter}
@@ -662,7 +678,7 @@ export default function HomePage({ user, onNavigate }) {
             dot={openTickets.length ? 'var(--text-muted)' : 'var(--success)'}
             title={tr('homeQueueTickets')}
             count={openTickets.length}
-            link={`${tr('homeAll')} ${tickets.length}`}
+            link={allLink(tickets.length, 'homeOpenTickets')}
             onLink={() => onNavigate?.('tickets')}
             rows={ticketRows}
             footer={ticketFooter}
@@ -672,7 +688,7 @@ export default function HomePage({ user, onNavigate }) {
             dot={mailQueue.length ? 'var(--text-muted)' : 'var(--success)'}
             title={tr('homeQueueMail')}
             count={mailQueue.length}
-            link={`${tr('homeAll')} ${emails.length}`}
+            link={allLink(emails.length, 'homeOpenMailLink')}
             onLink={() => onNavigate?.('mail')}
             rows={mailRows}
             footer={mailFooter}
@@ -681,9 +697,9 @@ export default function HomePage({ user, onNavigate }) {
         </div>
       </section>
 
-      {/* 3. Team on shift today — no height reserved when nobody is working */}
-      {todayShifts.length > 0 && (
-        <section>
+      {/* 3. Team on shift today — always present; a single line, not a padded
+          card, when nobody is scheduled */}
+      <section>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 16 }}>
             <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, letterSpacing: '-0.01em', color: 'var(--text)' }}>
               {tr('homeTeamToday')}
@@ -692,6 +708,11 @@ export default function HomePage({ user, onNavigate }) {
             <LinkButton size={12} weight={600} onClick={() => onNavigate?.('schedule')}>{tr('schedule')} →</LinkButton>
           </div>
           <CardShell>
+            {todayShifts.length === 0 ? (
+              <div style={{ padding: '14px 16px', fontSize: 13, color: 'var(--text-muted)' }}>
+                {tr('homeNobodyToday')}
+              </div>
+            ) : (
             <div className="home-team" style={{
               display: 'grid', gridTemplateColumns: `repeat(${todayShifts.length}, minmax(0, 1fr))`,
             }}>
@@ -719,9 +740,9 @@ export default function HomePage({ user, onNavigate }) {
                 </div>
               ))}
             </div>
+            )}
           </CardShell>
-        </section>
-      )}
+      </section>
 
       {/* 4. Reminders + this week */}
       <section className="home-bottom" style={{

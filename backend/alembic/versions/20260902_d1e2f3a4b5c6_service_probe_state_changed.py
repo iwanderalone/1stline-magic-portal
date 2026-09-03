@@ -16,9 +16,11 @@ depends_on = None
 
 
 def upgrade():
+    # Deliberately no backfill: sample_at is when the target was last polled,
+    # not when it went down, so seeding from it gives every existing row the
+    # same invented outage start. NULL until the probe actually flips, and the
+    # UI omits a duration it does not know.
     op.add_column('service_probes', sa.Column('state_changed_at', sa.DateTime(timezone=True), nullable=True))
-    # Seed existing rows so the UI has something to show before the next flip.
-    op.execute('UPDATE service_probes SET state_changed_at = sample_at WHERE state_changed_at IS NULL')
 
 
 def downgrade():
