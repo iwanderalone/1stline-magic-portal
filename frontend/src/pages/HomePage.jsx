@@ -231,17 +231,16 @@ function QueueRow({ title, sub, value, valueTone, onClick }) {
 function QueueCard({ dot, title, count, link, onLink, rows, footer, emptyLine }) {
   const empty = rows.length === 0;
   return (
-    // The 276px floor is what keeps an all-clear column present. A populated
-    // card takes its content's height instead — the grid is align-items:start,
-    // so a ragged bottom edge is correct and there is never a void between the
-    // last row and the footer.
-    <CardShell style={empty ? { minHeight: CARD_MIN_HEIGHT } : null}>
+    // The three columns are one block: equal height, headers on one line and
+    // footers on another, so the eye can scan across them.
+    <CardShell style={{ minHeight: CARD_MIN_HEIGHT, height: '100%' }}>
       <CardHeader dot={dot} title={title} count={count} link={link} onLink={onLink} />
       {empty ? <AllClear line={emptyLine} /> : (
         <div style={{ padding: '4px 0' }}>
           {rows.map(row => <QueueRow key={row.key} {...row} />)}
         </div>
       )}
+      <div style={{ flex: 1 }} />
       {footer && (
         <div style={{
           padding: '12px 16px', borderTop: '1px solid var(--border-light)',
@@ -566,7 +565,7 @@ export default function HomePage({ user, onNavigate }) {
     }}>
       {/* 1. Status hero */}
       <section className="home-hero" style={{
-        display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 300px', gap: 32, alignItems: 'start',
+        display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 300px 300px', gap: 24, alignItems: 'start',
       }}>
         <div style={{ minWidth: 0 }}>
           <div style={{
@@ -650,134 +649,6 @@ export default function HomePage({ user, onNavigate }) {
             </LinkButton>
           </div>
         </CardShell>
-      </section>
-
-      {/* 2. Needs attention */}
-      <section>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 16 }}>
-          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, letterSpacing: '-0.01em', color: 'var(--text)' }}>
-            {tr('homeAttention')}
-          </h2>
-          <Mono size={13}>{loading ? '' : `${attnTotal} ${tr('homeItems')}`}</Mono>
-        </div>
-
-        <div className="home-queues" style={{
-          display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 16, alignItems: 'start',
-        }}>
-          <QueueCard
-            dot={downTargets.length ? 'var(--danger)' : 'var(--success)'}
-            title={tr('homeQueueServices')}
-            count={downTargets.length}
-            link={allLink(totalTargets, 'homeOpenMonitor')}
-            onLink={() => onNavigate?.('status')}
-            rows={serviceRows}
-            footer={serviceFooter}
-            emptyLine={`${tr('homeServicesClearLine')} ${freshness}`}
-          />
-          <QueueCard
-            dot={openTickets.length ? 'var(--text-muted)' : 'var(--success)'}
-            title={tr('homeQueueTickets')}
-            count={openTickets.length}
-            link={allLink(tickets.length, 'homeOpenTickets')}
-            onLink={() => onNavigate?.('tickets')}
-            rows={ticketRows}
-            footer={ticketFooter}
-            emptyLine={`${tr('homeTicketsClearLine')} ${freshness}`}
-          />
-          <QueueCard
-            dot={mailQueue.length ? 'var(--text-muted)' : 'var(--success)'}
-            title={tr('homeQueueMail')}
-            count={mailQueue.length}
-            link={allLink(emails.length, 'homeOpenMailLink')}
-            onLink={() => onNavigate?.('mail')}
-            rows={mailRows}
-            footer={mailFooter}
-            emptyLine={`${tr('homeMailClearLine')} ${freshness}`}
-          />
-        </div>
-      </section>
-
-      {/* 3. Team on shift today — always present; a single line, not a padded
-          card, when nobody is scheduled */}
-      <section>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 16 }}>
-            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, letterSpacing: '-0.01em', color: 'var(--text)' }}>
-              {tr('homeTeamToday')}
-            </h2>
-            <span style={{ flex: 1 }} />
-            <LinkButton size={12} weight={600} onClick={() => onNavigate?.('schedule')}>{tr('schedule')} →</LinkButton>
-          </div>
-          <CardShell>
-            {todayShifts.length === 0 ? (
-              <div style={{ padding: '14px 16px', fontSize: 13, color: 'var(--text-muted)' }}>
-                {tr('homeNobodyToday')}
-              </div>
-            ) : (
-            <div className="home-team" style={{
-              display: 'grid', gridTemplateColumns: `repeat(${todayShifts.length}, minmax(0, 1fr))`,
-            }}>
-              {todayShifts.map((s, i) => (
-                <div key={s.id || i} style={{
-                  display: 'flex', alignItems: 'center', gap: 12, padding: 18, minWidth: 0,
-                  borderLeft: i === 0 ? 'none' : '1px solid var(--border-light)',
-                }}>
-                  <AvatarChip name={s.user?.display_name} color={s.user?.name_color} size={32} />
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{
-                      fontSize: 13, fontWeight: 600, color: 'var(--text)',
-                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                    }}>{s.user?.display_name || tr('homeAssignedEngineer')}</div>
-                    <Mono size={11}>
-                      {fmtShiftTime(s.start_time, s.date, user?.timezone)}–{fmtShiftTime(s.end_time, s.date, user?.timezone)}
-                    </Mono>
-                  </div>
-                  <span style={{ flex: 1 }} />
-                  <span style={{
-                    fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.06em',
-                    color: 'var(--text-muted)', border: '1px solid var(--border)',
-                    borderRadius: 'var(--radius-sm)', padding: '3px 7px', whiteSpace: 'nowrap',
-                  }}>{tr(`shift_${s.shift_type}`)}</span>
-                </div>
-              ))}
-            </div>
-            )}
-          </CardShell>
-      </section>
-
-      {/* 4. Reminders + this week */}
-      <section className="home-bottom" style={{
-        display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 16, alignItems: 'stretch',
-      }}>
-        <CardShell>
-          <CardHeader
-            dot="var(--success)"
-            title={tr('reminders')}
-            count={reminders.length}
-            link={tr('homeAdd')}
-            onLink={() => onNavigate?.('reminders')}
-          />
-          {reminders.length === 0 ? (
-            <div style={{ padding: 16, display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-              <span style={{ fontSize: 16, lineHeight: 1.2 }}>✨</span>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{tr('homeAllClear')}</div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{tr('homeRemindersClearLine')}</div>
-              </div>
-            </div>
-          ) : (
-            <div style={{ padding: '4px 0' }}>
-              {reminders.slice(0, CARD_ROWS).map(r => (
-                <QueueRow
-                  key={r.id}
-                  title={r.title || ''}
-                  sub={new Date(parseTs(r.remind_at)).toLocaleString(locale, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
-                  value={fmtAge((parseTs(r.remind_at) - Date.now()) / 1000) || ''}
-                  onClick={() => onNavigate?.('reminders')}
-                />
-              ))}
-            </div>
-          )}
-        </CardShell>
 
         <CardShell>
           <CardHeader
@@ -825,6 +696,129 @@ export default function HomePage({ user, onNavigate }) {
         </CardShell>
       </section>
 
+      {/* 2. Needs attention */}
+      <section>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 16 }}>
+          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, letterSpacing: '-0.01em', color: 'var(--text)' }}>
+            {tr('homeAttention')}
+          </h2>
+          <Mono size={13}>{loading ? '' : `${attnTotal} ${tr('homeItems')}`}</Mono>
+        </div>
+
+        <div className="home-queues" style={{
+          display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 16, alignItems: 'stretch',
+        }}>
+          <QueueCard
+            dot={downTargets.length ? 'var(--danger)' : 'var(--success)'}
+            title={tr('homeQueueServices')}
+            count={downTargets.length}
+            link={allLink(totalTargets, 'homeOpenMonitor')}
+            onLink={() => onNavigate?.('status')}
+            rows={serviceRows}
+            footer={serviceFooter}
+            emptyLine={`${tr('homeServicesClearLine')} ${freshness}`}
+          />
+          <QueueCard
+            dot={openTickets.length ? 'var(--text-muted)' : 'var(--success)'}
+            title={tr('homeQueueTickets')}
+            count={openTickets.length}
+            link={allLink(tickets.length, 'homeOpenTickets')}
+            onLink={() => onNavigate?.('tickets')}
+            rows={ticketRows}
+            footer={ticketFooter}
+            emptyLine={`${tr('homeTicketsClearLine')} ${freshness}`}
+          />
+          <QueueCard
+            dot={mailQueue.length ? 'var(--text-muted)' : 'var(--success)'}
+            title={tr('homeQueueMail')}
+            count={mailQueue.length}
+            link={allLink(emails.length, 'homeOpenMailLink')}
+            onLink={() => onNavigate?.('mail')}
+            rows={mailRows}
+            footer={mailFooter}
+            emptyLine={`${tr('homeMailClearLine')} ${freshness}`}
+          />
+        </div>
+      </section>
+
+      {/* 3. Reminders + team on shift today */}
+      <section className="home-bottom" style={{
+        display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 16, alignItems: 'stretch',
+      }}>
+        <CardShell>
+          <CardHeader
+            dot="var(--success)"
+            title={tr('reminders')}
+            count={reminders.length}
+            link={tr('homeAdd')}
+            onLink={() => onNavigate?.('reminders')}
+          />
+          {reminders.length === 0 ? (
+            <div style={{ padding: 16, display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+              <span style={{ fontSize: 16, lineHeight: 1.2 }}>✨</span>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{tr('homeAllClear')}</div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{tr('homeRemindersClearLine')}</div>
+              </div>
+            </div>
+          ) : (
+            <div style={{ padding: '4px 0' }}>
+              {reminders.slice(0, CARD_ROWS).map(r => (
+                <QueueRow
+                  key={r.id}
+                  title={r.title || ''}
+                  sub={new Date(parseTs(r.remind_at)).toLocaleString(locale, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                  value={fmtAge((parseTs(r.remind_at) - Date.now()) / 1000) || ''}
+                  onClick={() => onNavigate?.('reminders')}
+                />
+              ))}
+            </div>
+          )}
+        </CardShell>
+
+        <CardShell>
+          <CardHeader
+            title={tr('homeTeamToday')}
+            count={todayShifts.length || null}
+            link={tr('schedule')}
+            onLink={() => onNavigate?.('schedule')}
+          />
+          {todayShifts.length === 0 ? (
+            <div style={{ padding: '14px 16px', fontSize: 13, color: 'var(--text-muted)' }}>
+              {tr('homeNobodyToday')}
+            </div>
+          ) : (
+          <div className="home-team" style={{
+            display: 'grid', gridTemplateColumns: `repeat(${todayShifts.length}, minmax(0, 1fr))`,
+          }}>
+            {todayShifts.map((s, i) => (
+              <div key={s.id || i} style={{
+                display: 'flex', alignItems: 'center', gap: 12, padding: 18, minWidth: 0,
+                borderLeft: i === 0 ? 'none' : '1px solid var(--border-light)',
+              }}>
+                <AvatarChip name={s.user?.display_name} color={s.user?.name_color} size={32} />
+                <div style={{ minWidth: 0 }}>
+                  <div style={{
+                    fontSize: 13, fontWeight: 600, color: 'var(--text)',
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  }}>{s.user?.display_name || tr('homeAssignedEngineer')}</div>
+                  <Mono size={11}>
+                    {fmtShiftTime(s.start_time, s.date, user?.timezone)}–{fmtShiftTime(s.end_time, s.date, user?.timezone)}
+                  </Mono>
+                </div>
+                <span style={{ flex: 1 }} />
+                <span style={{
+                  fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.06em',
+                  color: 'var(--text-muted)', border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius-sm)', padding: '3px 7px', whiteSpace: 'nowrap',
+                }}>{tr(`shift_${s.shift_type}`)}</span>
+              </div>
+            ))}
+          </div>
+          )}
+        </CardShell>
+      </section>
+
       {error && <div style={{ fontSize: 12, color: 'var(--danger)' }}>{error}</div>}
 
       {openTicketId && (
@@ -847,6 +841,9 @@ export default function HomePage({ user, onNavigate }) {
       )}
 
       <style>{`
+        @media (max-width: 1180px) {
+          .home-hero { grid-template-columns: minmax(0, 1fr) 300px !important; }
+        }
         @media (max-width: 1000px) {
           .home-hero { grid-template-columns: minmax(0, 1fr) !important; gap: 24px !important; }
           .home-queues { grid-template-columns: minmax(0, 1fr) !important; }
