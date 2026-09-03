@@ -178,7 +178,10 @@ function CardHeader({ dot, title, count, link, onLink, extra }) {
       padding: '14px 16px', borderBottom: '1px solid var(--border-light)',
     }}>
       {dot && <Dot color={dot} />}
-      <span style={{ fontFamily: 'var(--font-sans)', fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{title}</span>
+      <span style={{
+        fontFamily: 'var(--font-sans)', fontSize: 13, fontWeight: 600,
+        color: 'var(--text)', whiteSpace: 'nowrap',
+      }}>{title}</span>
       {count != null && <Mono>{count}</Mono>}
       <span style={{ flex: 1 }} />
       {extra}
@@ -790,33 +793,42 @@ export default function HomePage({ user, onNavigate }) {
               {tr('homeNobodyToday')}
             </div>
           ) : (
-          <div className="home-team" style={{
-            display: 'grid', gridTemplateColumns: `repeat(${todayShifts.length}, minmax(0, 1fr))`,
-          }}>
-            {todayShifts.map((s, i) => (
-              <div key={s.id || i} style={{
-                display: 'flex', alignItems: 'center', gap: 12, padding: 18, minWidth: 0,
-                borderLeft: i === 0 ? 'none' : '1px solid var(--border-light)',
-              }}>
-                <AvatarChip name={s.user?.display_name} color={s.user?.name_color} size={32} />
-                <div style={{ minWidth: 0 }}>
-                  <div style={{
-                    fontSize: 13, fontWeight: 600, color: 'var(--text)',
-                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                  }}>{s.user?.display_name || tr('homeAssignedEngineer')}</div>
-                  <Mono size={11}>
-                    {fmtShiftTime(s.start_time, s.date, user?.timezone)}–{fmtShiftTime(s.end_time, s.date, user?.timezone)}
-                  </Mono>
+            // One row per person, not one column: this card is half-width, so
+            // four people as columns left ~120px each — the name collapsed to
+            // nothing and the time ran under the tag.
+            <div>
+              {todayShifts.slice(0, CARD_ROWS).map((shift, i) => (
+                <div key={shift.id || i} style={{
+                  display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px',
+                  borderTop: i === 0 ? 'none' : '1px solid var(--border-light)',
+                }}>
+                  <AvatarChip name={shift.user?.display_name} color={shift.user?.name_color} size={32} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{
+                      fontSize: 13, fontWeight: 600, color: 'var(--text)',
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    }}>{shift.user?.display_name || tr('homeAssignedEngineer')}</div>
+                    <div style={{
+                      ...MONO, fontSize: 11, color: 'var(--text-muted)', marginTop: 2,
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    }}>
+                      {fmtShiftTime(shift.start_time, shift.date, user?.timezone)}–{fmtShiftTime(shift.end_time, shift.date, user?.timezone)}
+                    </div>
+                  </div>
+                  <span style={{
+                    fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.06em',
+                    color: 'var(--text-muted)', border: '1px solid var(--border)',
+                    borderRadius: 'var(--radius-sm)', padding: '3px 7px', whiteSpace: 'nowrap', flexShrink: 0,
+                  }}>{tr(`shift_${shift.shift_type}`)}</span>
                 </div>
-                <span style={{ flex: 1 }} />
-                <span style={{
-                  fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.06em',
-                  color: 'var(--text-muted)', border: '1px solid var(--border)',
-                  borderRadius: 'var(--radius-sm)', padding: '3px 7px', whiteSpace: 'nowrap',
-                }}>{tr(`shift_${s.shift_type}`)}</span>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
+          {todayShifts.length > CARD_ROWS && (
+            <div style={{
+              padding: '12px 16px', borderTop: '1px solid var(--border-light)',
+              fontSize: 12, color: 'var(--text-muted)',
+            }}>{todayShifts.length - CARD_ROWS} {tr('homeMore')}</div>
           )}
         </CardShell>
       </section>
@@ -850,7 +862,6 @@ export default function HomePage({ user, onNavigate }) {
           .home-hero { grid-template-columns: minmax(0, 1fr) !important; gap: 24px !important; }
           .home-queues { grid-template-columns: minmax(0, 1fr) !important; }
           .home-bottom { grid-template-columns: minmax(0, 1fr) !important; }
-          .home-team { grid-template-columns: minmax(0, 1fr) !important; }
         }
       `}</style>
     </div>
