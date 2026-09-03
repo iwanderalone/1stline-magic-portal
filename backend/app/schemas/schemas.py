@@ -468,10 +468,31 @@ class EmailLogDetailResponse(EmailLogResponse):
 
 # ─── Mail Routing Rules ───────────────────────────────────
 
+class MailRuleCondition(BaseModel):
+    """One clause of a routing rule: "subject contains счёт"."""
+    field: Literal["subject", "body", "sender", "recipient", "any"] = "any"
+    op: Literal["contains", "not_contains", "starts_with", "ends_with", "equals", "regex"] = "contains"
+    value: str = Field(..., min_length=1, max_length=500)
+
+    @field_validator("value")
+    @classmethod
+    def _valid_regex(cls, v: str, info) -> str:
+        if (info.data or {}).get("op") == "regex":
+            import re as _re
+            try:
+                _re.compile(v)
+            except _re.error as exc:
+                raise ValueError(f"invalid regular expression: {exc}")
+        return v
+
+
 class MailRoutingRuleCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
-    match_type: str = Field(..., pattern="^(keyword|subject_keyword|sender|sender_domain)$")
-    match_values: str = Field(..., min_length=1, max_length=1000)
+    match_type: Optional[str] = Field(default=None, pattern="^(keyword|subject_keyword|sender|sender_domain)$")
+    match_values: Optional[str] = Field(default=None, max_length=1000)
+    conditions: Optional[list[MailRuleCondition]] = Field(default=None, max_length=20)
+    match_mode: Literal["all", "any"] = "all"
+    notify_user_ids: Optional[list[UUID]] = Field(default=None, max_length=50)
     label: str = Field(..., min_length=1, max_length=100)
     color: str = Field(default="#6b7280", pattern=r"^#[0-9a-fA-F]{6}$")
     hashtag: Optional[str] = Field(default=None, max_length=200)
@@ -482,10 +503,22 @@ class MailRoutingRuleCreate(BaseModel):
     enabled: bool = True
     mailbox_id: Optional[int] = None  # None = applies to all mailboxes
 
+    @model_validator(mode="after")
+    def _needs_something_to_match_on(self) -> "MailRoutingRuleCreate":
+        if not self.conditions and not (self.match_values or "").strip():
+            raise ValueError("a rule needs either conditions or match_values")
+        if self.match_values and not self.match_type:
+            self.match_type = "keyword"
+        return self
+
+
 class MailRoutingRuleUpdate(BaseModel):
     name: Optional[str] = Field(default=None, max_length=100)
     match_type: Optional[str] = Field(default=None, pattern="^(keyword|subject_keyword|sender|sender_domain)$")
     match_values: Optional[str] = Field(default=None, max_length=1000)
+    conditions: Optional[list[MailRuleCondition]] = Field(default=None, max_length=20)
+    match_mode: Optional[Literal["all", "any"]] = None
+    notify_user_ids: Optional[list[UUID]] = Field(default=None, max_length=50)
     label: Optional[str] = Field(default=None, max_length=100)
     color: Optional[str] = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
     hashtag: Optional[str] = Field(default=None, max_length=200)
@@ -497,13 +530,30 @@ class MailRoutingRuleUpdate(BaseModel):
     mailbox_id: Optional[int] = None  # None = applies to all mailboxes
 
 class MailRoutingRuleResponse(BaseOrmModel):
+    """Conditions and notify list are JSON text in the DB, lists on the wire."""
     id: int
     name: str
     is_builtin: bool
     builtin_key: Optional[str]
     match_type: Optional[str]
     match_values: Optional[str]
+    conditions: list[MailRuleCondition] = []
+    match_mode: str = "all"
+    notify_user_ids: list[UUID] = []
     label: str
+
+    @field_validator("conditions", "notify_user_ids", mode="before")
+    @classmethod
+    def _parse_json_list(cls, v: object) -> object:
+        if v in (None, ""):
+            return []
+        if isinstance(v, str):
+            try:
+                parsed = _json.loads(v)
+            except ValueError:
+                return []
+            return parsed if isinstance(parsed, list) else []
+        return v
     color: str
     hashtag: Optional[str]
     mention_users: Optional[str]
@@ -720,6 +770,23 @@ class GrafanaAlertResponse(BaseOrmModel):
     ends_at: Optional[datetime]
     received_at: datetime
     updated_at: datetime
+
+
+
+class MailRuleTestRequest(BaseModel):
+    """Try a rule's conditions against a sample email before saving it."""
+    conditions: list[MailRuleCondition] = Field(..., min_length=1, max_length=20)
+    match_mode: Literal["all", "any"] = "all"
+    subject: str = Field(default="", max_length=500)
+    body: str = Field(default="", max_length=20000)
+    sender: str = Field(default="", max_length=500)
+    recipient: str = Field(default="", max_length=500)
+
+
+class MailRuleTestResponse(BaseModel):
+    matched: bool
+    results: list[bool]   # per condition, in order
+
 
 
 # ─── Tools: Mailbox Backup ───────────────────────────────
