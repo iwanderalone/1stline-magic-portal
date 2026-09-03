@@ -15,11 +15,35 @@ const STATUS_CYCLE = ['unchecked', 'on_pause', 'blocked', 'solved'];
 
 const COLLAPSED_LINE_COUNT = 12;
 
-export function MessageBody({ body }) {
+/** Rejoin a body that was shredded into fragments.
+ *
+ * Bodies stored before the extractor was fixed have a newline between every
+ * inline element, so a sentence arrives as six short lines. When most lines are
+ * short and don't end in sentence punctuation, treat single newlines as soft
+ * wraps and join them; blank lines stay as paragraph breaks. Text that is
+ * genuinely line-oriented (logs, signatures, tables) has longer or
+ * punctuation-terminated lines and is left exactly as it is.
+ */
+function unwrap(body) {
+  const lines = body.split('\n');
+  const filled = lines.filter(l => l.trim());
+  if (filled.length < 6) return body;
+  const shortLines = filled.filter(l => l.trim().length < 45).length;
+  const enders = filled.filter(l => /[.!?:;]$/.test(l.trim())).length;
+  if (shortLines / filled.length < 0.6 || enders / filled.length > 0.4) return body;
+
+  return body
+    .split(/\n\s*\n/)
+    .map(par => par.split('\n').map(l => l.trim()).filter(Boolean).join(' '))
+    .join('\n\n');
+}
+
+export function MessageBody({ body: raw }) {
   const [expanded, setExpanded] = useState(false);
-  if (!body) {
+  if (!raw) {
     return <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>(no message body)</div>;
   }
+  const body = unwrap(raw);
   const lines = body.split('\n');
   const isLong = lines.length > COLLAPSED_LINE_COUNT;
   const shown = expanded || !isLong ? body : lines.slice(0, COLLAPSED_LINE_COUNT).join('\n');
@@ -27,7 +51,7 @@ export function MessageBody({ body }) {
     <div>
       <div style={{
         fontSize: 13, lineHeight: 1.6, whiteSpace: 'pre-wrap',
-        fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)',
+        overflowWrap: 'anywhere', fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)',
         maxHeight: expanded ? 'none' : 320, overflowY: expanded ? 'visible' : 'auto',
         paddingRight: 4,
       }}>{shown}</div>
