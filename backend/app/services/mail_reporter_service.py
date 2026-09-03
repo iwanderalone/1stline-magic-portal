@@ -160,6 +160,19 @@ def safe_decode_header(raw) -> str:
 
 # ─── Body Cleaning ────────────────────────────────────────────────────
 
+# Tags that end a line of prose. Everything else (span, b, a, font, …) is
+# inline and must NOT introduce a break — marketing HTML wraps sentences in
+# dozens of inline spans, and breaking on those shredded one sentence across
+# six lines in the reader.
+_BREAK = "\x00"   # stands in for a structural line break during extraction
+
+_BLOCK_TAGS = [
+    "p", "div", "tr", "li", "ul", "ol", "table", "tbody", "thead",
+    "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "pre",
+    "section", "article", "header", "footer", "hr",
+]
+
+
 def clean_email_body(raw: str, content_type: str = "text/html") -> str:
     if content_type == "text/plain":
         text = BeautifulSoup(raw, "html.parser").get_text(separator="\n")
@@ -175,7 +188,18 @@ def clean_email_body(raw: str, content_type: str = "text/html") -> str:
                 a_tag.replace_with(link_text)
             else:
                 a_tag.decompose()
-        text = soup.get_text(separator="\n")
+        # Line breaks come from block structure only. A sentinel marks them so
+        # that newlines in the HTML *source* — mailers hard-wrap their markup
+        # around 78 chars, mid-sentence — can be flattened first.
+        for br in soup.find_all("br"):
+            br.replace_with(_BREAK)
+        for tag in soup.find_all(_BLOCK_TAGS):
+            tag.append(_BREAK)
+        text = soup.get_text(separator=" ")
+        text = re.sub(r"\s+", " ", text)               # every real whitespace run → one space
+        text = text.replace(_BREAK, "\n")              # then the structural breaks come back
+        text = re.sub(r" ?\n ?", "\n", text)
+        text = re.sub(r"\s+([,.!?;:])", r"\1", text)   # "приложение ." → "приложение." 
 
     for pattern in _CLEANUP_PATTERNS:
         text = pattern.sub("", text)
