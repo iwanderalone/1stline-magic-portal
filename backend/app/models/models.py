@@ -339,9 +339,15 @@ class MailRoutingRule(Base):
     is_builtin = Column(Boolean, default=False, nullable=False)
     builtin_key = Column(String(50), nullable=True, unique=True)  # matches classify_email() output
 
-    # Match conditions — only used for non-builtin rules
+    # Match conditions — only used for non-builtin rules.
+    # Legacy single-field form, still honoured when `conditions` is empty:
     match_type = Column(String(20), nullable=True)   # keyword | subject_keyword | sender | sender_domain
     match_values = Column(Text, nullable=True)        # comma-separated values to match
+    # Condition-list form: JSON [{"field": "subject", "op": "contains", "value": "счёт"}, ...]
+    # field: subject | body | sender | recipient | any    op: contains | not_contains
+    #        | starts_with | ends_with | equals | regex
+    conditions = Column(Text, nullable=True)
+    match_mode = Column(String(4), default="all", nullable=False)   # all | any
 
     # Display config — editable for all rules including built-ins
     label = Column(String(100), nullable=False)        # e.g. "🔴 Adobe"
@@ -349,6 +355,9 @@ class MailRoutingRule(Base):
     hashtag = Column(String(200), nullable=True)       # e.g. "#adobe"
     mention_users = Column(String(200), nullable=True) # e.g. "@wanderalone @itsupport_viory"
     include_body = Column(Boolean, default=True)
+    # Portal users to DM when this rule matches — JSON list of user ids. Each
+    # needs a linked Telegram account (User.telegram_chat_id) to receive one.
+    notify_user_ids = Column(Text, nullable=True)
 
     # Optional Telegram target override (empty = use mailbox target)
     telegram_target = Column(String(200), nullable=True)

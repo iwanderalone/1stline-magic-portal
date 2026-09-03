@@ -14,6 +14,7 @@ import imaplib
 import email as email_lib
 import logging
 import re
+import uuid
 from datetime import datetime, date, timezone
 from email.header import decode_header
 from email.utils import parsedate_to_datetime
@@ -26,6 +27,7 @@ from sqlalchemy import select
 from app.core.config import get_settings
 from app.core.database import AsyncSessionFactory
 from app.core.encryption import decrypt
+from app.services.mail_rules import evaluate, parse_conditions
 from app.models.models import MailboxConfig, EmailLog, MailRoutingRule
 from app.services.backup_alert_parser import BackupSummary, parse_backup_alert
 
@@ -387,8 +389,20 @@ def classify_email(sender: str, subject: str, body: str,
 
 # ─── User Rule Matching ───────────────────────────────────────────────
 
-def _rule_matches(rule: MailRoutingRule, sender: str, subject: str, body: str) -> bool:
-    """Check if a user-defined rule matches this email."""
+def _rule_matches(rule: MailRoutingRule, sender: str, subject: str, body: str,
+                  recipient: str = "") -> bool:
+    """Check if a user-defined rule matches this email.
+
+    Condition lists take precedence; rules written before they existed still
+    match through match_type/match_values.
+    """
+    conditions = parse_conditions(getattr(rule, "conditions", None))
+    if conditions:
+        return evaluate(
+            conditions, getattr(rule, "match_mode", "all") or "all",
+            subject=subject, body=body, sender=sender, recipient=recipient,
+        )
+
     values = [v.strip().lower() for v in (rule.match_values or "").split(",") if v.strip()]
     if not values:
         return False
@@ -407,6 +421,54 @@ def _rule_matches(rule: MailRoutingRule, sender: str, subject: str, body: str) -
     if match_type == "sender_domain":
         return any(v in sender_l for v in values)
     return False
+
+
+async def _notify_rule_users(db, rule: MailRoutingRule, subject: str,
+                             sender: str, mailbox_email: str) -> int:
+    """DM every portal user the rule names, on their linked Telegram account.
+
+    This is separate from the group message: the rule's `mention_users` string
+    tags people inside the channel post, while this reaches them directly.
+    Users without a linked account are skipped silently — linking is opt-in.
+    """
+    import json as _json_mod
+    from app.models.models import User
+
+    raw = getattr(rule, "notify_user_ids", None)
+    if not raw:
+        return 0
+    try:
+        ids = [str(x) for x in (_json_mod.loads(raw) or []) if x]
+    except (TypeError, ValueError):
+        logger.warning("[mail-reporter] rule %s has unparseable notify_user_ids", rule.id)
+        return 0
+    if not ids:
+        return 0
+
+    try:
+        uuids = [uuid.UUID(x) for x in ids]
+    except ValueError:
+        logger.warning("[mail-reporter] rule %s has non-uuid notify_user_ids", rule.id)
+        return 0
+
+    result = await db.execute(
+        select(User).where(User.id.in_(uuids), User.is_active.is_(True))
+    )
+    text = (
+        f"{escape_html(rule.label)}\n"
+        f"<b>{escape_html(subject or '(no subject)')}</b>\n"
+        f"{escape_html(sender)} → {escape_html(mailbox_email)}"
+    )
+
+    delivered = 0
+    for user in result.scalars().all():
+        if not user.telegram_chat_id:
+            continue
+        if await send_telegram_message(user.telegram_chat_id, text, None):
+            delivered += 1
+        else:
+            logger.warning("[mail-reporter] rule DM to %s failed", user.username)
+    return delivered
 
 
 # ─── Message Formatting ───────────────────────────────────────────────
@@ -699,7 +761,7 @@ async def _check_one_mailbox(mb: MailboxConfig, user_rules: list, builtin_map: d
                     if r.mailbox_id is None or r.mailbox_id == mb.id
                 ]
                 for rule in mailbox_user_rules:
-                    if _rule_matches(rule, raw["sender"], raw["subject"], raw["body"]):
+                    if _rule_matches(rule, raw["sender"], raw["subject"], raw["body"], raw["recipient"]):
                         matched_rule = rule
                         category = rule.name
                         break
@@ -708,7 +770,7 @@ async def _check_one_mailbox(mb: MailboxConfig, user_rules: list, builtin_map: d
                 # These extend (not replace) hardcoded detection with admin-defined keywords
                 if matched_rule is None and custom_builtin_rules:
                     for rule in custom_builtin_rules:
-                        if _rule_matches(rule, raw["sender"], raw["subject"], raw["body"]):
+                        if _rule_matches(rule, raw["sender"], raw["subject"], raw["body"], raw["recipient"]):
                             matched_rule = rule
                             category = rule.builtin_key
                             break
@@ -774,6 +836,16 @@ async def _check_one_mailbox(mb: MailboxConfig, user_rules: list, builtin_map: d
                     # only real RFC Message-IDs (fallback ids are "date|subject" strings)
                     message_id=raw["msg_id"][:500] if raw["msg_id"].startswith("<") else None,
                 ))
+
+                if matched_rule is not None:
+                    notified = await _notify_rule_users(
+                        db, matched_rule, raw["subject"], raw["sender"], mb.email
+                    )
+                    if notified:
+                        logger.info(
+                            "[mail-reporter] rule '%s' notified %d user(s) directly",
+                            matched_rule.name, notified,
+                        )
 
                 if sent:
                     sent_count += 1
