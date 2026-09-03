@@ -457,6 +457,7 @@ class EmailLogResponse(BaseOrmModel):
     status: str = "unchecked"
     solver_comment: Optional[str] = None
     solved_at: Optional[datetime] = None
+    solved_by: Optional[str] = None
     comment_count: int = 0
     last_comment: Optional[str] = None   # "username: text" preview of the newest comment
     reply_count: int = 0                 # sent SMTP replies (replied marker)
