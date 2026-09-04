@@ -964,6 +964,31 @@ class HandoverDeviceLine(BaseModel):
     accessories: Optional[str] = Field(None, max_length=300)
 
 
+class HandoverRecord(BaseModel):
+    """Generate a handover *and* write it into NetBox.
+
+    `devices` are NetBox device ids — the document lines are derived from them,
+    so the paper and the inventory cannot disagree.
+    """
+    employee_contact_id: int
+    signed_by_contact_id: int
+    device_ids: list[int] = Field(..., min_length=1, max_length=50)
+    position: str = Field(..., min_length=1, max_length=200)
+    date: date
+    assignment_period: Optional[str] = Field(None, max_length=200)
+    purpose: Optional[str] = Field(None, max_length=500)
+    comments: Optional[str] = Field(None, max_length=1000)
+    accessories: Optional[str] = Field(None, max_length=300)
+
+
+class HandoverRecordResult(BaseModel):
+    filename: str
+    attachment_id: Optional[int] = None
+    attachment_url: Optional[str] = None   # the file in NetBox — the canonical copy
+    assignments: list[NetboxAssignment] = []
+    skipped: list[str] = []      # devices already held by someone, with the holder named
+
+
 class HandoverGenerate(BaseModel):
     employee_name: str = Field(..., min_length=1, max_length=200)
     position: str = Field(..., min_length=1, max_length=200)
