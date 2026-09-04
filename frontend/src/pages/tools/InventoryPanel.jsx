@@ -5,6 +5,7 @@ import { Icon } from '../../components/Icons';
 import { useLang } from '../../components/LangContext';
 import DeviceList from '../../components/DeviceList';
 import DeviceFormModal from '../../components/DeviceFormModal';
+import DeviceDetailModal from '../../components/DeviceDetailModal';
 
 const PAGE_SIZE = 20;
 
@@ -22,6 +23,8 @@ export default function InventoryPanel({ user }) {
   const [loading, setLoading] = useState(false);
   const [lookups, setLookups] = useState({ deviceTypes: [], sites: [], roles: [] });
   const [editing, setEditing] = useState(null); // null | 'new' | device object
+  const [viewing, setViewing] = useState(null); // device id being read
+  const [deviceClass, setDeviceClass] = useState('');   // '' | hardware | software | subscription
   const [toast, setToast] = useState(null);
 
   useEffect(() => {
@@ -46,6 +49,10 @@ export default function InventoryPanel({ user }) {
       if (site) params.set('site', site);
       if (role) params.set('role', role);
       if (status) params.set('status', status);
+      if (deviceClass) params.set('device_class', deviceClass);
+      // NetBox's q already covers name, serial and asset tag, which is what
+      // someone scanning a sticker wants. The exact serial=/asset_tag= filters
+      // exist on the API for the handover matcher, where a near-miss is wrong.
       const d = await api(`/tools/inventory/devices?${params}`);
       setDevices(d.items);
       setTotal(d.total);
@@ -54,7 +61,7 @@ export default function InventoryPanel({ user }) {
     } finally {
       setLoading(false);
     }
-  }, [enabled, page, q, site, role, status]);
+  }, [enabled, page, q, site, role, status, deviceClass]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -81,6 +88,14 @@ export default function InventoryPanel({ user }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {toast && <Toast {...toast} onClose={() => setToast(null)} />}
+      {viewing && (
+        <DeviceDetailModal
+          deviceId={viewing}
+          canEdit={canEdit}
+          onClose={() => setViewing(null)}
+          onEdit={(d) => { setViewing(null); setEditing(d); }}
+        />
+      )}
       {editing && (
         <DeviceFormModal
           device={editing === 'new' ? null : editing}
@@ -134,6 +149,12 @@ export default function InventoryPanel({ user }) {
           <option value="">{tr('invFilterAll')}</option>
           {lookups.roles.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
         </Select>
+        <Select label={tr('invFieldClass')} value={deviceClass} onChange={e => { setPage(1); setDeviceClass(e.target.value); }} style={{ minWidth: 130 }}>
+          <option value="">{tr('invFilterAll')}</option>
+          <option value="hardware">{tr('invClassHardware')}</option>
+          <option value="software">{tr('invClassSoftware')}</option>
+          <option value="subscription">{tr('invClassSubscription')}</option>
+        </Select>
         <Select label={tr('invFieldStatus')} value={status} onChange={e => setStatus(e.target.value)} style={{ minWidth: 130 }}>
           <option value="">{tr('invFilterAll')}</option>
           <option value="active">Active</option>
@@ -153,7 +174,7 @@ export default function InventoryPanel({ user }) {
         )}
       </form>
 
-      <DeviceList devices={devices} onSelect={(d) => canEdit && setEditing(d)} />
+      <DeviceList devices={devices} onSelect={(d) => setViewing(d.id)} />
 
       {total > PAGE_SIZE && (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14 }}>
