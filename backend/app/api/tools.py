@@ -31,6 +31,9 @@ from app.schemas.schemas import (
     NetboxDeviceCreate,
     NetboxDeviceDetail,
     NetboxDevicesPage,
+    NetboxAssignment,
+    NetboxContact,
+    NetboxContactsPage,
     NetboxDeviceUpdate,
     NetboxLookupItem,
 )
@@ -180,10 +183,17 @@ async def cancel_backup_job(
 
 @router.get("/inventory/devices", response_model=NetboxDevicesPage)
 async def list_devices(
-    q: str | None = None,
+    q: str | None = Query(default=None, description="Free text: name, serial or asset tag"),
     site: int | None = None,
     role: int | None = None,
     status: str | None = None,
+    serial: str | None = Query(default=None, description="Exact serial match"),
+    asset_tag: str | None = Query(default=None, description="Exact asset tag match"),
+    device_class: str | None = Query(
+        default=None,
+        pattern="^(hardware|software|subscription)$",
+        description="Hardware excludes the software/subscription roles",
+    ),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=25, ge=1, le=100),
     _: User = Depends(get_current_user),
@@ -191,7 +201,10 @@ async def list_devices(
     if not nbs.enabled():
         raise _netbox_unavailable()
     try:
-        return await nbs.list_devices(q=q, site=site, role=role, status=status, page=page, page_size=page_size)
+        return await nbs.list_devices(
+            q=q, site=site, role=role, status=status, serial=serial,
+            asset_tag=asset_tag, device_class=device_class, page=page, page_size=page_size,
+        )
     except nbs.NetboxError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc))
 
@@ -309,3 +322,69 @@ async def generate_handover(
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.get(
+    "/inventory/devices/{device_id}/assignments",
+    response_model=list[NetboxAssignment],
+    summary="Who holds this device",
+    description="Contact assignments for a device — the handover record, with the signed document.",
+)
+async def device_assignments(device_id: int, _: User = Depends(get_current_user)):
+    if not nbs.enabled():
+        raise _netbox_unavailable()
+    try:
+        return await nbs.list_device_assignments(device_id)
+    except nbs.NetboxError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc))
+
+
+@router.get("/inventory/contacts", response_model=NetboxContactsPage)
+async def list_contacts(
+    q: str | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=25, ge=1, le=100),
+    _: User = Depends(get_current_user),
+):
+    if not nbs.enabled():
+        raise _netbox_unavailable()
+    try:
+        return await nbs.list_contacts(q=q, page=page, page_size=page_size)
+    except nbs.NetboxError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc))
+
+
+@router.get("/inventory/contacts/{contact_id}", response_model=NetboxContact)
+async def get_contact(contact_id: int, _: User = Depends(get_current_user)):
+    if not nbs.enabled():
+        raise _netbox_unavailable()
+    try:
+        return await nbs.get_contact(contact_id)
+    except nbs.NetboxError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc))
+
+
+@router.get(
+    "/inventory/contacts/{contact_id}/assets",
+    response_model=list[NetboxAssignment],
+    summary="Everything a person holds",
+    description="Every asset assigned to this contact — the question every offboarding asks.",
+)
+async def contact_assets(contact_id: int, _: User = Depends(get_current_user)):
+    if not nbs.enabled():
+        raise _netbox_unavailable()
+    try:
+        return await nbs.list_contact_assets(contact_id)
+    except nbs.NetboxError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc))
+
+
+@router.get("/inventory/suppliers", response_model=list[str])
+async def list_suppliers(_: User = Depends(get_current_user)):
+    """`supplier` is required on every device and backed by a fixed choice set."""
+    if not nbs.enabled():
+        raise _netbox_unavailable()
+    try:
+        return await nbs.list_suppliers()
+    except nbs.NetboxError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc))
