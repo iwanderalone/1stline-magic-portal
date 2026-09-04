@@ -36,6 +36,12 @@ CONTACTS_PATH = "/api/tenancy/contacts/"
 ASSIGNMENTS_PATH = "/api/tenancy/contact-assignments/"
 TENANTS_PATH = "/api/tenancy/tenants/"
 CHOICE_SETS_PATH = "/api/extras/custom-field-choice-sets/"
+CONTACT_ROLES_PATH = "/api/tenancy/contact-roles/"
+ATTACHMENTS_PATH = "/api/plugins/netbox-attachments/netbox-attachments/"
+ATTACHMENT_ASSIGN_PATH = "/api/plugins/netbox-attachments/netbox-attachment-assignments/"
+
+DEVICE_OBJECT_TYPE = "dcim.device"
+HANDOVER_ROLE_SLUG = "handover"
 
 # Roles that hold something other than hardware. NetBox has no object class, so
 # the role is what separates a licence from a laptop (see the integration plan).
@@ -346,3 +352,80 @@ async def list_suppliers() -> list[str]:
         if cs.get("name") == "suppliers":
             return [c[0] if isinstance(c, (list, tuple)) else c for c in (cs.get("extra_choices") or [])]
     return []
+
+
+# ─── Handover writes ──────────────────────────────────────────────────
+#
+# NetBox already models a handover and the portal follows that model exactly:
+#   1. upload the document as an attachment
+#   2. bind the attachment to the device
+#   3. create a contact-assignment (contact, role "Handover") carrying
+#      signed_by, status and handover_attachment
+# Device status is deliberately untouched — NetBox has no "assigned" status,
+# and possession is expressed by the assignment.
+
+
+async def _handover_role_id() -> Optional[int]:
+    response = await _request("GET", CONTACT_ROLES_PATH, params={"slug": HANDOVER_ROLE_SLUG})
+    results = response.json().get("results", [])
+    return results[0]["id"] if results else None
+
+
+async def upload_attachment(filename: str, content: bytes, display_name: str,
+                            content_type: str) -> dict:
+    """Store a file in NetBox's attachment plugin. Not yet bound to anything."""
+    base_url, headers = _client_kwargs()
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            response = await client.post(
+                f"{base_url}{ATTACHMENTS_PATH}",
+                headers=headers,
+                data={"name": display_name[:100]},
+                files={"file": (filename, content, content_type)},
+            )
+            response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        detail = exc.response.text[:300]
+        logger.warning("[netbox] attachment upload -> %s: %s", exc.response.status_code, detail)
+        raise NetboxError(f"NetBox rejected the attachment: {detail}",
+                          status_code=exc.response.status_code) from exc
+    except httpx.HTTPError as exc:
+        raise NetboxError("Cannot reach NetBox", status_code=502) from exc
+    return response.json()
+
+
+async def bind_attachment(attachment_id: int, object_id: int,
+                          object_type: str = DEVICE_OBJECT_TYPE) -> dict:
+    response = await _request("POST", ATTACHMENT_ASSIGN_PATH, json={
+        "attachment": attachment_id,
+        "object_type": object_type,
+        "object_id": object_id,
+    })
+    return response.json()
+
+
+async def create_handover_assignment(*, device_id: int, contact_id: int, signed_by_id: int,
+                                     attachment_id: int, status: str = "active") -> dict:
+    role_id = await _handover_role_id()
+    body: dict[str, Any] = {
+        "object_type": DEVICE_OBJECT_TYPE,
+        "object_id": device_id,
+        "contact": contact_id,
+        "custom_fields": {
+            "signed_by": signed_by_id,
+            "status": status,
+            "handover_attachment": attachment_id,
+        },
+    }
+    if role_id:
+        body["role"] = role_id
+    response = await _request("POST", ASSIGNMENTS_PATH, json=body)
+    return _to_assignment(response.json())
+
+
+async def active_assignment_for(device_id: int) -> Optional[dict]:
+    """An active holder blocks a second handover — the device is already out."""
+    for assignment in await list_device_assignments(device_id):
+        if (assignment.get("status") or "").lower() == "active":
+            return assignment
+    return None

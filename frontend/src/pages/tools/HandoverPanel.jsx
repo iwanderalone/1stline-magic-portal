@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { apiBlob } from '../../api';
+import { api, apiBlob } from '../../api';
 import { Button, Input, Toast, PageHeader } from '../../components/UI';
 import { Icon } from '../../components/Icons';
 import { useLang } from '../../components/LangContext';
+import { ContactPicker, DevicePicker } from '../../components/NetboxPicker';
 
 function todayLocal() {
   const d = new Date();
@@ -16,6 +17,13 @@ function emptyLine() {
 
 export default function HandoverPanel() {
   const { t: tr } = useLang();
+  // Two ways to produce a handover: from the inventory, which also records the
+  // assignment in NetBox, or free-text, which still works with no NetBox at all.
+  const [mode, setMode] = useState('netbox');   // netbox | manual
+  const [employee, setEmployee] = useState(null);
+  const [signedBy, setSignedBy] = useState(null);
+  const [picked, setPicked] = useState([]);
+  const [result, setResult] = useState(null);
   const [employeeName, setEmployeeName] = useState('');
   const [position, setPosition] = useState('');
   const [period, setPeriod] = useState('');
@@ -33,7 +41,38 @@ export default function HandoverPanel() {
   const addLine = () => setDevices(ds => (ds.length >= 50 ? ds : [...ds, emptyLine()]));
   const removeLine = (i) => setDevices(ds => (ds.length <= 1 ? ds : ds.filter((_, idx) => idx !== i)));
 
-  const canSubmit = employeeName.trim() && position.trim() && date && devices.every(d => d.description.trim());
+  const canSubmit = mode === 'netbox'
+    ? !!(employee && signedBy && picked.length && position.trim() && date)
+    : employeeName.trim() && position.trim() && date && devices.every(d => d.description.trim());
+
+  const recordInNetbox = async (e) => {
+    e.preventDefault();
+    if (busy || !canSubmit) return;
+    setBusy(true);
+    setResult(null);
+    try {
+      const res = await api('/tools/inventory/handover/record', {
+        method: 'POST',
+        body: JSON.stringify({
+          employee_contact_id: employee.id,
+          signed_by_contact_id: signedBy.id,
+          device_ids: picked.map(d => d.id),
+          position: position.trim(),
+          date,
+          assignment_period: period.trim() || null,
+          purpose: purpose.trim() || null,
+          comments: comments.trim() || null,
+        }),
+      });
+      setResult(res);
+      setToast({ message: tr('hoRecorded'), type: 'success' });
+      setPicked([]);
+    } catch (err) {
+      setToast({ message: err.message, type: 'error' });
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const submit = async (e) => {
     e.preventDefault();
@@ -84,19 +123,69 @@ export default function HandoverPanel() {
 
       <PageHeader title={tr('handoverTitle')} subtitle={tr('handoverSubtitle')} />
 
-      <form onSubmit={submit} style={{
+      <div style={{ display: 'flex', gap: 6 }}>
+        {[['netbox', tr('hoModeNetbox')], ['manual', tr('hoModeManual')]].map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => { setMode(id); setResult(null); }}
+            style={{
+              padding: '5px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              borderRadius: 'var(--radius-sm)', fontFamily: 'inherit',
+              border: `1px solid ${mode === id ? 'var(--accent)' : 'var(--border)'}`,
+              background: mode === id ? 'var(--accent)' : 'transparent',
+              color: mode === id ? 'var(--accent-on)' : 'var(--text-muted)',
+            }}
+          >{label}</button>
+        ))}
+      </div>
+
+      {result && (
+        <div style={{
+          border: '1px solid var(--border)', borderLeft: '3px solid var(--success)',
+          borderRadius: 'var(--radius-sm)', padding: '12px 14px', display: 'flex',
+          flexDirection: 'column', gap: 6, background: 'var(--surface)',
+        }}>
+          <div style={{ fontSize: 13, fontWeight: 600 }}>
+            {tr('hoRecordedTitle').replace('{n}', result.assignments.length)}
+          </div>
+          {result.attachment_url && (
+            <a href={result.attachment_url} target="_blank" rel="noreferrer"
+               style={{ fontSize: 13, color: 'var(--accent)', textDecoration: 'none' }}>
+              {tr('hoDownloadDoc')} ↗
+            </a>
+          )}
+          {result.skipped?.length > 0 && (
+            <div style={{ fontSize: 12, color: 'var(--danger)' }}>
+              {tr('hoSkipped')}: {result.skipped.join('; ')}
+            </div>
+          )}
+        </div>
+      )}
+
+      <form onSubmit={mode === 'netbox' ? recordInNetbox : submit} style={{
         display: 'flex', flexDirection: 'column', gap: 14, padding: 18,
         border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--surface-alt)',
       }}>
+        {mode === 'netbox' && (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <ContactPicker label={tr('hoEmployee')} value={employee} onChange={setEmployee} hint={tr('hoEmployeeHint')} />
+            <ContactPicker label={tr('hoSignedBy')} value={signedBy} onChange={setSignedBy} hint={tr('hoSignedByHint')} />
+          </div>
+        )}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          <Input label={tr('handoverEmployee')} value={employeeName} onChange={e => setEmployeeName(e.target.value)} required maxLength={200} />
+          {mode === 'manual' && (
+            <Input label={tr('handoverEmployee')} value={employeeName} onChange={e => setEmployeeName(e.target.value)} required maxLength={200} />
+          )}
           <Input label={tr('handoverPosition')} value={position} onChange={e => setPosition(e.target.value)} required maxLength={200} />
           <Input label={tr('handoverPeriod')} value={period} onChange={e => setPeriod(e.target.value)} maxLength={200} placeholder={tr('handoverPeriodPlaceholder')} />
           <Input label={tr('handoverDate')} type="date" value={date} onChange={e => setDate(e.target.value)} required />
         </div>
         <Input label={tr('handoverPurpose')} value={purpose} onChange={e => setPurpose(e.target.value)} maxLength={500} />
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {mode === 'netbox' && <DevicePicker selected={picked} onChange={setPicked} />}
+
+        {mode === 'manual' && <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <label className="t-eyebrow">{tr('handoverDevices')}</label>
             <span style={{ flex: 1 }} />
@@ -131,13 +220,13 @@ export default function HandoverPanel() {
               </div>
             </div>
           ))}
-        </div>
+        </div>}
 
         <Input label={tr('handoverComments')} value={comments} onChange={e => setComments(e.target.value)} maxLength={1000} />
 
         <div>
           <Button type="submit" variant="primary" disabled={busy || !canSubmit} icon="fileText">
-            {tr('handoverGenerate')}
+            {mode === 'netbox' ? tr('hoGenerateRecord') : tr('handoverGenerate')}
           </Button>
         </div>
       </form>
