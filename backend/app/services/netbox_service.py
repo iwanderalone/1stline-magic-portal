@@ -198,6 +198,23 @@ def _to_assignment(raw: dict) -> dict:
     }
 
 
+_role_slug_cache: dict[str, Any] = {"slugs": None, "at": 0.0}
+_ROLE_CACHE_TTL = 300  # seconds; roles change rarely
+
+
+async def _non_hardware_slugs() -> list[str]:
+    """Which of the non-hardware roles exist in this NetBox, cached briefly."""
+    import time
+    now = time.monotonic()
+    if _role_slug_cache["slugs"] is not None and now - _role_slug_cache["at"] < _ROLE_CACHE_TTL:
+        return _role_slug_cache["slugs"]
+    response = await _request("GET", DEVICE_ROLES_PATH, params={"limit": 250})
+    slugs = {r.get("slug") for r in response.json().get("results", [])}
+    present = sorted(NON_HARDWARE_ROLES & slugs)
+    _role_slug_cache.update({"slugs": present, "at": now})
+    return present
+
+
 async def list_devices(
     q: Optional[str] = None,
     site: Optional[int] = None,
@@ -225,11 +242,18 @@ async def list_devices(
     if asset_tag:
         params["asset_tag"] = asset_tag
     # Hardware / software / subscription is a role distinction, not a NetBox
-    # concept — NetBox filters roles by slug.
-    if device_class == "hardware":
-        params["role_n"] = sorted(NON_HARDWARE_ROLES)
-    elif device_class in NON_HARDWARE_ROLES:
-        params["role"] = device_class
+    # concept. NetBox validates role slugs, so filtering on one that does not
+    # exist yet (Subscription, today) is a 400 rather than an empty result —
+    # hence the intersection with the roles actually defined.
+    if device_class:
+        present = await _non_hardware_slugs()
+        if device_class == "hardware":
+            if present:
+                params["role__n"] = present            # NetBox negation is __n
+        elif device_class in present:
+            params["role"] = device_class
+        else:
+            return NetboxDevicesPage(items=[], total=0, page=page, page_size=page_size)
     response = await _request("GET", DEVICES_PATH, params=params)
     data = response.json()
     items = [_to_summary(d) for d in data.get("results", [])]
