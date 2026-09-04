@@ -843,6 +843,55 @@ class NetboxRef(BaseModel):
     display: Optional[str] = None
 
 
+class NetboxAttachmentRef(BaseModel):
+    id: Optional[int] = None
+    name: Optional[str] = None
+    file: Optional[str] = None
+
+
+class NetboxProcurement(BaseModel):
+    """The purchase record NetBox keeps on every device, in custom fields."""
+    supplier: Optional[str] = None
+    invoice_no: Optional[str] = None
+    delivery_date: Optional[str] = None
+    net_price: Optional[str] = None
+    accounting: Optional[Any] = None
+    invoice_attachment: Optional[NetboxAttachmentRef] = None
+    kit_parent: Optional[NetboxRef] = None
+
+
+class NetboxContact(BaseModel):
+    id: int
+    name: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    title: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    description: Optional[str] = None
+    url: Optional[str] = None
+
+
+class NetboxContactsPage(BaseModel):
+    items: list[NetboxContact]
+    total: int
+    page: int
+    page_size: int
+
+
+class NetboxAssignment(BaseModel):
+    """How NetBox records possession: contact ← handover → object."""
+    id: int
+    contact: Optional[NetboxContact] = None
+    role: Optional[NetboxRef] = None
+    object_id: Optional[int] = None
+    object_display: Optional[str] = None
+    object_type: Optional[str] = None
+    status: Optional[str] = None
+    signed_by: Optional[NetboxRef] = None
+    handover_attachment: Optional[NetboxAttachmentRef] = None
+
+
 class NetboxDeviceSummary(BaseModel):
     id: int
     name: Optional[str] = None
@@ -862,8 +911,10 @@ class NetboxDeviceDetail(NetboxDeviceSummary):
     platform: Optional[NetboxRef] = None
     location: Optional[NetboxRef] = None
     rack: Optional[NetboxRef] = None
+    tenant: Optional[NetboxRef] = None
     comments: Optional[str] = None
     custom_fields: Optional[dict] = None
+    procurement: Optional[NetboxProcurement] = None
     last_updated: Optional[str] = None
 
 
