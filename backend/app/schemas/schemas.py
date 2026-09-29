@@ -6,7 +6,7 @@ from typing import Optional, Any, Literal
 from uuid import UUID
 from app.models.models import (
     UserRole, ShiftType, WorkLocation, TimeOffStatus,
-    TimeOffType, ReminderStatus, TelegramChatType,
+    TimeOffType, ReminderStatus, TelegramChatType, RotationMode,
 )
 
 
@@ -247,6 +247,15 @@ class ScheduleGenerateRequest(BaseModel):
     shift_types: list[ShiftType] = [ShiftType.DAY, ShiftType.NIGHT]
     user_ids: Optional[list[UUID]] = None
 
+class ScheduleCopyWeekRequest(BaseModel):
+    """Clone published shifts from a source range into a target range as drafts,
+    offsetting each shift's date by the same number of days. Used for shift types
+    that repeat a known cadence week over week (e.g. a fixed office pair)."""
+    source_start_date: date
+    target_start_date: date
+    days: int = Field(default=7, ge=1, le=31)
+    shift_types: Optional[list[ShiftType]] = None  # None = all types
+
 class TimeOffCreate(BaseModel):
     start_date: date
     end_date: date
@@ -284,6 +293,53 @@ class UserBlockedDateResponse(BaseOrmModel):
     end_date: date
     reason: Optional[str] = None
     created_at: datetime
+
+
+class ShiftRotationCreate(BaseModel):
+    shift_type: ShiftType
+    label: Optional[str] = Field(default=None, max_length=100)
+    mode: RotationMode = RotationMode.SEQUENCE
+    user_ids: list[UUID] = Field(..., min_length=1, max_length=50)
+    anchor_date: date
+    weekdays: Optional[list[int]] = Field(default=None, max_length=7)  # 0=Mon..6=Sun
+    is_active: bool = True
+
+    @field_validator('weekdays')
+    @classmethod
+    def _validate_weekdays(cls, v):
+        if v is not None and any(d < 0 or d > 6 for d in v):
+            raise ValueError('weekdays must be 0 (Mon) through 6 (Sun)')
+        return v
+
+class ShiftRotationUpdate(BaseModel):
+    label: Optional[str] = Field(default=None, max_length=100)
+    mode: Optional[RotationMode] = None
+    user_ids: Optional[list[UUID]] = Field(default=None, min_length=1, max_length=50)
+    anchor_date: Optional[date] = None
+    weekdays: Optional[list[int]] = Field(default=None, max_length=7)
+    is_active: Optional[bool] = None
+
+class ShiftRotationResponse(BaseOrmModel):
+    id: UUID
+    shift_type: ShiftType
+    label: Optional[str] = None
+    mode: RotationMode
+    user_ids: list[UUID] = []
+    anchor_date: date
+    weekdays: Optional[list[int]] = None
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+    @field_validator('user_ids', 'weekdays', mode='before')
+    @classmethod
+    def _parse_json_text(cls, v: object) -> object:
+        if isinstance(v, str):
+            try:
+                return _json.loads(v)
+            except Exception:
+                return None
+        return v
 
 
 # ─── Reminders ───────────────────────────────────────────

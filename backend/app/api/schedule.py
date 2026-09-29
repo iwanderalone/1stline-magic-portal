@@ -10,13 +10,15 @@ from app.core.database import get_db
 from app.core.deps import get_current_user, require_admin_or_manager, get_or_404
 from app.core.scheduler import scheduler
 from app.workers.shift_notification_scheduler import schedule_pending_notifications
-from app.models.models import User, Shift, TimeOffRequest, UserBlockedDate, ShiftType, ShiftConfig, UserRole
+from app.models.models import User, Shift, TimeOffRequest, UserBlockedDate, ShiftType, ShiftConfig, ShiftRotation, UserRole
 from app.schemas.schemas import (
-    ShiftCreate, ShiftUpdate, ShiftResponse, ScheduleGenerateRequest,
+    ShiftCreate, ShiftUpdate, ShiftResponse, ScheduleGenerateRequest, ScheduleCopyWeekRequest,
     TimeOffCreate, TimeOffResponse, TimeOffReviewRequest,
     ShiftConfigResponse, UserBlockedDateCreate, UserBlockedDateResponse,
+    ShiftRotationCreate, ShiftRotationUpdate, ShiftRotationResponse,
 )
-from app.services.schedule_service import generate_schedule, validate_shift_assignment
+from app.services.schedule_service import generate_schedule, validate_shift_assignment, copy_week_shifts
+import json
 from app.services.audit import log_action
 from app.services.telegram_service import notify_schedule_published
 
@@ -194,6 +196,42 @@ async def auto_generate(
     return [ShiftResponse.model_validate(s) for s in shifts]
 
 
+@router.post("/copy-week", response_model=list[ShiftResponse])
+async def copy_week(
+    req: ScheduleCopyWeekRequest,
+    admin: User = Depends(require_admin_or_manager),
+    db: AsyncSession = Depends(get_db),
+):
+    """Clone a previously published window of shifts into a new window as drafts —
+    for cadences (office pair, night rotation) that repeat week over week and would
+    otherwise be re-entered by hand."""
+    assignments = await copy_week_shifts(
+        db, req.source_start_date, req.target_start_date, req.days, req.shift_types or None
+    )
+
+    shifts = []
+    for a in assignments:
+        shift = Shift(
+            user_id=a["user_id"],
+            date=a["date"],
+            shift_type=a["shift_type"],
+            start_time=a.get("start_time"),
+            end_time=a.get("end_time"),
+            location=a.get("location"),
+            is_published=False,
+        )
+        db.add(shift)
+        shifts.append(shift)
+
+    await db.flush()
+    for s in shifts:
+        await db.refresh(s, ["user"])
+
+    await log_action(db, admin, "schedule_copied",
+        f"{len(shifts)} shifts copied from {req.source_start_date} into {req.target_start_date} ({req.days}d)")
+    return [ShiftResponse.model_validate(s) for s in shifts]
+
+
 @router.post("/publish")
 async def publish_schedule(
     background_tasks: BackgroundTasks,
@@ -352,4 +390,69 @@ async def delete_blocked_date(
     await db.delete(entry)
     await log_action(db, admin, "blocked_date_removed",
         f"user {entry.user_id}: {entry.start_date} → {entry.end_date}")
+    return {"deleted": True}
+
+
+# ─── Shift Rotations ─────────────────────────────────────
+
+@router.get("/rotations", response_model=list[ShiftRotationResponse])
+async def list_rotations(
+    admin: User = Depends(require_admin_or_manager),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(ShiftRotation).order_by(ShiftRotation.shift_type, ShiftRotation.created_at))
+    return [ShiftRotationResponse.model_validate(r) for r in result.scalars().all()]
+
+
+@router.post("/rotations", response_model=ShiftRotationResponse)
+async def create_rotation(
+    req: ShiftRotationCreate,
+    admin: User = Depends(require_admin_or_manager),
+    db: AsyncSession = Depends(get_db),
+):
+    rotation = ShiftRotation(
+        shift_type=req.shift_type,
+        label=req.label,
+        mode=req.mode,
+        user_ids=json.dumps([str(u) for u in req.user_ids]),
+        anchor_date=req.anchor_date,
+        weekdays=json.dumps(req.weekdays) if req.weekdays is not None else None,
+        is_active=req.is_active,
+    )
+    db.add(rotation)
+    await db.flush()
+    await log_action(db, admin, "rotation_created",
+        f"{req.shift_type.value} — {req.mode.value} of {len(req.user_ids)} engineer(s)" + (f" \"{req.label}\"" if req.label else ""))
+    return ShiftRotationResponse.model_validate(rotation)
+
+
+@router.patch("/rotations/{rotation_id}", response_model=ShiftRotationResponse)
+async def update_rotation(
+    rotation_id: UUID,
+    req: ShiftRotationUpdate,
+    admin: User = Depends(require_admin_or_manager),
+    db: AsyncSession = Depends(get_db),
+):
+    rotation = await get_or_404(db, ShiftRotation, rotation_id)
+    data = req.model_dump(exclude_unset=True)
+    if "user_ids" in data:
+        data["user_ids"] = json.dumps([str(u) for u in data["user_ids"]])
+    if "weekdays" in data:
+        data["weekdays"] = json.dumps(data["weekdays"]) if data["weekdays"] is not None else None
+    for field, value in data.items():
+        setattr(rotation, field, value)
+    await db.flush()
+    await log_action(db, admin, "rotation_updated", f"{rotation.shift_type.value} rotation {rotation_id}")
+    return ShiftRotationResponse.model_validate(rotation)
+
+
+@router.delete("/rotations/{rotation_id}")
+async def delete_rotation(
+    rotation_id: UUID,
+    admin: User = Depends(require_admin_or_manager),
+    db: AsyncSession = Depends(get_db),
+):
+    rotation = await get_or_404(db, ShiftRotation, rotation_id)
+    await log_action(db, admin, "rotation_deleted", f"{rotation.shift_type.value} rotation \"{rotation.label or rotation_id}\"")
+    await db.delete(rotation)
     return {"deleted": True}
