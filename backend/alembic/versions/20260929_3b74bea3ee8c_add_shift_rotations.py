@@ -1,6 +1,6 @@
 """shift rotations: recurring assignment patterns per shift type
 
-Revision ID: a1b2c3d4e5f6
+Revision ID: 3b74bea3ee8c
 Revises: f3a4b5c6d7e8
 Branch labels: None
 Depends on: None
@@ -10,7 +10,7 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
-revision = 'a1b2c3d4e5f6'
+revision = '3b74bea3ee8c'
 down_revision = 'f3a4b5c6d7e8'
 branch_labels = None
 depends_on = None
