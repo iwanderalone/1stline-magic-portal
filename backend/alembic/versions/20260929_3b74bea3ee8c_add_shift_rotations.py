@@ -17,10 +17,8 @@ depends_on = None
 
 
 def upgrade():
-    bind = op.get_bind()
-
+    # rotationmode is brand new — create_table's own (checkfirst=False) CREATE TYPE is fine.
     rotation_mode = postgresql.ENUM('sequence', 'team', name='rotationmode')
-    rotation_mode.create(bind, checkfirst=True)
 
     # 'shifttype' already exists (created by the initial schema migration) —
     # create_type=False stops create_table from re-issuing CREATE TYPE for it.
@@ -42,5 +40,6 @@ def upgrade():
 
 
 def downgrade():
+    # drop_table's after_drop hook drops the rotationmode type it owns (shifttype is
+    # create_type=False, so it's left alone — other tables still use it).
     op.drop_table('shift_rotations')
-    postgresql.ENUM(name='rotationmode').drop(op.get_bind(), checkfirst=True)
