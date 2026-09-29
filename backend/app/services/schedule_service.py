@@ -6,7 +6,10 @@ from collections import defaultdict
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
-from app.models.models import User, Shift, TimeOffRequest, UserBlockedDate, ShiftType, ShiftConfig, TimeOffStatus, UserRole
+from app.models.models import (
+    User, Shift, TimeOffRequest, UserBlockedDate, ShiftType, ShiftConfig,
+    TimeOffStatus, UserRole, ShiftRotation, RotationMode,
+)
 from typing import Optional
 import random
 
@@ -114,6 +117,36 @@ async def get_shift_config_map(db) -> dict:
     return {c.shift_type: c for c in result.scalars().all()}
 
 
+async def get_active_rotations(db, shift_types: list[ShiftType]) -> dict:
+    """One parsed active rotation per shift type (if several are active for the same
+    type, the most recently updated one wins — callers should keep at most one active
+    per type). Returns {shift_type: {mode, user_ids: [str], anchor_date, weekdays}}."""
+    result = await db.execute(
+        select(ShiftRotation).where(
+            and_(ShiftRotation.shift_type.in_(shift_types), ShiftRotation.is_active == True)
+        ).order_by(ShiftRotation.updated_at.desc())
+    )
+    rotations = {}
+    for r in result.scalars().all():
+        if r.shift_type in rotations:
+            continue  # newest already kept
+        try:
+            user_ids = json.loads(r.user_ids)
+        except (json.JSONDecodeError, TypeError):
+            user_ids = []
+        try:
+            weekdays = json.loads(r.weekdays) if r.weekdays else None
+        except (json.JSONDecodeError, TypeError):
+            weekdays = None
+        rotations[r.shift_type] = {
+            "mode": r.mode,
+            "user_ids": [str(u) for u in user_ids],
+            "anchor_date": r.anchor_date,
+            "weekdays": weekdays,
+        }
+    return rotations
+
+
 def is_available_by_pattern(user: User, check_date: date) -> bool:
     """Check if a user is available on a given date based on their cycle pattern.
 
@@ -206,78 +239,147 @@ async def generate_schedule(
     shift_counts = defaultdict(int)
     weekly_counts = defaultdict(lambda: defaultdict(int))
     assignments = []
+    rotations = await get_active_rotations(db, shift_types)
+
+    def eligible(uid, current, stype):
+        user = user_map.get(uid)
+        if user is None:
+            return False
+        if (uid, current, stype) in existing_shifts:
+            return False
+        if current in off_map.get(uid, set()):
+            return False
+        if current in blocked_map.get(uid, set()):
+            return False
+        if not is_available_by_pattern(user, current):
+            return False
+        # Day/night/office compatibility: night cannot coexist with day/office
+        # on the same date (and vice versa).
+        same_day_types = assigned_types.get((uid, current), set())
+        if stype == ShiftType.NIGHT:
+            if same_day_types & DAYTIME_SHIFT_TYPES:
+                return False
+            # A night shift today rules out day/office tomorrow — don't
+            # assign it if tomorrow already has one of those.
+            if assigned_types.get((uid, current + timedelta(days=1)), set()) & DAYTIME_SHIFT_TYPES:
+                return False
+        elif ShiftType.NIGHT in same_day_types:
+            return False
+        # allowed_shift_types: None = no restriction; [] = never assign; ["day"] = day only
+        if user.allowed_shift_types is not None:
+            try:
+                allowed = json.loads(user.allowed_shift_types) if isinstance(user.allowed_shift_types, str) else user.allowed_shift_types
+                if stype.value not in allowed:
+                    return False
+            except Exception:
+                pass
+        if uid in last_shift_date:
+            gap = (current - last_shift_date[uid]).days
+            if gap < user.min_shift_gap_days:
+                return False
+            # Never assign a DAY/OFFICE shift the day after a NIGHT shift —
+            # night ends ~08:00, day/office starts ~08:00 → effectively 0h rest
+            if gap == 1 and last_shift_type.get(uid) == ShiftType.NIGHT and stype in DAYTIME_SHIFT_TYPES:
+                return False
+        week_num = current.isocalendar()[1]
+        if weekly_counts[uid][week_num] >= user.max_shifts_per_week:
+            return False
+        return True
+
+    def assign(uid, current, stype):
+        config = config_map.get(stype)
+        assignments.append({
+            "user_id": user_map[uid].id,  # uuid.UUID, not str — avoids bind processor error
+            "date": current,
+            "shift_type": stype,
+            "start_time": config.default_start_time if config else None,
+            "end_time": config.default_end_time if config else None,
+        })
+        shift_counts[uid] += 1
+        last_shift_date[uid] = current
+        last_shift_type[uid] = stype
+        week_num = current.isocalendar()[1]
+        weekly_counts[uid][week_num] += 1
+        existing_shifts.add((uid, current, stype))
+        assigned_types[(uid, current)].add(stype)
 
     current = start_date
     while current <= end_date:
         for stype in shift_types:
-            candidates = []
-            for uid in uid_list:
-                user = user_map[uid]
-                if (uid, current, stype) in existing_shifts:
-                    continue
-                if current in off_map.get(uid, set()):
-                    continue
-                if current in blocked_map.get(uid, set()):
-                    continue
-                if not is_available_by_pattern(user, current):
-                    continue
-                # Day/night/office compatibility: night cannot coexist with day/office
-                # on the same date (and vice versa).
-                same_day_types = assigned_types.get((uid, current), set())
-                if stype == ShiftType.NIGHT:
-                    if same_day_types & DAYTIME_SHIFT_TYPES:
-                        continue
-                    # A night shift today rules out day/office tomorrow — don't
-                    # assign it if tomorrow already has one of those.
-                    if assigned_types.get((uid, current + timedelta(days=1)), set()) & DAYTIME_SHIFT_TYPES:
-                        continue
-                elif ShiftType.NIGHT in same_day_types:
-                    continue
-                # allowed_shift_types: None = no restriction; [] = never assign; ["day"] = day only
-                if user.allowed_shift_types is not None:
-                    try:
-                        allowed = json.loads(user.allowed_shift_types) if isinstance(user.allowed_shift_types, str) else user.allowed_shift_types
-                        if stype.value not in allowed:
-                            continue
-                    except Exception:
-                        pass
-                if uid in last_shift_date:
-                    gap = (current - last_shift_date[uid]).days
-                    if gap < user.min_shift_gap_days:
-                        continue
-                    # Never assign a DAY/OFFICE shift the day after a NIGHT shift —
-                    # night ends ~08:00, day/office starts ~08:00 → effectively 0h rest
-                    if gap == 1 and last_shift_type.get(uid) == ShiftType.NIGHT and stype in DAYTIME_SHIFT_TYPES:
-                        continue
-                week_num = current.isocalendar()[1]
-                if weekly_counts[uid][week_num] >= user.max_shifts_per_week:
-                    continue
-                candidates.append(uid)
+            rotation = rotations.get(stype)
 
+            if rotation:
+                weekdays = rotation["weekdays"]
+                if weekdays is not None and current.weekday() not in weekdays:
+                    continue  # rotation defines this shift type as not running today
+                rotation_uids = [u for u in rotation["user_ids"] if u in uid_list]
+                if not rotation_uids:
+                    continue
+                if rotation["mode"] == RotationMode.TEAM:
+                    chosen_uids = [u for u in rotation_uids if eligible(u, current, stype)]
+                else:
+                    idx = (current - rotation["anchor_date"]).days % len(rotation_uids)
+                    turn_uid = rotation_uids[idx]
+                    chosen_uids = [turn_uid] if eligible(turn_uid, current, stype) else []
+                for uid in chosen_uids:
+                    assign(uid, current, stype)
+                continue  # rotation fully decides this (day, shift type) — skip load-balanced fallback
+
+            candidates = [uid for uid in uid_list if eligible(uid, current, stype)]
             if not candidates:
                 continue
-
             candidates.sort(key=lambda u: (shift_counts[u], random.random()))
-            chosen = candidates[0]
-
-            config = config_map.get(stype)
-            assignment = {
-                "user_id": user_map[chosen].id,  # uuid.UUID, not str — avoids bind processor error
-                "date": current,
-                "shift_type": stype,
-                "start_time": config.default_start_time if config else None,
-                "end_time": config.default_end_time if config else None,
-            }
-            assignments.append(assignment)
-
-            shift_counts[chosen] += 1
-            last_shift_date[chosen] = current
-            last_shift_type[chosen] = stype
-            week_num = current.isocalendar()[1]
-            weekly_counts[chosen][week_num] += 1
-            existing_shifts.add((chosen, current, stype))
-            assigned_types[(chosen, current)].add(stype)
+            assign(candidates[0], current, stype)
 
         current += timedelta(days=1)
 
+    return assignments
+
+
+async def copy_week_shifts(
+    db: AsyncSession,
+    source_start_date: date,
+    target_start_date: date,
+    days: int = 7,
+    shift_types: Optional[list[ShiftType]] = None,
+) -> list[dict]:
+    """Clone published shifts from [source_start_date, +days) into a same-length
+    window starting at target_start_date, preserving each shift's offset from the
+    start of its window. A (user, date, shift_type) already present in the target
+    range is left untouched rather than duplicated — matches how admins actually
+    work today for cadences (office, night) that repeat week over week."""
+    source_end = source_start_date + timedelta(days=days - 1)
+    target_end = target_start_date + timedelta(days=days - 1)
+
+    filters = [
+        Shift.date >= source_start_date, Shift.date <= source_end,
+        Shift.is_published == True, Shift.pending_delete == False,
+    ]
+    if shift_types:
+        filters.append(Shift.shift_type.in_(shift_types))
+    source_result = await db.execute(select(Shift).where(and_(*filters)))
+    source_shifts = source_result.scalars().all()
+
+    existing_result = await db.execute(
+        select(Shift).where(and_(Shift.date >= target_start_date, Shift.date <= target_end))
+    )
+    existing = {(str(s.user_id), s.date, s.shift_type) for s in existing_result.scalars().all()}
+
+    assignments = []
+    seen = set()
+    for s in source_shifts:
+        offset = (s.date - source_start_date).days
+        new_date = target_start_date + timedelta(days=offset)
+        key = (str(s.user_id), new_date, s.shift_type)
+        if key in existing or key in seen:
+            continue
+        seen.add(key)
+        assignments.append({
+            "user_id": s.user_id,
+            "date": new_date,
+            "shift_type": s.shift_type,
+            "start_time": s.start_time,
+            "end_time": s.end_time,
+            "location": s.location,
+        })
     return assignments
