@@ -241,7 +241,10 @@ async def generate_schedule(
     assignments = []
     rotations = await get_active_rotations(db, shift_types)
 
-    def eligible(uid, current, stype):
+    def eligible(uid, current, stype, strict=True):
+        """strict=False is used for rotation-driven picks: an admin-defined rotation
+        is an explicit override of the load-balancing heuristics (rest-gap days,
+        weekly cap) — only the hard physical/availability constraints still apply."""
         user = user_map.get(uid)
         if user is None:
             return False
@@ -275,15 +278,17 @@ async def generate_schedule(
                 pass
         if uid in last_shift_date:
             gap = (current - last_shift_date[uid]).days
-            if gap < user.min_shift_gap_days:
+            if strict and gap < user.min_shift_gap_days:
                 return False
             # Never assign a DAY/OFFICE shift the day after a NIGHT shift —
-            # night ends ~08:00, day/office starts ~08:00 → effectively 0h rest
+            # night ends ~08:00, day/office starts ~08:00 → effectively 0h rest.
+            # Hard physical constraint, kept even for rotation-driven picks.
             if gap == 1 and last_shift_type.get(uid) == ShiftType.NIGHT and stype in DAYTIME_SHIFT_TYPES:
                 return False
-        week_num = current.isocalendar()[1]
-        if weekly_counts[uid][week_num] >= user.max_shifts_per_week:
-            return False
+        if strict:
+            week_num = current.isocalendar()[1]
+            if weekly_counts[uid][week_num] >= user.max_shifts_per_week:
+                return False
         return True
 
     def assign(uid, current, stype):
@@ -316,11 +321,11 @@ async def generate_schedule(
                 if not rotation_uids:
                     continue
                 if rotation["mode"] == RotationMode.TEAM:
-                    chosen_uids = [u for u in rotation_uids if eligible(u, current, stype)]
+                    chosen_uids = [u for u in rotation_uids if eligible(u, current, stype, strict=False)]
                 else:
                     idx = (current - rotation["anchor_date"]).days % len(rotation_uids)
                     turn_uid = rotation_uids[idx]
-                    chosen_uids = [turn_uid] if eligible(turn_uid, current, stype) else []
+                    chosen_uids = [turn_uid] if eligible(turn_uid, current, stype, strict=False) else []
                 for uid in chosen_uids:
                     assign(uid, current, stype)
                 continue  # rotation fully decides this (day, shift type) — skip load-balanced fallback
