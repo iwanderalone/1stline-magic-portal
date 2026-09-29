@@ -31,6 +31,11 @@ from app.schemas.schemas import (
     NetboxDeviceCreate,
     NetboxDeviceDetail,
     NetboxDevicesPage,
+    NetboxAssignment,
+    NetboxContact,
+    NetboxContactsPage,
+    HandoverRecord,
+    HandoverRecordResult,
     NetboxDeviceUpdate,
     NetboxLookupItem,
 )
@@ -180,10 +185,17 @@ async def cancel_backup_job(
 
 @router.get("/inventory/devices", response_model=NetboxDevicesPage)
 async def list_devices(
-    q: str | None = None,
+    q: str | None = Query(default=None, description="Free text: name, serial or asset tag"),
     site: int | None = None,
     role: int | None = None,
     status: str | None = None,
+    serial: str | None = Query(default=None, description="Exact serial match"),
+    asset_tag: str | None = Query(default=None, description="Exact asset tag match"),
+    device_class: str | None = Query(
+        default=None,
+        pattern="^(hardware|software|subscription)$",
+        description="Hardware excludes the software/subscription roles",
+    ),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=25, ge=1, le=100),
     _: User = Depends(get_current_user),
@@ -191,7 +203,10 @@ async def list_devices(
     if not nbs.enabled():
         raise _netbox_unavailable()
     try:
-        return await nbs.list_devices(q=q, site=site, role=role, status=status, page=page, page_size=page_size)
+        return await nbs.list_devices(
+            q=q, site=site, role=role, status=status, serial=serial,
+            asset_tag=asset_tag, device_class=device_class, page=page, page_size=page_size,
+        )
     except nbs.NetboxError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc))
 
@@ -308,4 +323,177 @@ async def generate_handover(
         content=docx_bytes,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get(
+    "/inventory/devices/{device_id}/assignments",
+    response_model=list[NetboxAssignment],
+    summary="Who holds this device",
+    description="Contact assignments for a device — the handover record, with the signed document.",
+)
+async def device_assignments(device_id: int, _: User = Depends(get_current_user)):
+    if not nbs.enabled():
+        raise _netbox_unavailable()
+    try:
+        return await nbs.list_device_assignments(device_id)
+    except nbs.NetboxError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc))
+
+
+@router.get("/inventory/contacts", response_model=NetboxContactsPage)
+async def list_contacts(
+    q: str | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=25, ge=1, le=100),
+    _: User = Depends(get_current_user),
+):
+    if not nbs.enabled():
+        raise _netbox_unavailable()
+    try:
+        return await nbs.list_contacts(q=q, page=page, page_size=page_size)
+    except nbs.NetboxError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc))
+
+
+@router.get("/inventory/contacts/{contact_id}", response_model=NetboxContact)
+async def get_contact(contact_id: int, _: User = Depends(get_current_user)):
+    if not nbs.enabled():
+        raise _netbox_unavailable()
+    try:
+        return await nbs.get_contact(contact_id)
+    except nbs.NetboxError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc))
+
+
+@router.get(
+    "/inventory/contacts/{contact_id}/assets",
+    response_model=list[NetboxAssignment],
+    summary="Everything a person holds",
+    description="Every asset assigned to this contact — the question every offboarding asks.",
+)
+async def contact_assets(contact_id: int, _: User = Depends(get_current_user)):
+    if not nbs.enabled():
+        raise _netbox_unavailable()
+    try:
+        return await nbs.list_contact_assets(contact_id)
+    except nbs.NetboxError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc))
+
+
+@router.get("/inventory/suppliers", response_model=list[str])
+async def list_suppliers(_: User = Depends(get_current_user)):
+    """`supplier` is required on every device and backed by a fixed choice set."""
+    if not nbs.enabled():
+        raise _netbox_unavailable()
+    try:
+        return await nbs.list_suppliers()
+    except nbs.NetboxError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc))
+
+
+@router.post(
+    "/inventory/handover/record",
+    response_model=HandoverRecordResult,
+    summary="Generate a handover and record it in NetBox",
+    description=(
+        "Builds the handover document from NetBox devices, uploads it as an attachment "
+        "against each device, and creates the contact-assignment that records possession "
+        "(role Handover, with signed_by, status and handover_attachment). Device status is "
+        "left alone — NetBox has no 'assigned' status. A device already held by someone is "
+        "skipped rather than double-assigned."
+    ),
+)
+async def record_handover(
+    payload: HandoverRecord,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin_or_manager),
+):
+    if not nbs.enabled():
+        raise _netbox_unavailable()
+
+    from app.core.dynamic_settings import eff
+    from app.schemas.schemas import HandoverDeviceLine, HandoverGenerate
+
+    try:
+        employee = await nbs.get_contact(payload.employee_contact_id)
+        devices = [await nbs.get_device(d) for d in payload.device_ids]
+
+        # Refuse to hand over what someone else already holds; the operator can
+        # end the existing assignment in NetBox first.
+        assignable, skipped = [], []
+        for device in devices:
+            held_by = await nbs.active_assignment_for(device.id)
+            if held_by:
+                holder = (held_by.get("contact") or {}).get("name") or "someone"
+                skipped.append(f"{device.name or device.id} — already held by {holder}")
+            else:
+                assignable.append(device)
+
+        if not assignable:
+            raise HTTPException(
+                status_code=409,
+                detail="Every selected device is already assigned: " + "; ".join(skipped),
+            )
+
+        # The document lines come from NetBox, so paper and inventory agree.
+        lines = [
+            HandoverDeviceLine(
+                description=(d.device_type.display if d.device_type else None) or d.name or f"#{d.id}",
+                quantity=1,
+                serial_no=d.serial or None,
+                inventory_no=d.asset_tag or None,
+                accessories=payload.accessories,
+            )
+            for d in assignable
+        ]
+        doc_payload = HandoverGenerate(
+            employee_name=employee.get("name") or "",
+            position=payload.position,
+            assignment_period=payload.assignment_period,
+            purpose=payload.purpose,
+            date=payload.date,
+            devices=lines,
+            comments=payload.comments,
+        )
+        assignor_name = eff("HANDOVER_ASSIGNOR_NAME", get_settings().HANDOVER_ASSIGNOR_NAME)
+        docx_bytes = generate_handover_docx(doc_payload, assignor_name)
+
+        safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in (employee.get("name") or ""))[:60] or "handover"
+        filename = f"handover-{safe_name}-{payload.date.isoformat()}.docx"
+        attachment = await nbs.upload_attachment(
+            filename=filename,
+            content=docx_bytes,
+            display_name=f"{employee.get('name')} — handover {payload.date.isoformat()}",
+            content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+
+        assignments = []
+        for device in assignable:
+            await nbs.bind_attachment(attachment["id"], device.id)
+            assignments.append(await nbs.create_handover_assignment(
+                device_id=device.id,
+                contact_id=payload.employee_contact_id,
+                signed_by_id=payload.signed_by_contact_id,
+                attachment_id=attachment["id"],
+            ))
+    except nbs.NetboxError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc))
+
+    await log_action(
+        db, user, "inventory_handover_recorded",
+        f"Handover for {employee.get('name')} recorded in NetBox: "
+        f"{len(assignments)} device(s), attachment #{attachment['id']}"
+        + (f"; skipped {len(skipped)}" if skipped else ""),
+    )
+    await db.commit()
+    logger.info("[tools] %s recorded a handover for %s (%d device(s))",
+                user.username, employee.get("name"), len(assignments))
+
+    return HandoverRecordResult(
+        filename=filename,
+        attachment_id=attachment["id"],
+        attachment_url=attachment.get("file"),
+        assignments=assignments,
+        skipped=skipped,
     )

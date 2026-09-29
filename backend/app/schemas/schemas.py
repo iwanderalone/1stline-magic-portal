@@ -6,7 +6,7 @@ from typing import Optional, Any, Literal
 from uuid import UUID
 from app.models.models import (
     UserRole, ShiftType, WorkLocation, TimeOffStatus,
-    TimeOffType, ReminderStatus, TelegramChatType,
+    TimeOffType, ReminderStatus, TelegramChatType, RotationMode,
 )
 
 
@@ -247,6 +247,15 @@ class ScheduleGenerateRequest(BaseModel):
     shift_types: list[ShiftType] = [ShiftType.DAY, ShiftType.NIGHT]
     user_ids: Optional[list[UUID]] = None
 
+class ScheduleCopyWeekRequest(BaseModel):
+    """Clone published shifts from a source range into a target range as drafts,
+    offsetting each shift's date by the same number of days. Used for shift types
+    that repeat a known cadence week over week (e.g. a fixed office pair)."""
+    source_start_date: date
+    target_start_date: date
+    days: int = Field(default=7, ge=1, le=31)
+    shift_types: Optional[list[ShiftType]] = None  # None = all types
+
 class TimeOffCreate(BaseModel):
     start_date: date
     end_date: date
@@ -284,6 +293,53 @@ class UserBlockedDateResponse(BaseOrmModel):
     end_date: date
     reason: Optional[str] = None
     created_at: datetime
+
+
+class ShiftRotationCreate(BaseModel):
+    shift_type: ShiftType
+    label: Optional[str] = Field(default=None, max_length=100)
+    mode: RotationMode = RotationMode.SEQUENCE
+    user_ids: list[UUID] = Field(..., min_length=1, max_length=50)
+    anchor_date: date
+    weekdays: Optional[list[int]] = Field(default=None, max_length=7)  # 0=Mon..6=Sun
+    is_active: bool = True
+
+    @field_validator('weekdays')
+    @classmethod
+    def _validate_weekdays(cls, v):
+        if v is not None and any(d < 0 or d > 6 for d in v):
+            raise ValueError('weekdays must be 0 (Mon) through 6 (Sun)')
+        return v
+
+class ShiftRotationUpdate(BaseModel):
+    label: Optional[str] = Field(default=None, max_length=100)
+    mode: Optional[RotationMode] = None
+    user_ids: Optional[list[UUID]] = Field(default=None, min_length=1, max_length=50)
+    anchor_date: Optional[date] = None
+    weekdays: Optional[list[int]] = Field(default=None, max_length=7)
+    is_active: Optional[bool] = None
+
+class ShiftRotationResponse(BaseOrmModel):
+    id: UUID
+    shift_type: ShiftType
+    label: Optional[str] = None
+    mode: RotationMode
+    user_ids: list[UUID] = []
+    anchor_date: date
+    weekdays: Optional[list[int]] = None
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+    @field_validator('user_ids', 'weekdays', mode='before')
+    @classmethod
+    def _parse_json_text(cls, v: object) -> object:
+        if isinstance(v, str):
+            try:
+                return _json.loads(v)
+            except Exception:
+                return None
+        return v
 
 
 # ─── Reminders ───────────────────────────────────────────
@@ -843,6 +899,55 @@ class NetboxRef(BaseModel):
     display: Optional[str] = None
 
 
+class NetboxAttachmentRef(BaseModel):
+    id: Optional[int] = None
+    name: Optional[str] = None
+    file: Optional[str] = None
+
+
+class NetboxProcurement(BaseModel):
+    """The purchase record NetBox keeps on every device, in custom fields."""
+    supplier: Optional[str] = None
+    invoice_no: Optional[str] = None
+    delivery_date: Optional[str] = None
+    net_price: Optional[str] = None
+    accounting: Optional[Any] = None
+    invoice_attachment: Optional[NetboxAttachmentRef] = None
+    kit_parent: Optional[NetboxRef] = None
+
+
+class NetboxContact(BaseModel):
+    id: int
+    name: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    title: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    description: Optional[str] = None
+    url: Optional[str] = None
+
+
+class NetboxContactsPage(BaseModel):
+    items: list[NetboxContact]
+    total: int
+    page: int
+    page_size: int
+
+
+class NetboxAssignment(BaseModel):
+    """How NetBox records possession: contact ← handover → object."""
+    id: int
+    contact: Optional[NetboxContact] = None
+    role: Optional[NetboxRef] = None
+    object_id: Optional[int] = None
+    object_display: Optional[str] = None
+    object_type: Optional[str] = None
+    status: Optional[str] = None
+    signed_by: Optional[NetboxRef] = None
+    handover_attachment: Optional[NetboxAttachmentRef] = None
+
+
 class NetboxDeviceSummary(BaseModel):
     id: int
     name: Optional[str] = None
@@ -862,8 +967,10 @@ class NetboxDeviceDetail(NetboxDeviceSummary):
     platform: Optional[NetboxRef] = None
     location: Optional[NetboxRef] = None
     rack: Optional[NetboxRef] = None
+    tenant: Optional[NetboxRef] = None
     comments: Optional[str] = None
     custom_fields: Optional[dict] = None
+    procurement: Optional[NetboxProcurement] = None
     last_updated: Optional[str] = None
 
 
@@ -911,6 +1018,31 @@ class HandoverDeviceLine(BaseModel):
     inventory_no: Optional[str] = Field(None, max_length=100)
     additional_info: Optional[str] = Field(None, max_length=300)
     accessories: Optional[str] = Field(None, max_length=300)
+
+
+class HandoverRecord(BaseModel):
+    """Generate a handover *and* write it into NetBox.
+
+    `devices` are NetBox device ids — the document lines are derived from them,
+    so the paper and the inventory cannot disagree.
+    """
+    employee_contact_id: int
+    signed_by_contact_id: int
+    device_ids: list[int] = Field(..., min_length=1, max_length=50)
+    position: str = Field(..., min_length=1, max_length=200)
+    date: date
+    assignment_period: Optional[str] = Field(None, max_length=200)
+    purpose: Optional[str] = Field(None, max_length=500)
+    comments: Optional[str] = Field(None, max_length=1000)
+    accessories: Optional[str] = Field(None, max_length=300)
+
+
+class HandoverRecordResult(BaseModel):
+    filename: str
+    attachment_id: Optional[int] = None
+    attachment_url: Optional[str] = None   # the file in NetBox — the canonical copy
+    assignments: list[NetboxAssignment] = []
+    skipped: list[str] = []      # devices already held by someone, with the holder named
 
 
 class HandoverGenerate(BaseModel):

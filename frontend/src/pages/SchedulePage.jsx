@@ -68,6 +68,8 @@ export default function SchedulePage({ user }) {
   const [offset, setOffset] = useState(0);
   const [showGenerate, setShowGenerate] = useState(false);
   const [showTimeOff, setShowTimeOff] = useState(false);
+  const [showRotations, setShowRotations] = useState(false);
+  const [rotations, setRotations] = useState([]);
   const [addShiftPrefill, setAddShiftPrefill] = useState(null);
   const [selectedShift, setSelectedShift] = useState(null);
   const [selectedTimeOff, setSelectedTimeOff] = useState(null);
@@ -105,7 +107,13 @@ export default function SchedulePage({ user }) {
     finally { setLoading(false); }
   }, [rangeStart, rangeEnd]);
 
+  const loadRotations = useCallback(async () => {
+    if (!isAdmin) return;
+    try { setRotations(await api('/schedule/rotations') || []); } catch (e) { console.error(e); }
+  }, [isAdmin]);
+
   useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => { loadRotations(); }, [loadRotations]);
 
   // Convert time stored in Portal Timezone to User Timezone for display
   const fmtTime = (value, date) => {
@@ -177,6 +185,37 @@ export default function SchedulePage({ user }) {
     try {
       await api('/schedule/time-off', { method: 'POST', body: JSON.stringify({ start_date: sd, end_date: ed, off_type: ot, comment: cm }) });
       setToast({ message: tr('scheduleTimeOffRequested'), type: 'success' }); setShowTimeOff(false); loadData();
+    } catch (e) { setToast({ message: e.message, type: 'error' }); }
+  };
+
+  const handleCopyWeek = async () => {
+    if (!confirm(tr('scheduleCopyWeekConfirm'))) return;
+    try {
+      const sourceStart = new Date(weekDates[0]); sourceStart.setDate(sourceStart.getDate() - 7);
+      const r = await api('/schedule/copy-week', {
+        method: 'POST',
+        body: JSON.stringify({ source_start_date: fmt(sourceStart), target_start_date: fmt(weekDates[0]), days: 7 }),
+      });
+      setToast({ message: r.length ? text(tr('scheduleCopyWeekDone'), { count: r.length }) : tr('scheduleCopyWeekNone'), type: r.length ? 'success' : 'info' });
+      loadData();
+    } catch (e) { setToast({ message: e.message, type: 'error' }); }
+  };
+
+  const handleSaveRotation = async (data, id) => {
+    try {
+      if (id) await api(`/schedule/rotations/${id}`, { method: 'PATCH', body: JSON.stringify(data) });
+      else await api('/schedule/rotations', { method: 'POST', body: JSON.stringify(data) });
+      setToast({ message: tr('scheduleRotationSaved'), type: 'success' });
+      loadRotations();
+    } catch (e) { setToast({ message: e.message, type: 'error' }); }
+  };
+
+  const handleDeleteRotation = async (id) => {
+    if (!confirm(tr('scheduleRotationDeleteConfirm'))) return;
+    try {
+      await api(`/schedule/rotations/${id}`, { method: 'DELETE' });
+      setToast({ message: tr('scheduleRotationDeleted'), type: 'success' });
+      loadRotations();
     } catch (e) { setToast({ message: e.message, type: 'error' }); }
   };
 
@@ -290,6 +329,8 @@ export default function SchedulePage({ user }) {
           <Button variant="secondary" size="sm" icon="sun" onClick={() => setShowTimeOff(true)}>{tr('timeOff')}</Button>
           {isAdmin && <Button variant="secondary" size="sm" icon="plus" onClick={() => setAddShiftPrefill({})}>{tr('addShift')}</Button>}
           {isAdmin && <Button size="sm" icon="zap" onClick={() => setShowGenerate(true)}>{tr('generate')}</Button>}
+          {isAdmin && view === 'weekly' && <Button variant="secondary" size="sm" icon="copy" onClick={handleCopyWeek}>{tr('scheduleCopyWeek')}</Button>}
+          {isAdmin && <Button variant="secondary" size="sm" icon="refresh" onClick={() => setShowRotations(true)}>{tr('scheduleRotations')}</Button>}
           {isAdmin && <Button variant="secondary" size="sm" icon="check" onClick={handlePublish}>{tr('publish')}</Button>}
           {isAdmin && <Button variant="danger" size="sm" icon="trash" onClick={handleClearDrafts}>{tr('scheduleClearDrafts')}</Button>}
         </div>
@@ -359,6 +400,16 @@ export default function SchedulePage({ user }) {
       )}
 
       {showGenerate && <GenerateModal onClose={() => setShowGenerate(false)} onGenerate={handleGenerate} dates={weekDates} configs={configs} />}
+      {showRotations && (
+        <RotationsModal
+          onClose={() => setShowRotations(false)}
+          rotations={rotations}
+          users={users}
+          configs={configs}
+          onSave={handleSaveRotation}
+          onDelete={handleDeleteRotation}
+        />
+      )}
       {showTimeOff && <TimeOffModal onClose={() => setShowTimeOff(false)} onSubmit={handleTimeOff} />}
       {addShiftPrefill && <AddShiftModal onClose={() => setAddShiftPrefill(null)} onSubmit={handleAddShift} users={users} configs={configs} prefill={addShiftPrefill} />}
       {selectedShift && isAdmin && (
@@ -414,6 +465,184 @@ function GenerateModal({ onClose, onGenerate, dates, configs }) {
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
           <Button variant="secondary" onClick={onClose}>{tr('cancel')}</Button>
           <Button onClick={() => onGenerate(start, end, types)} disabled={types.length === 0}>{tr('generate')}</Button>
+        </div>
+      </div>
+    </Overlay>
+  );
+}
+
+function RotationsModal({ onClose, rotations, users, configs, onSave, onDelete }) {
+  const { t: tr } = useLang();
+  const [editing, setEditing] = useState(null); // null = list view, {} = new, {...rotation} = edit
+  const engineers = users.filter(u => u.role === 'engineer' && u.is_active);
+  const engineerName = id => engineers.find(u => String(u.id) === String(id))?.display_name || '—';
+
+  if (editing !== null) {
+    return (
+      <RotationForm
+        rotation={editing}
+        engineers={engineers}
+        configs={configs}
+        onCancel={() => setEditing(null)}
+        onSubmit={async (data) => { await onSave(data, editing.id); setEditing(null); }}
+      />
+    );
+  }
+
+  return (
+    <Overlay onClose={onClose} title={tr('scheduleRotations')}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>{tr('scheduleRotationsDesc')}</div>
+
+        {rotations.length === 0 ? (
+          <EmptyState title={tr('scheduleRotationsEmpty')} />
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {rotations.map(r => (
+              <div key={r.id} style={{
+                display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px',
+                background: 'var(--surface-alt)', borderRadius: 'var(--radius-sm)',
+                opacity: r.is_active ? 1 : 0.5,
+              }}>
+                <Icon name={r.shift_type === 'night' ? 'moon' : r.shift_type === 'office' ? 'workspace' : 'sun'} size={16} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, fontSize: 13 }}>
+                    {r.label || shiftLabel(tr, r.shift_type)}
+                    {!r.is_active && <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--text-muted)' }}>({tr('cancel')})</span>}
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                    {r.mode === 'team' ? tr('scheduleRotationModeTeam') : tr('scheduleRotationModeSequence')} · {r.user_ids.map(engineerName).join(r.mode === 'sequence' ? ' → ' : ' + ')}
+                    {r.weekdays && ` · ${r.weekdays.map(d => DAY_NAMES[d]).join('/')}`}
+                  </div>
+                </div>
+                <Button variant="secondary" size="sm" onClick={() => setEditing(r)}>{tr('edit')}</Button>
+                <Button variant="danger" size="sm" icon="trash" onClick={() => onDelete(r.id)} />
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
+          <Button variant="secondary" icon="plus" onClick={() => setEditing({})}>{tr('scheduleAddRotation')}</Button>
+          <Button variant="secondary" onClick={onClose}>{tr('cancel')}</Button>
+        </div>
+      </div>
+    </Overlay>
+  );
+}
+
+function RotationForm({ rotation, engineers, configs, onCancel, onSubmit }) {
+  const { t: tr } = useLang();
+  const isNew = !rotation.id;
+  const activeConfigs = configs.filter(c => c.is_active);
+  const [shiftType, setShiftType] = useState(rotation.shift_type || activeConfigs[0]?.shift_type || '');
+  const [label, setLabel] = useState(rotation.label || '');
+  const [mode, setMode] = useState(rotation.mode || 'sequence');
+  const [userIds, setUserIds] = useState(rotation.user_ids || []);
+  const [anchorDate, setAnchorDate] = useState(rotation.anchor_date || fmt(new Date()));
+  const [everyDay, setEveryDay] = useState(!rotation.weekdays);
+  const [weekdays, setWeekdays] = useState(rotation.weekdays || [0, 1, 2, 3, 4, 5, 6]);
+  const [isActive, setIsActive] = useState(rotation.is_active !== false);
+  const [pickerValue, setPickerValue] = useState('');
+
+  const addEngineer = (id) => {
+    if (!id || userIds.includes(id)) return;
+    setUserIds([...userIds, id]);
+  };
+  const removeEngineer = (id) => setUserIds(userIds.filter(u => u !== id));
+  const moveEngineer = (idx, dir) => {
+    const next = [...userIds];
+    const target = idx + dir;
+    if (target < 0 || target >= next.length) return;
+    [next[idx], next[target]] = [next[target], next[idx]];
+    setUserIds(next);
+  };
+  const toggleWeekday = (d) => setWeekdays(w => w.includes(d) ? w.filter(x => x !== d) : [...w, d].sort());
+
+  const canSubmit = shiftType && userIds.length > 0 && anchorDate && (everyDay || weekdays.length > 0);
+
+  return (
+    <Overlay onClose={onCancel} title={isNew ? tr('scheduleAddRotation') : tr('scheduleEditRotation')}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        <Select label={tr('shiftType')} value={shiftType} onChange={e => setShiftType(e.target.value)} disabled={!isNew}>
+          {activeConfigs.map(c => <option key={c.shift_type} value={c.shift_type}>{shiftLabel(tr, c.shift_type)}</option>)}
+        </Select>
+        <Input label={tr('scheduleRotationLabel')} value={label} onChange={e => setLabel(e.target.value)} />
+        <Select label={tr('scheduleRotationMode')} value={mode} onChange={e => setMode(e.target.value)}>
+          <option value="sequence">{tr('scheduleRotationModeSequence')}</option>
+          <option value="team">{tr('scheduleRotationModeTeam')}</option>
+        </Select>
+
+        <div>
+          <label style={{ fontSize: '13px', fontWeight: 500, marginBottom: '6px', display: 'block' }}>{tr('scheduleRotationEngineers')}</label>
+          <Select value={pickerValue} onChange={e => { addEngineer(e.target.value); setPickerValue(''); }}>
+            <option value="">{tr('select')}</option>
+            {engineers.filter(u => !userIds.includes(String(u.id))).map(u => (
+              <option key={u.id} value={u.id}>{u.display_name}</option>
+            ))}
+          </Select>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '8px' }}>
+            {userIds.map((uid, idx) => {
+              const u = engineers.find(e => String(e.id) === String(uid));
+              return (
+                <div key={uid} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 10px', background: 'var(--surface-alt)', borderRadius: 'var(--radius-sm)' }}>
+                  {mode === 'sequence' && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>{idx + 1}</span>}
+                  <span style={{ flex: 1, fontSize: 13 }}>{u?.display_name || uid}</span>
+                  {mode === 'sequence' && (
+                    <>
+                      <Button variant="ghost" size="sm" icon="chevronLeft" style={{ transform: 'rotate(90deg)' }} disabled={idx === 0} onClick={() => moveEngineer(idx, -1)} />
+                      <Button variant="ghost" size="sm" icon="chevronRight" style={{ transform: 'rotate(90deg)' }} disabled={idx === userIds.length - 1} onClick={() => moveEngineer(idx, 1)} />
+                    </>
+                  )}
+                  <Button variant="ghost" size="sm" icon="trash" onClick={() => removeEngineer(uid)} />
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {mode === 'sequence' && (
+          <Input label={tr('scheduleRotationAnchor')} type="date" value={anchorDate} onChange={e => setAnchorDate(e.target.value)} />
+        )}
+        {mode === 'sequence' && <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '-8px' }}>{tr('scheduleRotationAnchorHint')}</div>}
+
+        <div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer', marginBottom: everyDay ? 0 : '8px' }}>
+            <input type="checkbox" checked={everyDay} onChange={e => setEveryDay(e.target.checked)} />
+            {tr('scheduleRotationEveryDay')}
+          </label>
+          {!everyDay && (
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+              {DAY_NAMES.map((name, i) => (
+                <Button key={i} type="button" variant={weekdays.includes(i) ? 'primary' : 'secondary'} size="sm" onClick={() => toggleWeekday(i)}>
+                  {name}
+                </Button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer' }}>
+          <input type="checkbox" checked={isActive} onChange={e => setIsActive(e.target.checked)} />
+          {tr('scheduleRotationActive')}
+        </label>
+
+        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+          <Button variant="secondary" onClick={onCancel}>{tr('cancel')}</Button>
+          <Button
+            disabled={!canSubmit}
+            onClick={() => onSubmit({
+              shift_type: shiftType,
+              label: label || null,
+              mode,
+              user_ids: userIds,
+              anchor_date: anchorDate,
+              weekdays: everyDay ? null : weekdays,
+              is_active: isActive,
+            })}
+          >
+            {tr('save')}
+          </Button>
         </div>
       </div>
     </Overlay>
