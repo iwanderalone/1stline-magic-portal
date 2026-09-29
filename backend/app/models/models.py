@@ -36,6 +36,10 @@ class WorkLocation(str, enum.Enum):
     ONSITE = "onsite"
     REMOTE = "remote"
 
+class RotationMode(str, enum.Enum):
+    SEQUENCE = "sequence"  # one engineer per applicable day, cycling through user_ids in order
+    TEAM = "team"          # every listed engineer assigned together on every applicable day
+
 class TimeOffStatus(str, enum.Enum):
     PENDING = "pending"
     APPROVED = "approved"
@@ -215,6 +219,26 @@ class UserBlockedDate(Base):
     created_at = Column(DateTime(timezone=True), default=utcnow)
 
     user = relationship("User", back_populates="blocked_dates")
+
+
+class ShiftRotation(Base):
+    """A recurring assignment pattern for a shift type — e.g. a fixed 4-person night
+    cycle, or a static weekday-only team (like an office pair). `generate_schedule`
+    consults active rotations before falling back to load-balanced random assignment,
+    so a rotation once defined replaces the manual re-creation of the same cadence
+    week after week."""
+    __tablename__ = "shift_rotations"
+
+    id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    shift_type = Column(_enum(ShiftType), nullable=False)
+    label = Column(String(100), nullable=True)
+    mode = Column(_enum(RotationMode), nullable=False, default=RotationMode.SEQUENCE)
+    user_ids = Column(Text, nullable=False)  # JSON list of user UUID strings, in rotation order
+    anchor_date = Column(Date, nullable=False)  # cycle position 0 for SEQUENCE mode
+    weekdays = Column(Text, nullable=True)  # JSON list of ints 0=Mon..6=Sun; null = every day
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
 # ─── Reminders ───────────────────────────────────────────
