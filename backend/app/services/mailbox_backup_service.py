@@ -18,8 +18,10 @@ import base64
 import datetime as dt
 import hashlib
 import imaplib
+import json
 import logging
 import mailbox
+import os
 import re
 import shutil
 import socket
@@ -42,6 +44,16 @@ IMAP_TIMEOUT = 120
 # this many consecutive drops with no fetched message in between.
 MAX_DROPS_WITHOUT_PROGRESS = 5
 RECONNECT_BACKOFF_MAX = 60  # seconds; backoff is 10s * attempt, capped here
+# One round trip per message made fetching latency-bound (~5 msg/s). Fetch up to
+# BATCH_SIZE messages per command, but never more than BATCH_MAX_BYTES at once
+# (sizes are known upfront) so a folder of huge attachments can't blow up memory
+# or the socket timeout. After any drop the batch collapses to 1 and ramps back up.
+BATCH_SIZE = 100
+BATCH_MAX_BYTES = 64 * 1024 * 1024
+# A failed/cancelled job keeps what it already downloaded here, so the next run of
+# the same mailbox only fetches what is missing instead of starting from zero.
+RESUME_ROOT = Path(tempfile.gettempdir()) / "mbbackup-resume"
+RESUME_TTL_SEC = 24 * 3600
 # Some hangs (e.g. a DNS lookup that never returns) happen below imaplib's own
 # socket timeout and never raise at all. If the job reports zero progress for
 # this long, give up waiting on it rather than let it — and the serialized
@@ -162,6 +174,104 @@ def _imap_quote(value: bytes) -> bytes:
     return b'"' + value.replace(b"\\", b"\\\\").replace(b'"', b'\\"') + b'"'
 
 
+# ─── batching + resume helpers ───────────────────────────────────────
+
+_UID_RE = re.compile(rb"\bUID\s+(\d+)", re.I)
+_SIZE_RE = re.compile(rb"\bRFC822\.SIZE\s+(\d+)", re.I)
+_MAILFILE_UID_RE = re.compile(r"^\d+\.\d+_(\d+)\.")
+
+
+def _resume_dir(email_addr: str) -> Path:
+    return RESUME_ROOT / _sanitize_filename(email_addr.lower())
+
+
+def _purge_old_resume_dirs(keep: Path) -> None:
+    """Drop abandoned partial downloads so they can't fill the disk."""
+    if not RESUME_ROOT.exists():
+        return
+    now = time.time()
+    for d in RESUME_ROOT.iterdir():
+        if d == keep or not d.is_dir():
+            continue
+        marker = d / ".last_used"
+        try:
+            age = now - (marker.stat().st_mtime if marker.exists() else d.stat().st_mtime)
+        except OSError:
+            continue
+        if age > RESUME_TTL_SEC:
+            logger.info("[mbbackup] purging stale resume dir %s", d.name)
+            shutil.rmtree(d, ignore_errors=True)
+
+
+def _existing_uids(folder_path: Path) -> set[int]:
+    """UIDs already written by an earlier attempt (the UID is embedded in each
+    Maildir file name). Anything half-written lives in tmp/ and is discarded."""
+    tmp = folder_path / "tmp"
+    if tmp.exists():
+        for f in tmp.iterdir():
+            try:
+                f.unlink()
+            except OSError:
+                pass
+    found: set[int] = set()
+    new = folder_path / "new"
+    if new.exists():
+        for f in new.iterdir():
+            m = _MAILFILE_UID_RE.match(f.name)
+            if m:
+                found.add(int(m.group(1)))
+    return found
+
+
+def _fetch_sizes(imap: imaplib.IMAP4_SSL) -> dict[bytes, int]:
+    """UID → size for the selected folder, in one cheap round trip."""
+    typ, data = imap.uid("fetch", "1:*", "(RFC822.SIZE)")
+    sizes: dict[bytes, int] = {}
+    if typ != "OK":
+        return sizes
+    for item in data or []:
+        if isinstance(item, tuple):
+            item = item[0]
+        if not isinstance(item, bytes):
+            continue
+        u, z = _UID_RE.search(item), _SIZE_RE.search(item)
+        if u and z:
+            sizes[u.group(1)] = int(z.group(1))
+    return sizes
+
+
+def _next_batch(uids: list[bytes], idx: int, max_count: int, sizes: dict[bytes, int]) -> list[bytes]:
+    batch: list[bytes] = []
+    total = 0
+    while idx + len(batch) < len(uids) and len(batch) < max_count:
+        u = uids[idx + len(batch)]
+        sz = sizes.get(u, 0)
+        if batch and total + sz > BATCH_MAX_BYTES:
+            break
+        batch.append(u)
+        total += sz
+    return batch
+
+
+def _parse_fetch(fetched, batch: list[bytes]) -> list[tuple[bytes, bytes]]:
+    """(uid, body) pairs from a UID FETCH (RFC822) response. The UID normally sits
+    in the header part; some servers put it after the literal instead."""
+    out: list[tuple[bytes, bytes]] = []
+    tuples = [i for i, p in enumerate(fetched or []) if isinstance(p, tuple) and len(p) >= 2 and p[1]]
+    for n, i in enumerate(tuples):
+        m = _UID_RE.search(fetched[i][0])
+        if not m and i + 1 < len(fetched) and isinstance(fetched[i + 1], bytes):
+            m = _UID_RE.search(fetched[i + 1])
+        if m:
+            uid = m.group(1)
+        elif len(tuples) == len(batch):
+            uid = batch[n]
+        else:
+            raise RuntimeError("IMAP FETCH response carried no UID and the batch can't be matched by position")
+        out.append((uid, fetched[i][1]))
+    return out
+
+
 # ─── blocking pipeline (runs in a worker thread) ─────────────────────
 
 def _imap_pull(email_addr: str, password: str, maildir: Path, prog: JobProgress,
@@ -240,6 +350,14 @@ def _imap_pull(email_addr: str, password: str, maildir: Path, prog: JobProgress,
         hostname = _sanitize_filename(socket.gethostname() or "host")
         total = 0
 
+        # UIDVALIDITY per folder: if the server renumbered a folder since the
+        # partial download, the UIDs on disk mean nothing and must be refetched.
+        state_path = maildir.parent / "uidvalidity.json"
+        try:
+            validity: dict[str, str] = json.loads(state_path.read_text())
+        except (OSError, ValueError):
+            validity = {}
+
         for folder_bytes, display, count in folder_infos:
             _check_cancel(cancel)
             prog.current_folder = display
@@ -247,7 +365,9 @@ def _imap_pull(email_addr: str, password: str, maildir: Path, prog: JobProgress,
 
             folder_path = maildir / _sanitize_filename(display)
             uids: Optional[list[bytes]] = None
+            sizes: dict[bytes, int] = {}
             next_idx = 0  # resume point within the folder after a reconnect
+            batch_cap = BATCH_SIZE
 
             while True:  # retry loop: reconnect + resume on connection drops
                 _check_cancel(cancel)
@@ -267,33 +387,55 @@ def _imap_pull(email_addr: str, password: str, maildir: Path, prog: JobProgress,
                         search_typ, search_data = imap.uid("search", None, "ALL")
                         if search_typ != "OK" or not search_data or not search_data[0]:
                             break
-                        uids = search_data[0].split()
+                        all_uids = search_data[0].split()
+                        _, vdata = imap.response("UIDVALIDITY")
+                        vnow = vdata[-1].decode() if vdata and vdata[-1] else ""
+                        if vnow and validity.get(display) not in (None, vnow):
+                            logger.warning("[mbbackup] UIDVALIDITY changed for %r — discarding partial download", display)
+                            shutil.rmtree(folder_path, ignore_errors=True)
                         for sub in ("new", "cur", "tmp"):
                             (folder_path / sub).mkdir(parents=True, exist_ok=True)
+                        have = _existing_uids(folder_path)
+                        folder_sizes = _fetch_sizes(imap)
+                        todo = [u for u in all_uids if int(u) not in have]
+                        already = len(all_uids) - len(todo)
+                        if vnow:
+                            validity[display] = vnow
+                            state_path.write_text(json.dumps(validity))
+                        # assign last: an abort above must redo the whole block
+                        sizes, uids = folder_sizes, todo
+                        if already:
+                            logger.info("[mbbackup] %r: %d/%d messages already on disk from an earlier attempt",
+                                        display, already, len(all_uids))
+                            total += already
+                            prog.messages_done += already
+                            prog.touch()
 
                     while next_idx < len(uids):
                         _check_cancel(cancel)
-                        uid = uids[next_idx]
-                        seq = next_idx + 1
-                        fetch_typ, fetched = imap.uid("fetch", uid, "(RFC822)")
-                        next_idx += 1
-                        drops = 0  # fetched something since the last drop
+                        batch = _next_batch(uids, next_idx, batch_cap, sizes)
+                        fetch_typ, fetched = imap.uid("fetch", b",".join(batch), "(RFC822)")
                         if fetch_typ != "OK":
+                            if len(batch) > 1:  # don't silently lose a whole batch — retry smaller
+                                batch_cap = max(1, len(batch) // 2)
+                                continue
+                            next_idx += 1  # a single message the server refuses: skip it, as before
                             continue
-                        body: Optional[bytes] = None
-                        for piece in fetched:
-                            if isinstance(piece, tuple) and len(piece) >= 2 and piece[1]:
-                                body = piece[1]
-                                break
-                        if not body:
-                            continue
-                        ts_us = int(time.time() * 1_000_000)
-                        uid_str = uid.decode("ascii", errors="replace")
-                        (folder_path / "new" / f"{ts_us}.{seq}_{uid_str}.{hostname}").write_bytes(body)
-                        total += 1
-                        prog.messages_done += 1
-                        if seq % 25 == 0:
-                            prog.touch()
+                        for uid, body in _parse_fetch(fetched, batch):
+                            ts_us = int(time.time() * 1_000_000)
+                            uid_str = uid.decode("ascii", errors="replace")
+                            name = f"{ts_us}.{next_idx + 1}_{uid_str}.{hostname}"
+                            # Maildir delivery: write in tmp/, then rename into new/ — a
+                            # kill mid-write can never leave a truncated message behind.
+                            tmp_file = folder_path / "tmp" / name
+                            tmp_file.write_bytes(body)
+                            os.replace(tmp_file, folder_path / "new" / name)
+                            total += 1
+                            prog.messages_done += 1
+                        next_idx += len(batch)
+                        drops = 0  # fetched something since the last drop
+                        batch_cap = min(BATCH_SIZE, batch_cap * 2)  # ramp back up after a drop
+                        prog.touch()
                     try:
                         imap.close()
                     except (imaplib.IMAP4.error, OSError):
@@ -301,10 +443,13 @@ def _imap_pull(email_addr: str, password: str, maildir: Path, prog: JobProgress,
                     break  # folder complete
                 except (imaplib.IMAP4.abort, OSError) as e:
                     drops += 1
+                    batch_cap = 1  # find the offender: one message at a time, then ramp up
                     if drops > MAX_DROPS_WITHOUT_PROGRESS:
+                        nxt = uids[next_idx].decode("ascii", "replace") if uids and next_idx < len(uids) else "?"
                         raise RuntimeError(
                             f"IMAP connection dropped {drops} times in a row without progress "
-                            f"in {display!r} (last error: {e})") from e
+                            f"in {display!r} near UID {nxt} (last error: {e}). "
+                            f"Downloaded messages are kept — re-run this mailbox to resume.") from e
                     logger.warning(
                         "[mbbackup] IMAP connection lost (%s) — reconnect %d/%d, resuming %r at message %d/%d",
                         e, drops, MAX_DROPS_WITHOUT_PROGRESS, display, next_idx, len(uids or []))
@@ -444,9 +589,17 @@ def _run_pipeline(email_addr: str, password: str, prog: JobProgress,
     from app.core.dynamic_settings import eff
     s = get_settings()
     workdir = Path(tempfile.mkdtemp(prefix="mbbackup-"))
+    # The Maildir lives outside workdir so a failed run keeps its download (see RESUME_ROOT).
+    resume_dir = _resume_dir(email_addr)
+    resume_dir.mkdir(parents=True, exist_ok=True)
+    _purge_old_resume_dirs(keep=resume_dir)
+    (resume_dir / ".last_used").touch()
     try:
-        maildir = workdir / "Maildir"
-        total = _imap_pull(email_addr, password, maildir, prog, cancel)
+        maildir = resume_dir / "Maildir"
+        try:
+            total = _imap_pull(email_addr, password, maildir, prog, cancel)
+        finally:
+            (resume_dir / ".last_used").touch()
         if total == 0:
             raise RuntimeError("mailbox produced 0 messages — nothing to back up "
                                "(is IMAP access enabled for this account?)")
@@ -504,6 +657,7 @@ def _run_pipeline(email_addr: str, password: str, prog: JobProgress,
             _s3_upload(s3, mf, f"{key_prefix}/mbox/{mf.name}", prog,
                        metadata={**meta, "mbox-folder": mf.stem})
 
+        shutil.rmtree(resume_dir, ignore_errors=True)  # fully backed up — nothing left to resume
         return {
             "archive_size": local_size,
             "sha256": local_sha,
