@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=True)
 
     # App
-    APP_NAME: str = "Viory IT Portal"
+    APP_NAME: str = "IT Portal"
     APP_VERSION: str = "0.1.0"
     DEBUG: bool = False
     ENVIRONMENT: str = "development"
@@ -74,7 +74,7 @@ class Settings(BaseSettings):
         return v
 
     # OTP
-    OTP_ISSUER: str = "Viory IT Portal"
+    OTP_ISSUER: str = "IT Portal"
     OTP_VALID_WINDOW: int = 1  # Allow 1 step before/after for clock drift
 
     # Telegram Bot
@@ -98,6 +98,8 @@ class Settings(BaseSettings):
     ZAMMAD_SYNC_ON_STARTUP: bool = True
     # Ticket Telegram alerts (opened / open-overdue escalation / solved). Empty chat id disables them.
     ZAMMAD_TELEGRAM_CHAT_ID: str = ""
+    # Link to the customer-facing bot/mini-app, shown in the ticket modal. Empty = hidden.
+    ZAMMAD_CUSTOMER_BOT_URL: str = ""
     ZAMMAD_TELEGRAM_THREAD_ID: str = ""
 
     # Grafana alert webhook. If a token is set, incoming webhooks must carry it
@@ -115,7 +117,7 @@ class Settings(BaseSettings):
     STATUS_GROUP_LABEL: str = "job"
     # Section order on the status board, most important first. Groups not
     # listed here follow, alphabetically.
-    STATUS_GROUP_ORDER: str = "viory,ruptly,external,yandex"
+    STATUS_GROUP_ORDER: str = ""
 
     # AI assistant (Gemini). Empty key = assistant disabled.
     # Privacy boundary: only TEAM data (schedule, time-off, runbooks) is ever
@@ -140,7 +142,10 @@ class Settings(BaseSettings):
     NETBOX_URL: str = ""            # e.g. https://netbox.example.com
     NETBOX_API_TOKEN: str = ""
     # Handover PDF generator (Tools section). Works standalone, no NetBox needed.
-    HANDOVER_ASSIGNOR_NAME: str = "Darpo FZ LLC (DBA Viory)"
+    HANDOVER_ASSIGNOR_NAME: str = ""   # legal entity shown as assignor on the handover form
+    # Optional path to a branded .docx replacing the bundled neutral form (same merge fields).
+    HANDOVER_TEMPLATE_PATH: str = ""
+    HANDOVER_COMPANY_NAME: str = "the Company"  # short name used in the form's liability clauses
 
     # Mail Reporter
     MAIL_IMAP_SERVER: str = "imap.yandex.com"
@@ -150,7 +155,14 @@ class Settings(BaseSettings):
     # 587 = STARTTLS (465 is blocked by the VPS provider).
     MAIL_SMTP_SERVER: str = "smtp.yandex.com"
     MAIL_SMTP_PORT: int = 587
-    MAIL_FROM_NAME: str = "Viory IT Support"
+    MAIL_FROM_NAME: str = "IT Support"
+    # Team signature appended to every outbound reply. Empty website/telegram = omitted.
+    MAIL_SIGNATURE_TEAM: str = "IT Support"
+    MAIL_SIGNATURE_WEBSITE: str = ""      # e.g. https://example.com
+    MAIL_SIGNATURE_TELEGRAM: str = ""     # handle without @
+    # Telegram mentions put on the built-in routing rules when they are first seeded.
+    MAIL_MENTIONS_SUPPORT: str = ""       # e.g. "@itsupport"
+    MAIL_MENTIONS_ONBOARDING: str = ""    # e.g. "@hr_lead @itsupport"
     MAIL_POLL_INTERVAL: int = 30          # seconds between email checks
     MAIL_DEFAULT_CHAT_ID: str = ""        # fallback Telegram chat_id if mailbox has no target
     MAIL_DEFAULT_THREAD_ID: str = ""      # fallback Telegram thread/topic id

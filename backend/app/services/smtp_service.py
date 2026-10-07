@@ -18,17 +18,31 @@ from app.models.models import MailboxConfig
 
 logger = logging.getLogger(__name__)
 
-# Team signature — mirrors the webmail one (logo image omitted: needs a hosted asset).
-SIGNATURE_TEXT = (
-    "\n\n--\nBest regards,\n\n"
-    "IT Support  |  viory.video  |  Telegram: @itsupport_viory"
-)
-SIGNATURE_HTML = (
-    "<br><br>--<br>Best regards,<br><br>"
-    "<b>IT Support</b>&nbsp;&nbsp;|&nbsp;&nbsp;"
-    '<a href="https://viory.video">viory.video</a>&nbsp;&nbsp;|&nbsp;&nbsp;'
-    'Telegram: <a href="https://t.me/itsupport_viory">@itsupport_viory</a>'
-)
+def build_signature() -> tuple[str, str]:
+    """(plain, html) team signature from the live settings. Website and Telegram
+    parts are left out when unset."""
+    from html import escape
+    from app.core.dynamic_settings import eff
+    s = get_settings()
+    team = eff("MAIL_SIGNATURE_TEAM", s.MAIL_SIGNATURE_TEAM).strip()
+    site = eff("MAIL_SIGNATURE_WEBSITE", s.MAIL_SIGNATURE_WEBSITE).strip()
+    tg = eff("MAIL_SIGNATURE_TELEGRAM", s.MAIL_SIGNATURE_TELEGRAM).strip().lstrip("@")
+    text_parts, html_parts = [], []
+    if team:
+        text_parts.append(team)
+        html_parts.append(f"<b>{escape(team)}</b>")
+    if site:
+        text_parts.append(site)
+        html_parts.append(f'<a href="{escape(site, quote=True)}">{escape(site)}</a>')
+    if tg:
+        text_parts.append(f"Telegram: @{tg}")
+        html_parts.append(f'Telegram: <a href="https://t.me/{escape(tg, quote=True)}">@{escape(tg)}</a>')
+    if not text_parts:
+        return "", ""
+    return (
+        "\n\n--\nBest regards,\n\n" + "  |  ".join(text_parts),
+        "<br><br>--<br>Best regards,<br><br>" + "&nbsp;&nbsp;|&nbsp;&nbsp;".join(html_parts),
+    )
 
 
 class SmtpError(Exception):
@@ -80,10 +94,11 @@ def _send_sync(
         msg["In-Reply-To"] = in_reply_to
         msg["References"] = in_reply_to
     # Plain + HTML alternative, both carrying the team signature.
-    msg.set_content(body + SIGNATURE_TEXT)
+    sig_text, sig_html = build_signature()
+    msg.set_content(body + sig_text)
     body_html = html_mod.escape(body).replace("\n", "<br>")
     msg.add_alternative(
-        f'<div style="font-family:sans-serif;font-size:14px;line-height:1.5">{body_html}{SIGNATURE_HTML}</div>',
+        f'<div style="font-family:sans-serif;font-size:14px;line-height:1.5">{body_html}{sig_html}</div>',
         subtype="html",
     )
 

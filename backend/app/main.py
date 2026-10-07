@@ -439,6 +439,8 @@ async def public_config():
     from app.core.dynamic_settings import eff
     return {
         "telegram_bot_username": settings.TELEGRAM_BOT_USERNAME,
+        "app_name": eff("APP_NAME", settings.APP_NAME),
+        "ticket_bot_url": eff("ZAMMAD_CUSTOMER_BOT_URL", settings.ZAMMAD_CUSTOMER_BOT_URL),
         "portal_timezone": eff("PORTAL_TIMEZONE", settings.PORTAL_TIMEZONE),
         "sso_enabled": keycloak_service.enabled(),
         "environment": settings.ENVIRONMENT,

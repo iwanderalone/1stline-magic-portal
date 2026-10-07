@@ -26,6 +26,9 @@ SETTINGS_REGISTRY = [
     # ── Mail Reporter ───────────────────────────────────────────────
     {"key": "MAIL_POLL_INTERVAL", "category": "Mail Reporter", "label": "IMAP poll interval (seconds)", "type": "int"},
     {"key": "MAIL_FROM_NAME", "category": "Mail Reporter", "label": "Outbound reply From name", "type": "str"},
+    {"key": "MAIL_SIGNATURE_TEAM", "category": "Mail Reporter", "label": "Reply signature: team name", "type": "str"},
+    {"key": "MAIL_SIGNATURE_WEBSITE", "category": "Mail Reporter", "label": "Reply signature: website URL (empty = omit)", "type": "str"},
+    {"key": "MAIL_SIGNATURE_TELEGRAM", "category": "Mail Reporter", "label": "Reply signature: Telegram handle, no @ (empty = omit)", "type": "str"},
     {"key": "MAIL_DEFAULT_CHAT_ID", "category": "Mail Reporter", "label": "Default Telegram chat ID", "type": "str"},
     {"key": "MAIL_DEFAULT_THREAD_ID", "category": "Mail Reporter", "label": "Default Telegram thread/topic ID", "type": "str"},
 
@@ -37,6 +40,7 @@ SETTINGS_REGISTRY = [
     {"key": "ZAMMAD_WEBHOOK_SECRET", "category": "Zammad", "label": "Webhook HMAC secret", "type": "str", "is_secret": True},
     {"key": "ZAMMAD_SYNC_ON_STARTUP", "category": "Zammad", "label": "Sync tickets on startup", "type": "bool", "requires_restart": True},
     {"key": "ZAMMAD_TELEGRAM_CHAT_ID", "category": "Zammad", "label": "Escalation Telegram chat ID", "type": "str"},
+    {"key": "ZAMMAD_CUSTOMER_BOT_URL", "category": "Zammad", "label": "Customer bot / mini-app link shown in the ticket modal (empty = hidden)", "type": "str"},
     {"key": "ZAMMAD_TELEGRAM_THREAD_ID", "category": "Zammad", "label": "Escalation Telegram thread/topic ID", "type": "str"},
 
     # ── Grafana ─────────────────────────────────────────────────────
@@ -64,7 +68,8 @@ SETTINGS_REGISTRY = [
 
     # ── Inventory (NetBox) ──────────────────────────────────────────
     {"key": "NETBOX_API_TOKEN", "category": "Inventory", "label": "NetBox API token", "type": "str", "is_secret": True},
-    {"key": "HANDOVER_ASSIGNOR_NAME", "category": "Inventory", "label": "Handover assignor name", "type": "str"},
+    {"key": "HANDOVER_ASSIGNOR_NAME", "category": "Inventory", "label": "Handover assignor name (legal entity)", "type": "str"},
+    {"key": "HANDOVER_COMPANY_NAME", "category": "Inventory", "label": "Handover company short name (liability clauses)", "type": "str"},
 
     # ── Keycloak SSO ────────────────────────────────────────────────
     {"key": "KEYCLOAK_SERVER_URL", "category": "Keycloak SSO", "label": "Server URL", "type": "str"},
