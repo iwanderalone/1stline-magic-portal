@@ -50,6 +50,8 @@ logs/
 .codeium/
 .aider*
 CLAUDE.md
+AGENTS.md
+docs/
 docs/superpowers/
 codex-plans/
 memory/
@@ -58,3 +60,17 @@ memory/
 CLAUDE-SECURITY-*/
 SECURITY-FINDINGS.md
 
+
+# Documentation and design material — kept locally, not in the repo
+USER_GUIDE.md
+README-full.md
+*.zip
+
+# Never commit dumps, keys or certificates
+*.dump
+*.sql.gz
+*.pem
+*.key
+*.p12
+id_rsa*
+id_ed25519*
