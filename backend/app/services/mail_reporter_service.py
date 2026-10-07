@@ -36,6 +36,9 @@ logger = logging.getLogger(__name__)
 # ─── Built-in rule seed data ─────────────────────────────────────────
 # Seeded on first startup via seed_routing_rules() in main.py
 
+_MENTIONS_SUPPORT = get_settings().MAIL_MENTIONS_SUPPORT
+_MENTIONS_ONBOARDING = get_settings().MAIL_MENTIONS_ONBOARDING
+
 BUILTIN_RULES = [
     {
         "builtin_key": "adobe",
@@ -53,7 +56,7 @@ BUILTIN_RULES = [
         "label": "🟡 Yandex Support",
         "color": "#f59e0b",
         "hashtag": "#yandexsupport",
-        "mention_users": "@itsupport_viory",
+        "mention_users": _MENTIONS_SUPPORT,
         "include_body": True,
         "priority": 100,
     },
@@ -63,7 +66,7 @@ BUILTIN_RULES = [
         "label": "🔵 Onboarding",
         "color": "#3b82f6",
         "hashtag": "#onboarding #offboarding",
-        "mention_users": "@support_engineer @itsupport_viory",
+        "mention_users": _MENTIONS_ONBOARDING,
         "include_body": True,
         "priority": 100,
     },
@@ -73,7 +76,7 @@ BUILTIN_RULES = [
         "label": "🔵 Offboarding",
         "color": "#3b82f6",
         "hashtag": "#onboarding #offboarding",
-        "mention_users": "@support_engineer @itsupport_viory",
+        "mention_users": _MENTIONS_ONBOARDING,
         "include_body": True,
         "priority": 100,
     },

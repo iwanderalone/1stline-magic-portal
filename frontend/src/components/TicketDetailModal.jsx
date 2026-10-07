@@ -1,11 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
-import { api } from '../api';
+import { api, getPublicConfig } from '../api';
 import { useTheme } from './ThemeContext';
 import { useLang } from './LangContext';
 import { Button, Badge, Overlay, Tabs } from './UI';
 import { Icon } from './Icons';
-
-const TELEGRAM_BOT_URL = 'https://t.me/sd_viory_video_bot';
 
 export const BUCKET_COLOR = { open: 'blue', paused: 'orange', closed: 'green' };
 
@@ -58,6 +56,8 @@ export function fmtDuration(iso, lang) {
 }
 
 export default function TicketDetailModal({ ticketId, onClose, onError, onChanged, user }) {
+  const [botUrl, setBotUrl] = useState('');
+  useEffect(() => { getPublicConfig().then(c => setBotUrl(c.ticket_bot_url || '')); }, []);
   const { theme: t } = useTheme();
   const { t: tr } = useLang();
   const [data, setData] = useState(null);
@@ -143,9 +143,11 @@ export default function TicketDetailModal({ ticketId, onClose, onError, onChange
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <Badge color={BUCKET_COLOR[data.bucket] || 'gray'}>{stateLabel(data.state, tr)}</Badge>
             <span style={{ flex: 1 }} />
-            <a href={TELEGRAM_BOT_URL} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: t.accent, textDecoration: 'none' }}>
-              {tr('tkOpenBot')} ↗
-            </a>
+            {botUrl && (
+              <a href={botUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: t.accent, textDecoration: 'none' }}>
+                {tr('tkOpenBot')} ↗
+              </a>
+            )}
           </div>
 
           {/* meta grid */}

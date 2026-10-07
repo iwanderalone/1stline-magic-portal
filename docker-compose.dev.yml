@@ -1,6 +1,6 @@
-# ── Dev instance — portal-dev.viory.video ────────────────────────────────
+# ── Dev instance — portal-dev.example.com ────────────────────────────────
 #
-# Runs alongside production (portal.viory.video, ports 8000/3000).
+# Runs alongside production (portal.example.com, ports 8000/3000).
 # Uses separate ports, volumes, and DB name to avoid any conflict.
 #
 # Start:
@@ -12,7 +12,7 @@
 # Logs:
 #   docker compose -p portal-dev -f docker-compose.dev.yml logs -f api
 #
-# nginx reverse-proxy snippet for portal-dev.viory.video:
+# nginx reverse-proxy snippet for portal-dev.example.com:
 #   location / {
 #       proxy_pass http://127.0.0.1:3001;
 #       proxy_set_header Host $host;
@@ -59,7 +59,7 @@ services:
       DATA_ENCRYPTION_KEY: "${DATA_ENCRYPTION_KEY:-}"
       TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN:-}"
       TELEGRAM_BOT_USERNAME: "${TELEGRAM_BOT_USERNAME:-}"
-      CORS_ORIGINS: "${CORS_ORIGINS:-https://portal-dev.viory.video}"
+      CORS_ORIGINS: "${CORS_ORIGINS:-http://localhost:3001}"
       PORTAL_TIMEZONE: "${PORTAL_TIMEZONE:-UTC}"
       ZAMMAD_WEBHOOK_SECRET: "${ZAMMAD_WEBHOOK_SECRET:-}"
       ZAMMAD_URL: "${ZAMMAD_URL:-}"
@@ -72,7 +72,7 @@ services:
       STATUS_STALE_AFTER_SECONDS: "${STATUS_STALE_AFTER_SECONDS:-180}"
       STATUS_PRUNE_AFTER_HOURS: "${STATUS_PRUNE_AFTER_HOURS:-24}"
       STATUS_GROUP_LABEL: "${STATUS_GROUP_LABEL:-job}"
-      STATUS_GROUP_ORDER: "${STATUS_GROUP_ORDER:-viory,ruptly,external,yandex}"
+      STATUS_GROUP_ORDER: "${STATUS_GROUP_ORDER:-}"
       GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
       GEMINI_MODEL: "${GEMINI_MODEL:-gemini-flash-latest}"
       S3_BUCKET: "${S3_BUCKET:-}"
@@ -86,7 +86,15 @@ services:
       MAILBOX_BACKUP_ZSTD_LEVEL: "${MAILBOX_BACKUP_ZSTD_LEVEL:-10}"
       NETBOX_URL: "${NETBOX_URL:-}"
       NETBOX_API_TOKEN: "${NETBOX_API_TOKEN:-}"
-      HANDOVER_ASSIGNOR_NAME: "${HANDOVER_ASSIGNOR_NAME:-Darpo FZ LLC (DBA Viory)}"
+      HANDOVER_ASSIGNOR_NAME: "${HANDOVER_ASSIGNOR_NAME:-}"
+      HANDOVER_COMPANY_NAME: "${HANDOVER_COMPANY_NAME:-the Company}"
+      HANDOVER_TEMPLATE_PATH: "${HANDOVER_TEMPLATE_PATH:-}"
+      MAIL_SIGNATURE_TEAM: "${MAIL_SIGNATURE_TEAM:-IT Support}"
+      MAIL_SIGNATURE_WEBSITE: "${MAIL_SIGNATURE_WEBSITE:-}"
+      MAIL_SIGNATURE_TELEGRAM: "${MAIL_SIGNATURE_TELEGRAM:-}"
+      MAIL_MENTIONS_SUPPORT: "${MAIL_MENTIONS_SUPPORT:-}"
+      MAIL_MENTIONS_ONBOARDING: "${MAIL_MENTIONS_ONBOARDING:-}"
+      ZAMMAD_CUSTOMER_BOT_URL: "${ZAMMAD_CUSTOMER_BOT_URL:-}"
       KEYCLOAK_SERVER_URL: "${KEYCLOAK_SERVER_URL:-}"
       KEYCLOAK_REALM: "${KEYCLOAK_REALM:-}"
       KEYCLOAK_CLIENT_ID: "${KEYCLOAK_CLIENT_ID:-}"

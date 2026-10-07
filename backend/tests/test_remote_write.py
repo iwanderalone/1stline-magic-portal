@@ -39,7 +39,7 @@ def _sample(value: float, ts: int) -> bytes:
 
 
 def _series(name: str, instance: str, value: float, ts: int = TS, **labels) -> bytes:
-    body = _label("__name__", name) + _label("instance", instance) + _label("job", "viory")
+    body = _label("__name__", name) + _label("instance", instance) + _label("job", "internal")
     for k, v in labels.items():
         body += _label(k, v)
     return _ld(1, body + _sample(value, ts))

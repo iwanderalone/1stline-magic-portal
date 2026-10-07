@@ -310,7 +310,8 @@ async def generate_handover(
     gated on NetBox (device lines are free-text), only audit-logged."""
     from app.core.dynamic_settings import eff
     assignor_name = eff("HANDOVER_ASSIGNOR_NAME", get_settings().HANDOVER_ASSIGNOR_NAME)
-    docx_bytes = generate_handover_docx(payload, assignor_name)
+    company_name = eff("HANDOVER_COMPANY_NAME", get_settings().HANDOVER_COMPANY_NAME)
+    docx_bytes = generate_handover_docx(payload, assignor_name, company_name)
     await log_action(
         db, user, "inventory_handover_generated",
         f"Handover generated for {payload.employee_name} ({len(payload.devices)} device line(s))",
@@ -457,7 +458,8 @@ async def record_handover(
             comments=payload.comments,
         )
         assignor_name = eff("HANDOVER_ASSIGNOR_NAME", get_settings().HANDOVER_ASSIGNOR_NAME)
-        docx_bytes = generate_handover_docx(doc_payload, assignor_name)
+        company_name = eff("HANDOVER_COMPANY_NAME", get_settings().HANDOVER_COMPANY_NAME)
+        docx_bytes = generate_handover_docx(doc_payload, assignor_name, company_name)
 
         safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in (employee.get("name") or ""))[:60] or "handover"
         filename = f"handover-{safe_name}-{payload.date.isoformat()}.docx"
