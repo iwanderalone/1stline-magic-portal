@@ -40,7 +40,8 @@ logger = logging.getLogger(__name__)
 IMAP_TIMEOUT = 120
 # Yandex drops long IMAP sessions — reconnect and resume; give up only after
 # this many consecutive drops with no fetched message in between.
-MAX_DROPS_WITHOUT_PROGRESS = 3
+MAX_DROPS_WITHOUT_PROGRESS = 5
+RECONNECT_BACKOFF_MAX = 60  # seconds; backoff is 10s * attempt, capped here
 # Some hangs (e.g. a DNS lookup that never returns) happen below imaplib's own
 # socket timeout and never raise at all. If the job reports zero progress for
 # this long, give up waiting on it rather than let it — and the serialized
@@ -251,6 +252,13 @@ def _imap_pull(email_addr: str, password: str, maildir: Path, prog: JobProgress,
             while True:  # retry loop: reconnect + resume on connection drops
                 _check_cancel(cancel)
                 try:
+                    if imap is None:
+                        # Reconnect lives inside the try so a failed attempt (e.g.
+                        # [Errno 101] network unreachable) counts as another drop and
+                        # is retried, instead of escaping and killing the whole job.
+                        imap = _connect()
+                        prog.phase = "fetching"
+                        prog.touch()
                     sel_typ, _ = imap.select(_imap_quote(folder_bytes), readonly=True)
                     if sel_typ != "OK":
                         logger.warning("[mbbackup] SELECT failed for %r — skipping", display)
@@ -301,17 +309,18 @@ def _imap_pull(email_addr: str, password: str, maildir: Path, prog: JobProgress,
                         "[mbbackup] IMAP connection lost (%s) — reconnect %d/%d, resuming %r at message %d/%d",
                         e, drops, MAX_DROPS_WITHOUT_PROGRESS, display, next_idx, len(uids or []))
                     try:
-                        imap.logout()
+                        if imap is not None:
+                            imap.logout()
                     except Exception:
                         pass
+                    imap = None
                     prog.phase = "reconnecting"
                     prog.touch()
-                    for _ in range(min(30, 5 * drops)):  # backoff, still cancellable
+                    for _ in range(min(RECONNECT_BACKOFF_MAX, 10 * drops)):  # backoff, still cancellable
                         _check_cancel(cancel)
                         time.sleep(1)
-                    imap = _connect()
-                    prog.phase = "fetching"
-                    prog.touch()
+                        if _ % 10 == 0:
+                            prog.touch()
 
             prog.folders_done += 1
             prog.touch()
