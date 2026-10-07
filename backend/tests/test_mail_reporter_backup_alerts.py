@@ -22,12 +22,12 @@ verbose backup log follows
 
 def test_parse_backup_alert_extracts_summary():
     summary = parse_backup_alert(
-        "vzdump backup status (ds-de-01.corp.viory.video): backup successful",
-        "vzdump backup tool <root@ds-de-01.corp.viory.video>",
+        "vzdump backup status (host-01.corp.example.com): backup successful",
+        "vzdump backup tool <root@host-01.corp.example.com>",
         BACKUP_BODY,
     )
 
-    assert summary.host == "ds-de-01.corp.viory.video"
+    assert summary.host == "host-01.corp.example.com"
     assert summary.status == "successful"
     assert summary.total_time == "3m"
     assert summary.total_size == "236.001 GiB"
