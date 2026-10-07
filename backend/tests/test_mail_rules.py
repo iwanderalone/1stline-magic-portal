@@ -57,7 +57,7 @@ def test_any_searches_every_field():
 
 def test_recipient_is_matchable():
     assert evaluate([cond("recipient", "contains", "it-support")], "all",
-                    recipient="it-support@ruptly.video")
+                    recipient="it-support@example.org")
 
 
 # ─── operators and combination ───────────────────────────────────────

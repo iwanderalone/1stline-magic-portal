@@ -377,7 +377,7 @@ class MailRoutingRule(Base):
     label = Column(String(100), nullable=False)        # e.g. "🔴 Adobe"
     color = Column(String(7), default="#6b7280")       # hex color for badge
     hashtag = Column(String(200), nullable=True)       # e.g. "#adobe"
-    mention_users = Column(String(200), nullable=True) # e.g. "@wanderalone @itsupport_viory"
+    mention_users = Column(String(200), nullable=True) # e.g. "@alice @itsupport"
     include_body = Column(Boolean, default=True)
     # Portal users to DM when this rule matches — JSON list of user ids. Each
     # needs a linked Telegram account (User.telegram_chat_id) to receive one.

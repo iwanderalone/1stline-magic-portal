@@ -19,7 +19,7 @@ function fmtSeconds(v) {
   return v == null ? '—' : `${v.toFixed(2)}s`;
 }
 
-// Section names come from a Prometheus label ("viory", "external_sites"), so
+// Section names come from a Prometheus label ("internal", "external_sites"), so
 // tidy them for display without touching the value used for ordering.
 function sectionName(raw) {
   return String(raw)
