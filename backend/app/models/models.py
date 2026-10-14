@@ -688,3 +688,125 @@ class AppSetting(Base):
     is_secret  = Column(Boolean, default=False, nullable=False)
     updated_at = Column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow, server_default=func.now())
     updated_by = Column(String(100), nullable=True)        # username
+
+
+# ─── Subscriptions & Purchases ───────────────────────────
+# What the IT office pays for: recurring subscriptions/licenses, who sits on
+# their seats, and the payment log. Replaces Wallos + the purchase spreadsheet.
+# Money is stored as the vendor's amount + currency AND the AED actually
+# charged (the bank converts at its own rate); USD is derived from AED via the
+# fixed peg, see services/purchases_service.py.
+
+class Department(Base):
+    """A budget — who pays. Seeded from the AD OUs; editable in the portal."""
+    __tablename__ = "purchase_departments"
+
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    name       = Column(String(100), nullable=False, unique=True)
+    is_active  = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class PaymentCard(Base):
+    """A card the office pays with. Label + last 4 digits only — never a full PAN."""
+    __tablename__ = "payment_cards"
+
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    label      = Column(String(100), nullable=False)
+    last4      = Column(String(4), nullable=True)
+    holder     = Column(String(100), nullable=True)
+    notes      = Column(Text, nullable=True)
+    is_active  = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class Subscription(Base):
+    """One recurring thing we pay for (a license, a plan, a phone line)."""
+    __tablename__ = "subscriptions"
+
+    id                 = Column(Integer, primary_key=True, autoincrement=True)
+    vendor             = Column(String(200), nullable=False)
+    product            = Column(String(300), nullable=True)
+    category           = Column(String(30), nullable=False, default="software")  # see purchases_service.CATEGORIES
+    seller             = Column(String(200), nullable=True)   # legal entity on the invoice (reseller)
+    owner_user_ids     = Column(Text, nullable=True)          # JSON list of portal user UUIDs — who administers it
+    budget_id          = Column(Integer, ForeignKey("purchase_departments.id", ondelete="SET NULL"), nullable=True)
+    account_email      = Column(String(320), nullable=True)
+    billing_url        = Column(String(1000), nullable=True)
+    reference          = Column(String(300), nullable=True)   # contract / account no. / serial
+    payment_method     = Column(String(20), nullable=False, default="card")  # card|bank_transfer|paypal|other
+    card_id            = Column(Integer, ForeignKey("payment_cards.id", ondelete="SET NULL"), nullable=True)
+    cycle_months       = Column(Integer, nullable=False, default=1)
+    price              = Column(Float, nullable=False, default=0)
+    currency           = Column(String(3), nullable=False, default="AED")
+    seats_total        = Column(Integer, nullable=True)
+    next_renewal       = Column(Date, nullable=True, index=True)
+    auto_renew         = Column(Boolean, nullable=False, default=True)
+    status             = Column(String(20), nullable=False, default="active")  # active|cancelled
+    cancelled_on       = Column(Date, nullable=True)
+    notify_days_before = Column(Integer, nullable=True)       # NULL = default by cycle
+    reminded_for       = Column(Date, nullable=True)          # renewal date the last reminder was sent for
+    notes              = Column(Text, nullable=True)
+    import_ref         = Column(String(50), nullable=True, unique=True)  # e.g. "wallos:16" — idempotent import
+    created_at         = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at         = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+
+    budget = relationship("Department", lazy="joined")
+    card   = relationship("PaymentCard", lazy="joined")
+    seats  = relationship("SubscriptionSeat", back_populates="subscription",
+                          cascade="all, delete-orphan", lazy="selectin",
+                          order_by="SubscriptionSeat.person_name")
+
+
+class SubscriptionSeat(Base):
+    """A person sitting on one seat of a subscription. The person is a NetBox
+    contact when possible (so offboarding finds it); contractors outside NetBox
+    are a free-text name. Name/email/department are cached from NetBox at
+    assignment time so lists don't need a NetBox round trip."""
+    __tablename__ = "subscription_seats"
+
+    id                = Column(Integer, primary_key=True, autoincrement=True)
+    subscription_id   = Column(Integer, ForeignKey("subscriptions.id", ondelete="CASCADE"), nullable=False, index=True)
+    netbox_contact_id = Column(Integer, nullable=True, index=True)
+    person_name       = Column(String(200), nullable=False)
+    person_email      = Column(String(320), nullable=True)
+    person_department = Column(String(100), nullable=True)
+    login             = Column(String(320), nullable=True)    # account the seat is issued to, when not the email
+    assigned_on       = Column(Date, nullable=True)
+    notes             = Column(Text, nullable=True)
+    created_at        = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+    subscription = relationship("Subscription", back_populates="seats")
+
+
+class PurchasePayment(Base):
+    """One money-out event. Recurring ones are generated from a Subscription as
+    `unconfirmed` when the renewal date passes and confirmed by a human with the
+    real AED amount; one-off purchases are entered by hand."""
+    __tablename__ = "purchase_payments"
+
+    id              = Column(Integer, primary_key=True, autoincrement=True)
+    subscription_id = Column(Integer, ForeignKey("subscriptions.id", ondelete="SET NULL"), nullable=True, index=True)
+    paid_on         = Column(Date, nullable=False, index=True)
+    vendor          = Column(String(200), nullable=False)
+    description     = Column(String(500), nullable=True)
+    category        = Column(String(30), nullable=False, default="software")
+    budget_id       = Column(Integer, ForeignKey("purchase_departments.id", ondelete="SET NULL"), nullable=True)
+    payment_method  = Column(String(20), nullable=False, default="card")
+    card_id         = Column(Integer, ForeignKey("payment_cards.id", ondelete="SET NULL"), nullable=True)
+    amount          = Column(Float, nullable=False)
+    currency        = Column(String(3), nullable=False, default="AED")
+    amount_aed      = Column(Float, nullable=False)
+    period_start    = Column(Date, nullable=True)
+    period_end      = Column(Date, nullable=True)
+    invoice_no      = Column(String(100), nullable=True)
+    invoice_file    = Column(String(300), nullable=True)      # filename under data/invoices/
+    status          = Column(String(20), nullable=False, default="confirmed")  # confirmed|unconfirmed
+    notes           = Column(Text, nullable=True)
+    import_ref      = Column(String(50), nullable=True, unique=True)
+    created_by      = Column(String(100), nullable=True)
+    created_at      = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at      = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+
+    budget = relationship("Department", lazy="joined")
+    card   = relationship("PaymentCard", lazy="joined")

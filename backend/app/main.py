@@ -1,6 +1,6 @@
 """Main application entry point."""
 import logging
-from datetime import time as dtime
+from datetime import datetime, timedelta, timezone, time as dtime
 from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -31,6 +31,7 @@ from app.api import status as status_api
 from app.api import assistant
 from app.api import sso
 from app.api import settings as settings_api
+from app.api import purchases
 from app.services import keycloak_service
 from app.workers.reminder_worker import check_and_fire_reminders
 from app.workers.shift_notification_scheduler import schedule_pending_notifications
@@ -306,6 +307,15 @@ async def lifespan(app: FastAPI):
             id="zammad_open_escalation", max_instances=1, coalesce=True,
         )
 
+    # Subscriptions & Purchases: log passed renewals + renewal reminders. Hourly
+    # and idempotent; the first run comes a minute after boot, not at import.
+    from app.services.purchases_service import run_renewals
+    scheduler.add_job(
+        run_renewals, "interval", hours=1,
+        next_run_time=datetime.now(timezone.utc) + timedelta(minutes=1),
+        id="purchases_renewals", max_instances=1, coalesce=True,
+    )
+
     scheduler.start()
     logger.info("Scheduler started: reminders (30s), shift notifications (pre-scheduled + 60s fallback), mail reporter (%ds)", settings.MAIL_POLL_INTERVAL)
 
@@ -407,6 +417,7 @@ app.include_router(alerts.router, prefix="/api")
 app.include_router(status_api.router, prefix="/api")
 app.include_router(assistant.router, prefix="/api")
 app.include_router(tools.router, prefix="/api")
+app.include_router(purchases.router, prefix="/api")
 app.include_router(settings_api.router, prefix="/api")
 
 
