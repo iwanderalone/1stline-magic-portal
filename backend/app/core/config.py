@@ -146,6 +146,11 @@ class Settings(BaseSettings):
     # Optional path to a branded .docx replacing the bundled neutral form (same merge fields).
     HANDOVER_TEMPLATE_PATH: str = ""
     HANDOVER_COMPANY_NAME: str = "the Company"  # short name used in the form's liability clauses
+    # Subscriptions & Purchases (Tools section). AED→USD is the fixed peg and
+    # needs no setting; every other currency is converted with this table.
+    PURCHASES_FX_TO_AED: str = "EUR=4.12,GBP=4.85,RUB=0.044"
+    PURCHASES_REMIND_DAYS_MONTHLY: int = 3    # renewal reminder lead time, cycles < 12 months
+    PURCHASES_REMIND_DAYS_YEARLY: int = 30    # renewal reminder lead time, cycles >= 12 months
 
     # Mail Reporter
     MAIL_IMAP_SERVER: str = "imap.yandex.com"

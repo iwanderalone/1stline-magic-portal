@@ -71,6 +71,11 @@ SETTINGS_REGISTRY = [
     {"key": "HANDOVER_ASSIGNOR_NAME", "category": "Inventory", "label": "Handover assignor name (legal entity)", "type": "str"},
     {"key": "HANDOVER_COMPANY_NAME", "category": "Inventory", "label": "Handover company short name (liability clauses)", "type": "str"},
 
+    # ── Subscriptions & Purchases ───────────────────────────────────
+    {"key": "PURCHASES_FX_TO_AED", "category": "Subscriptions & Purchases", "label": "Rates to AED, e.g. EUR=4.12,RUB=0.044 (USD is the fixed 3.6725 peg)", "type": "str"},
+    {"key": "PURCHASES_REMIND_DAYS_MONTHLY", "category": "Subscriptions & Purchases", "label": "Renewal reminder lead time, monthly/quarterly (days)", "type": "int"},
+    {"key": "PURCHASES_REMIND_DAYS_YEARLY", "category": "Subscriptions & Purchases", "label": "Renewal reminder lead time, yearly+ (days)", "type": "int"},
+
     # ── Keycloak SSO ────────────────────────────────────────────────
     {"key": "KEYCLOAK_SERVER_URL", "category": "Keycloak SSO", "label": "Server URL", "type": "str"},
     {"key": "KEYCLOAK_REALM", "category": "Keycloak SSO", "label": "Realm", "type": "str"},
