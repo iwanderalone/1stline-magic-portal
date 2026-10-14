@@ -184,7 +184,29 @@ def _to_contact(raw: dict) -> dict:
         "phone": raw.get("phone"),
         "description": raw.get("description"),
         "url": raw.get("url"),
+        "offboarded": is_offboarded(raw),
     }
+
+
+# The AD → NetBox sync has no status field for contacts; a leaver is marked by
+# this sentence in comments. Matched loosely so a reworded sync still counts.
+_OFFBOARDED_MARKER = "disabled or removed from ad"
+
+
+def is_offboarded(raw: dict) -> bool:
+    return _OFFBOARDED_MARKER in (raw.get("comments") or "").lower()
+
+
+async def get_contacts_by_ids(ids: list[int]) -> dict[int, dict]:
+    """Bulk fetch for seat audits — NetBox accepts a repeated id= filter."""
+    out: dict[int, dict] = {}
+    unique = sorted(set(ids))
+    for i in range(0, len(unique), 100):
+        chunk = unique[i:i + 100]
+        response = await _request("GET", CONTACTS_PATH, params=[("id", c) for c in chunk] + [("limit", 100)])
+        for raw in response.json().get("results", []):
+            out[raw["id"]] = _to_contact(raw)
+    return out
 
 
 def _to_assignment(raw: dict) -> dict:

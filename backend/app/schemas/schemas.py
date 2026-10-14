@@ -926,6 +926,7 @@ class NetboxContact(BaseModel):
     phone: Optional[str] = None
     description: Optional[str] = None
     url: Optional[str] = None
+    offboarded: bool = False  # AD sync marks leavers in comments
 
 
 class NetboxContactsPage(BaseModel):
@@ -1070,3 +1071,230 @@ class SettingFieldResponse(BaseModel):
 
 class SettingsUpdate(BaseModel):
     values: dict[str, Optional[str]] = Field(..., min_length=1)
+
+
+# ─── Subscriptions & Purchases ───────────────────────────
+
+_Category = Literal["software", "cloud", "isp", "telecom", "security", "hardware", "services", "other"]
+_PayMethod = Literal["card", "bank_transfer", "paypal", "other"]
+
+
+def _currency(v: Optional[str]) -> Optional[str]:
+    if v is None:
+        return v
+    v = v.strip().upper()
+    if len(v) != 3 or not v.isalpha():
+        raise ValueError("currency must be a 3-letter code")
+    return v
+
+
+class DepartmentIn(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    is_active: bool = True
+
+
+class DepartmentOut(BaseOrmModel):
+    id: int
+    name: str
+    is_active: bool
+
+
+class PaymentCardIn(BaseModel):
+    label: str = Field(min_length=1, max_length=100)
+    last4: Optional[str] = Field(default=None, max_length=4)
+    holder: Optional[str] = Field(default=None, max_length=100)
+    notes: Optional[str] = None
+    is_active: bool = True
+
+    @field_validator("last4")
+    @classmethod
+    def _last4(cls, v):
+        # Four digits and nothing more: this field must never become a place
+        # where someone pastes a full card number.
+        if v in (None, ""):
+            return None
+        if not (len(v) == 4 and v.isdigit()):
+            raise ValueError("last4 must be exactly 4 digits")
+        return v
+
+
+class PaymentCardOut(BaseOrmModel):
+    id: int
+    label: str
+    last4: Optional[str] = None
+    holder: Optional[str] = None
+    notes: Optional[str] = None
+    is_active: bool
+
+
+class SeatIn(BaseModel):
+    netbox_contact_id: Optional[int] = None
+    person_name: str = Field(min_length=1, max_length=200)
+    person_email: Optional[str] = Field(default=None, max_length=320)
+    person_department: Optional[str] = Field(default=None, max_length=100)
+    login: Optional[str] = Field(default=None, max_length=320)
+    assigned_on: Optional[date] = None
+    notes: Optional[str] = None
+
+
+class SeatOut(BaseOrmModel):
+    id: int
+    subscription_id: int
+    netbox_contact_id: Optional[int] = None
+    person_name: str
+    person_email: Optional[str] = None
+    person_department: Optional[str] = None
+    login: Optional[str] = None
+    assigned_on: Optional[date] = None
+    notes: Optional[str] = None
+
+
+class SubscriptionIn(BaseModel):
+    vendor: str = Field(min_length=1, max_length=200)
+    product: Optional[str] = Field(default=None, max_length=300)
+    category: _Category = "software"
+    seller: Optional[str] = Field(default=None, max_length=200)
+    owner_user_ids: list[UUID] = []
+    budget_id: Optional[int] = None
+    account_email: Optional[str] = Field(default=None, max_length=320)
+    billing_url: Optional[str] = Field(default=None, max_length=1000)
+    reference: Optional[str] = Field(default=None, max_length=300)
+    payment_method: _PayMethod = "card"
+    card_id: Optional[int] = None
+    cycle_months: int = Field(default=1, ge=1, le=60)
+    price: float = Field(default=0, ge=0)
+    currency: str = "AED"
+    seats_total: Optional[int] = Field(default=None, ge=0)
+    next_renewal: Optional[date] = None
+    auto_renew: bool = True
+    status: Literal["active", "cancelled"] = "active"
+    cancelled_on: Optional[date] = None
+    notify_days_before: Optional[int] = Field(default=None, ge=0, le=365)
+    notes: Optional[str] = None
+
+    @field_validator("currency")
+    @classmethod
+    def _cur(cls, v):
+        return _currency(v)
+
+
+class SubscriptionPatch(SubscriptionIn):
+    """Every field optional — PATCH applies only what was sent (exclude_unset)."""
+    vendor: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    category: Optional[_Category] = None
+    payment_method: Optional[_PayMethod] = None
+    cycle_months: Optional[int] = Field(default=None, ge=1, le=60)
+    price: Optional[float] = Field(default=None, ge=0)
+    currency: Optional[str] = None
+    owner_user_ids: Optional[list[UUID]] = None
+    auto_renew: Optional[bool] = None
+    status: Optional[Literal["active", "cancelled"]] = None
+
+
+class OwnerRef(BaseModel):
+    id: UUID
+    display_name: str
+
+
+class SubscriptionOut(BaseModel):
+    id: int
+    vendor: str
+    product: Optional[str] = None
+    category: str
+    seller: Optional[str] = None
+    owners: list[OwnerRef] = []
+    budget: Optional[DepartmentOut] = None
+    account_email: Optional[str] = None
+    billing_url: Optional[str] = None
+    reference: Optional[str] = None
+    payment_method: str
+    card: Optional[PaymentCardOut] = None
+    cycle_months: int
+    price: float
+    currency: str
+    price_aed: Optional[float] = None
+    price_usd: Optional[float] = None
+    monthly_aed: Optional[float] = None
+    monthly_usd: Optional[float] = None
+    seats_total: Optional[int] = None
+    seats_used: int = 0
+    next_renewal: Optional[date] = None
+    days_to_renewal: Optional[int] = None
+    auto_renew: bool
+    lapsed: bool = False
+    status: str
+    cancelled_on: Optional[date] = None
+    notify_days_before: Optional[int] = None
+    notes: Optional[str] = None
+    updated_at: Optional[datetime] = None
+
+
+class PaymentIn(BaseModel):
+    subscription_id: Optional[int] = None
+    paid_on: date
+    vendor: Optional[str] = Field(default=None, max_length=200)  # defaults from the subscription
+    description: Optional[str] = Field(default=None, max_length=500)
+    category: Optional[_Category] = None
+    budget_id: Optional[int] = None
+    payment_method: Optional[_PayMethod] = None
+    card_id: Optional[int] = None
+    amount: float = Field(ge=0)
+    currency: str = "AED"
+    amount_aed: Optional[float] = Field(default=None, ge=0)  # None = convert with the FX table
+    period_start: Optional[date] = None
+    period_end: Optional[date] = None
+    invoice_no: Optional[str] = Field(default=None, max_length=100)
+    status: Literal["confirmed", "unconfirmed"] = "confirmed"
+    notes: Optional[str] = None
+
+    @field_validator("currency")
+    @classmethod
+    def _cur(cls, v):
+        return _currency(v)
+
+
+class PaymentPatch(PaymentIn):
+    paid_on: Optional[date] = None
+    amount: Optional[float] = Field(default=None, ge=0)
+    currency: Optional[str] = None
+    status: Optional[Literal["confirmed", "unconfirmed"]] = None
+
+
+class PaymentOut(BaseOrmModel):
+    id: int
+    subscription_id: Optional[int] = None
+    paid_on: date
+    vendor: str
+    description: Optional[str] = None
+    category: str
+    budget: Optional[DepartmentOut] = None
+    payment_method: str
+    card: Optional[PaymentCardOut] = None
+    amount: float
+    currency: str
+    amount_aed: float
+    amount_usd: Optional[float] = None
+    period_start: Optional[date] = None
+    period_end: Optional[date] = None
+    invoice_no: Optional[str] = None
+    has_invoice: bool = False
+    status: str
+    notes: Optional[str] = None
+    created_by: Optional[str] = None
+
+
+class PaymentsPage(BaseModel):
+    items: list[PaymentOut]
+    total: int
+    total_aed: float
+    total_usd: float
+
+
+class SeatHolder(BaseModel):
+    """One person and every seat they hold — the offboarding view."""
+    netbox_contact_id: Optional[int] = None
+    person_name: str
+    person_email: Optional[str] = None
+    person_department: Optional[str] = None
+    offboarded: Optional[bool] = None  # None = not checked / not a NetBox contact
+    seats: list[dict]
