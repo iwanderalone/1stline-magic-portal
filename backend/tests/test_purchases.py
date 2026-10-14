@@ -105,3 +105,10 @@ def test_report_has_every_sheet_and_flags_leavers(fx):
     assert wb["Subscriptions"]["W2"].value == "≤30d"
     assert wb["Payments"]["K2"].value == 100.0
     assert wb["Payments"]["K3"].value == "=SUM(K2:K2)"
+
+
+def test_leaver_detection_matches_both_sync_markers():
+    from app.services.netbox_service import is_offboarded
+    assert is_offboarded({"name": "[Disabled] Jane Doe"})
+    assert is_offboarded({"name": "Jane Doe", "comments": "Disabled or removed from AD."})
+    assert not is_offboarded({"name": "Jane Doe", "comments": "Moved to EU office"})

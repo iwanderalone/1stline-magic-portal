@@ -188,13 +188,15 @@ def _to_contact(raw: dict) -> dict:
     }
 
 
-# The AD → NetBox sync has no status field for contacts; a leaver is marked by
-# this sentence in comments. Matched loosely so a reworded sync still counts.
+# The AD → NetBox sync has no status field for contacts; it marks a leaver by
+# prefixing the name with "[Disabled]" and/or this sentence in comments.
+# Either counts, matched loosely so a reworded sync still does.
 _OFFBOARDED_MARKER = "disabled or removed from ad"
 
 
 def is_offboarded(raw: dict) -> bool:
-    return _OFFBOARDED_MARKER in (raw.get("comments") or "").lower()
+    name = (raw.get("name") or raw.get("display") or "").lower()
+    return name.startswith("[disabled]") or _OFFBOARDED_MARKER in (raw.get("comments") or "").lower()
 
 
 async def get_contacts_by_ids(ids: list[int]) -> dict[int, dict]:
