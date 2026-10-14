@@ -26,6 +26,8 @@ _MONEY = "#,##0.00"
 _DATE = "yyyy-mm-dd"
 
 _METHOD = {"card": "Card", "bank_transfer": "Bank transfer", "paypal": "PayPal", "other": "Other"}
+_CATEGORY = {"software": "Software", "cloud": "Cloud & hosting", "isp": "Internet (ISP)", "telecom": "Telecom & SIM",
+             "security": "Security", "hardware": "Hardware", "services": "Services", "other": "Other"}
 
 
 def _cycle(months: int) -> str:
@@ -138,14 +140,14 @@ def build_report(subs: list[Subscription], payments: list[PurchasePayment], name
     block("By budget", ["Budget", "AED", "USD"],
           [[k, round(v, 2), ps.aed_to_usd(v)] for k, v in sorted(by_budget.items(), key=lambda kv: -kv[1])])
     block("By category", ["Category", "AED", "USD"],
-          [[k.capitalize(), round(v, 2), ps.aed_to_usd(v)] for k, v in sorted(by_category.items(), key=lambda kv: -kv[1])])
+          [[_CATEGORY.get(k, k), round(v, 2), ps.aed_to_usd(v)] for k, v in sorted(by_category.items(), key=lambda kv: -kv[1])])
 
     # ── Payments log ────────────────────────────────────
     ws = _sheet(
         wb, "Payments",
         ["Date", "Month", "Vendor", "Description", "Category", "Budget", "Method", "Card",
          "Amount", "Currency", "AED", "USD", "Period start", "Period end", "Invoice #", "Status", "Notes"],
-        ([p.paid_on, p.paid_on.strftime("%B %Y"), p.vendor, p.description or "", p.category,
+        ([p.paid_on, p.paid_on.strftime("%B %Y"), p.vendor, p.description or "", _CATEGORY.get(p.category, p.category),
           p.budget.name if p.budget else "", _METHOD.get(p.payment_method, p.payment_method), _card(p.card),
           p.amount, p.currency, p.amount_aed, ps.aed_to_usd(p.amount_aed),
           p.period_start, p.period_end, p.invoice_no or "", p.status, p.notes or ""] for p in payments),
@@ -175,7 +177,7 @@ def build_report(subs: list[Subscription], payments: list[PurchasePayment], name
         owners = ", ".join(names[i] for i in ps.owner_ids(s) if i in names)
         seats = f"{len(s.seats)}/{s.seats_total}" if s.seats_total else (str(len(s.seats)) if s.seats else "")
         return [
-            s.vendor, s.product or "", s.category, s.seller or "", owners, s.budget.name if s.budget else "",
+            s.vendor, s.product or "", _CATEGORY.get(s.category, s.category), s.seller or "", owners, s.budget.name if s.budget else "",
             s.account_email or "", _METHOD.get(s.payment_method, s.payment_method), _card(s.card),
             _cycle(s.cycle_months or 1), s.price or 0, s.currency, price_aed, ps.aed_to_usd(price_aed),
             monthly, ps.aed_to_usd(monthly), None if monthly is None else round(monthly * 12, 2),
