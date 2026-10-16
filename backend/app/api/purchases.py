@@ -32,6 +32,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.deps import get_or_404, require_admin_or_manager
 from app.models.models import (
@@ -129,6 +130,7 @@ async def meta():
         "currencies": sorted(set(ps.CURRENCIES) | set(ps.fx_table())),
         "fx_to_aed": ps.fx_table(),
         "aed_per_usd": ps.AED_PER_USD,
+        "netbox_url": get_settings().NETBOX_URL.rstrip("/") or None,
     }
 
 
