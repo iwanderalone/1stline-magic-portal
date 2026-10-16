@@ -14,6 +14,7 @@ part-way leaves what was created. Re-running the same intake is safe for
 serialised units: a serial already in NetBox under the same invoice number is
 reused instead of duplicated.
 """
+import asyncio
 import base64
 import json
 import logging
@@ -112,11 +113,19 @@ async def _gemini_extract(content: bytes, mime: str) -> dict:
         },
     }
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+    # Google 503s ("high demand") come in bursts; a short backoff usually clears them.
     try:
         async with httpx.AsyncClient(timeout=90) as client:
-            resp = await client.post(url, params={"key": key}, json=body)
+            for attempt in range(4):
+                resp = await client.post(url, params={"key": key}, json=body)
+                if resp.status_code not in (500, 503):
+                    break
+                logger.warning("[intake] Gemini %s, attempt %d/4", resp.status_code, attempt + 1)
+                await asyncio.sleep(2 * (attempt + 1))
     except httpx.HTTPError as exc:
         raise IntakeError(f"Cannot reach Gemini: {exc}") from exc
+    if resp.status_code in (500, 503):
+        raise IntakeError("Gemini is overloaded on Google's side — try again in a minute or fill the form by hand", 503)
     if resp.status_code == 429:
         raise IntakeError("Gemini is rate-limited right now — fill the form by hand or retry in a minute", 429)
     if resp.status_code >= 400:
