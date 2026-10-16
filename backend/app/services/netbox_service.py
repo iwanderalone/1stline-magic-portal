@@ -430,7 +430,7 @@ async def list_suppliers() -> list[str]:
     return [c[0] if isinstance(c, (list, tuple)) else c for c in (cs.get("extra_choices") or [])]
 
 
-async def ensure_supplier(name: str) -> str:
+async def ensure_supplier(name: str, create: bool = True) -> Optional[str]:
     """The supplier value to write on a device. An existing choice is matched
     case-insensitively (the set mixes 'IKEA' and 'sharafdg'); a new one is
     appended to the choice set, since NetBox rejects any value outside it."""
@@ -442,6 +442,8 @@ async def ensure_supplier(name: str) -> str:
     for value, label in choices:
         if name.casefold() in (str(value).casefold(), str(label).casefold()):
             return value
+    if not create:
+        return None
     await _request("PATCH", f"{CHOICE_SETS_PATH}{cs['id']}/", json={"extra_choices": choices + [[name, name]]})
     logger.info("[netbox] supplier '%s' added to the choice set", name)
     return name

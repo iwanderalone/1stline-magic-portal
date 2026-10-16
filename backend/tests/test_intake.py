@@ -106,3 +106,15 @@ def test_part_numbers_and_similarity():
 def test_part_number_is_not_a_serial():
     desc = 'MS SURFACE 7TH EDITION 13.8" SAPHIRE ZGM-00062'
     assert intake._clean_serials(["zgm-00062", "0f38b7b24353hh", "0F38B7B24353HH", ""], desc) == ["0F38B7B24353HH"]
+
+
+def test_inline_serial_kept_part_number_dropped():
+    desc = "MACBOOK NEO 13 A18 PRO 8GB 256GB MXYZ3AB/A S/N: C02XK1ABCD12"
+    assert intake._clean_serials(["c02xk1abcd12", "MXYZ3AB/A"], desc) == ["C02XK1ABCD12"]
+
+
+def test_invoice_without_devices_needs_payment():
+    with pytest.raises(ValidationError):
+        _req(items=[])
+    r = _req(items=[], payment={"paid_on": "2026-10-16", "amount": 50, "category": "software"})
+    assert r.items == [] and r.payment.category == "software"
