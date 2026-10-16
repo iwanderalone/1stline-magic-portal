@@ -1008,6 +1008,7 @@ class NetboxLookupItem(BaseModel):
     id: int
     name: str
     slug: Optional[str] = None
+    display: Optional[str] = None
 
 
 # ─── Tools: Handover ──────────────────────────────────────
@@ -1039,6 +1040,7 @@ class HandoverRecord(BaseModel):
 
 
 class HandoverRecordResult(BaseModel):
+    record_id: Optional[int] = None   # portal-side HandoverRecord, pending signature
     filename: str
     attachment_id: Optional[int] = None
     attachment_url: Optional[str] = None   # the file in NetBox — the canonical copy
@@ -1278,9 +1280,20 @@ class PaymentOut(BaseOrmModel):
     period_end: Optional[date] = None
     invoice_no: Optional[str] = None
     has_invoice: bool = False
+    netbox_device_ids: list[int] = []
     status: str
     notes: Optional[str] = None
     created_by: Optional[str] = None
+
+    @field_validator("netbox_device_ids", mode="before")
+    @classmethod
+    def _device_ids(cls, v):
+        if isinstance(v, str):
+            try:
+                return [int(x) for x in _json.loads(v) or []]
+            except (ValueError, TypeError):
+                return []
+        return v or []
 
 
 class PaymentsPage(BaseModel):
@@ -1298,3 +1311,139 @@ class SeatHolder(BaseModel):
     person_department: Optional[str] = None
     offboarded: Optional[bool] = None  # None = not checked / not a NetBox contact
     seats: list[dict]
+
+
+# ─── Tools: Handover records ────────────────────────────────
+
+class HandoverRecordOut(BaseOrmModel):
+    """A recorded handover; `pending` until the signed scan is uploaded."""
+    id: int
+    employee_contact_id: int
+    employee_name: str
+    handover_date: date
+    devices: list[dict] = []
+    draft_url: Optional[str] = None
+    signed_url: Optional[str] = None
+    status: str
+    created_by: Optional[str] = None
+    created_at: datetime
+    signed_at: Optional[datetime] = None
+    signed_uploaded_by: Optional[str] = None
+
+    @field_validator("devices", mode="before")
+    @classmethod
+    def _json_list(cls, v):
+        if isinstance(v, str):
+            try:
+                return _json.loads(v) or []
+            except ValueError:
+                return []
+        return v or []
+
+
+# ─── Tools: Intake (invoice → NetBox devices → payment) ─────
+
+class IntakeNewType(BaseModel):
+    manufacturer: str = Field(..., min_length=1, max_length=100)
+    model: str = Field(..., min_length=1, max_length=100)
+
+
+class IntakeItem(BaseModel):
+    """One invoice line: `quantity` identical devices of one type."""
+    device_type_id: Optional[int] = None
+    new_type: Optional[IntakeNewType] = None   # created in NetBox when no type fits
+    role_id: int
+    tenant_id: int                             # decides the asset-tag range
+    site_id: int
+    location_id: Optional[int] = None
+    quantity: int = Field(1, ge=1, le=50)
+    serials: list[str] = Field(default_factory=list, max_length=50)
+    unit_price_net: Optional[float] = Field(None, ge=0)   # AED without VAT, as NetBox keeps it
+    comments: Optional[str] = Field(None, max_length=1000)
+
+    @field_validator("serials")
+    @classmethod
+    def _clean_serials(cls, v):
+        return [x.strip() for x in v if x and x.strip()]
+
+    @model_validator(mode="after")
+    def _check(self):
+        if not self.device_type_id and not self.new_type:
+            raise ValueError("Pick a device type or describe a new one")
+        if len(self.serials) > self.quantity:
+            raise ValueError(f"{len(self.serials)} serials for {self.quantity} unit(s)")
+        if len(set(s.casefold() for s in self.serials)) != len(self.serials):
+            raise ValueError("Duplicate serial numbers in one line")
+        return self
+
+
+class IntakePayment(BaseModel):
+    paid_on: date
+    amount: float = Field(..., ge=0)            # invoice total, VAT included
+    currency: str = "AED"
+    amount_aed: Optional[float] = Field(None, ge=0)
+    budget_id: Optional[int] = None
+    payment_method: Optional[_PayMethod] = None
+    card_id: Optional[int] = None
+    description: Optional[str] = Field(None, max_length=500)
+
+    @field_validator("currency")
+    @classmethod
+    def _cur(cls, v):
+        return _currency(v)
+
+
+class IntakeRequest(BaseModel):
+    supplier: str = Field(..., min_length=1, max_length=100)
+    invoice_no: str = Field(..., min_length=1, max_length=100)
+    delivery_date: date
+    items: list[IntakeItem] = Field(..., min_length=1, max_length=20)
+    payment: Optional[IntakePayment] = None     # None = don't log it in Purchases
+
+    @model_validator(mode="after")
+    def _unique_serials(self):
+        seen = [s.casefold() for item in self.items for s in item.serials]
+        if len(seen) != len(set(seen)):
+            raise ValueError("The same serial number appears on two lines")
+        if sum(i.quantity for i in self.items) > 100:
+            raise ValueError("At most 100 devices per intake")
+        return self
+
+
+class IntakeDevice(BaseModel):
+    id: int
+    label: str
+    serial: Optional[str] = None
+    asset_tag: Optional[str] = None
+    url: Optional[str] = None
+    reused: bool = False      # already in NetBox from an earlier, interrupted run
+
+
+class IntakeResult(BaseModel):
+    devices: list[IntakeDevice] = []
+    invoice_url: Optional[str] = None
+    payment_id: Optional[int] = None
+    supplier: str
+    warnings: list[str] = []
+    error: Optional[str] = None   # set when NetBox failed part-way; `devices` lists what exists
+
+
+class ParsedInvoiceItem(BaseModel):
+    description: Optional[str] = None
+    manufacturer: Optional[str] = None
+    model: Optional[str] = None
+    quantity: int = 1
+    unit_price_net: Optional[float] = None
+    serials: list[str] = []
+    device_type: Optional[NetboxLookupItem] = None   # best NetBox match, if any
+
+
+class ParsedInvoice(BaseModel):
+    supplier_raw: Optional[str] = None
+    supplier: Optional[str] = None                   # matched to NetBox's choice set
+    invoice_no: Optional[str] = None
+    invoice_date: Optional[date] = None
+    currency: Optional[str] = None
+    total: Optional[float] = None
+    vat: Optional[float] = None
+    items: list[ParsedInvoiceItem] = []
