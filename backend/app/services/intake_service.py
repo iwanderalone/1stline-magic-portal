@@ -280,6 +280,20 @@ async def run_intake(req: IntakeRequest, invoice: bytes, ext: str) -> tuple[list
     warnings: list[str] = []
     devices: list[IntakeDevice] = []
 
+    # Serial clashes are checked before anything is written: a device that
+    # exists under this same invoice is a retry and gets reused, one under any
+    # other invoice is a real conflict and stops the whole intake up front.
+    existing_by_serial: dict[str, dict] = {}
+    for item in req.items:
+        for serial in item.serials:
+            found = await nbs.find_device_by_serial(serial)
+            if not found:
+                continue
+            if (found.get("custom_fields") or {}).get("invoice_no") != req.invoice_no:
+                raise IntakeError(f"Serial {serial} is already in NetBox (device #{found['id']}, "
+                                  f"asset tag {found.get('asset_tag') or '—'}) under another invoice", 409)
+            existing_by_serial[serial] = found
+
     supplier = await nbs.ensure_supplier(req.supplier)
     if supplier != req.supplier.strip():
         warnings.append(f"Supplier recorded as '{supplier}' (existing NetBox value)")
@@ -303,21 +317,15 @@ async def run_intake(req: IntakeRequest, invoice: bytes, ext: str) -> tuple[list
         for item, (type_id, _label) in zip(req.items, type_ids):
             for n in range(item.quantity):
                 serial = item.serials[n] if n < len(item.serials) else None
-                if serial:
-                    existing = await nbs.find_device_by_serial(serial)
-                    if existing:
-                        same_invoice = (existing.get("custom_fields") or {}).get("invoice_no") == req.invoice_no
-                        if not same_invoice:
-                            raise IntakeError(
-                                f"Serial {serial} is already in NetBox (device #{existing['id']}) "
-                                f"under another invoice", status_code=409)
-                        devices.append(IntakeDevice(
-                            id=existing["id"],
-                            label=(existing.get("device_type") or {}).get("display") or f"#{existing['id']}",
-                            serial=serial, asset_tag=existing.get("asset_tag"),
-                            url=nbs.device_web_url(existing["id"]), reused=True,
-                        ))
-                        continue
+                existing = existing_by_serial.get(serial) if serial else None
+                if existing:
+                    devices.append(IntakeDevice(
+                        id=existing["id"],
+                        label=(existing.get("device_type") or {}).get("display") or f"#{existing['id']}",
+                        serial=serial, asset_tag=existing.get("asset_tag"),
+                        url=nbs.device_web_url(existing["id"]), reused=True,
+                    ))
+                    continue
                 body = {
                     "device_type": type_id,
                     "role": item.role_id,
