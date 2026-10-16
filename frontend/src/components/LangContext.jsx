@@ -1734,7 +1734,7 @@ const translations = {
     purOwner: "Owner",
     purOwnerHint: "Кто админит и получает напоминания о продлении. Пусто — все админы и менеджеры.",
     purOwnerNone: "— (админы и менеджеры)",
-    purBudget: "Budget",
+    purBudget: "Бюджет",
     purAccountEmail: "Почта аккаунта",
     purBillingUrl: "Страница биллинга",
     purReference: "Номер",
