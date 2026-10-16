@@ -292,7 +292,9 @@ def attachment_filename(name: str, ext: str) -> str:
 def _price(value: Optional[float]) -> Optional[str]:
     if value is None:
         return None
-    return str(int(value)) if float(value).is_integer() else f"{value:.2f}"
+    # Net_Price_without_VAT is a text field; the team writes it with a decimal
+    # comma and always two places: 3200 -> "3200,00".
+    return f"{float(value):.2f}".replace(".", ",")
 
 
 async def run_intake(req: IntakeRequest, invoice: bytes, ext: str) -> tuple[list[IntakeDevice], dict, str, list[str], Optional[str]]:
