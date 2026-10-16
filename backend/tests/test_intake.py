@@ -40,8 +40,9 @@ def test_attachment_naming_follows_existing_convention():
 
 
 def test_price_is_written_like_existing_records():
-    assert intake._price(4380.0) == "4380"
-    assert intake._price(4380.5) == "4380.50"
+    assert intake._price(3200.0) == "3200,00"
+    assert intake._price(4380.5) == "4380,50"
+    assert intake._price(360.946) == "360,95"
     assert intake._price(None) is None
 
 
