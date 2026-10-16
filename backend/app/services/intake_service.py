@@ -14,6 +14,7 @@ part-way leaves what was created. Re-running the same intake is safe for
 serialised units: a serial already in NetBox under the same invoice number is
 reused instead of duplicated.
 """
+import asyncio
 import base64
 import json
 import logging
@@ -47,13 +48,17 @@ class IntakeError(Exception):
 _PARSE_PROMPT = """You are reading a supplier invoice for IT equipment bought by a company in the UAE.
 Extract the fields below. Rules:
 - Only report what is printed on the document; use null when a value is absent. Never invent serial numbers.
-- items: one entry per invoice line for physical goods. Skip delivery fees, discounts, warranty-only and service lines.
+- items: one entry per invoice line (skip delivery fees and discounts). is_device = true only for a physical item
+  worth tracking as an asset (laptop, monitor, phone, camera, dock, headset, furniture...); false for software
+  licences, subscriptions, services, warranties, cables/consumables of negligible value and free bundled extras.
 - manufacturer: the brand (Apple, Lenovo, Dell, Logitech, ...).
 - model: the full product name of the line WITHOUT the brand, keeping the configuration exactly as printed
   (CPU, RAM, storage, screen, colour, part number). Do not shorten it.
 - unit_price_net: price per unit WITHOUT VAT, in the invoice currency.
-- serials: serial numbers printed for that line, copied character for character. Part/model numbers
-  (e.g. ZGM-00062, MLY33ZS/A, 21FJ0007AD) are NOT serial numbers — leave serials empty if unsure.
+- serials: every serial number printed for that line, copied character for character. Look everywhere: inside the
+  description ("S/N:", "SN", "Serial No", "IMEI"), on lines under the item, and in a separate serial-number table or
+  appendix — map each to its item. Do not put serial numbers into model. Part/model numbers (e.g. ZGM-00062,
+  MLY33ZS/A, 21FJ0007AD) are NOT serial numbers.
 - total: the grand total INCLUDING VAT. vat: the VAT amount.
 - invoice_date as YYYY-MM-DD. currency as a 3-letter ISO code."""
 
@@ -72,6 +77,7 @@ _PARSE_SCHEMA = {
                 "type": "OBJECT",
                 "properties": {
                     "description": {"type": "STRING", "nullable": True},
+                    "is_device": {"type": "BOOLEAN", "nullable": True},
                     "manufacturer": {"type": "STRING", "nullable": True},
                     "model": {"type": "STRING", "nullable": True},
                     "quantity": {"type": "INTEGER", "nullable": True},
@@ -107,11 +113,19 @@ async def _gemini_extract(content: bytes, mime: str) -> dict:
         },
     }
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+    # Google 503s ("high demand") come in bursts; a short backoff usually clears them.
     try:
         async with httpx.AsyncClient(timeout=90) as client:
-            resp = await client.post(url, params={"key": key}, json=body)
+            for attempt in range(4):
+                resp = await client.post(url, params={"key": key}, json=body)
+                if resp.status_code not in (500, 503):
+                    break
+                logger.warning("[intake] Gemini %s, attempt %d/4", resp.status_code, attempt + 1)
+                await asyncio.sleep(2 * (attempt + 1))
     except httpx.HTTPError as exc:
         raise IntakeError(f"Cannot reach Gemini: {exc}") from exc
+    if resp.status_code in (500, 503):
+        raise IntakeError("Gemini is overloaded on Google's side — try again in a minute or fill the form by hand", 503)
     if resp.status_code == 429:
         raise IntakeError("Gemini is rate-limited right now — fill the form by hand or retry in a minute", 429)
     if resp.status_code >= 400:
@@ -210,17 +224,24 @@ async def _match_device_type(manufacturer: Optional[str], model: Optional[str],
     return None
 
 
+_SERIAL_MARKER = re.compile(r"(?:S/?N|SERIAL(?:\s*(?:NO|NUMBER|#))?|IMEI)\s*[:#.]?\s*", re.I)
+
+
 def _clean_serials(serials, *line_text: Optional[str]) -> list[str]:
     """Upper-cased (NetBox serials are; models tend to lower-case what they
-    read) and without anything printed in the product name itself — that is a
-    part number the model mistook for a serial, which the prompt alone does
-    not reliably prevent."""
+    read), and without part numbers the model mistook for serials: a value
+    that appears in the product name is dropped — unless it appears there
+    right after an 'S/N' marker, which is just a serial printed inline."""
     text = " ".join(filter(None, line_text)).upper()
+    marked = {m.group(1).upper() for m in re.finditer(_SERIAL_MARKER.pattern + r"([A-Z0-9-]{4,})", text, re.I)}
     out = []
     for s in serials or []:
         s = (s or "").strip().upper()
-        if s and s not in text and s not in out:
-            out.append(s)
+        if not s or s in out:
+            continue
+        if s in text and s not in marked:
+            continue
+        out.append(s)
     return out
 
 
@@ -231,13 +252,14 @@ async def parse_invoice(content: bytes, mime: str) -> ParsedInvoice:
     for raw in data.get("items") or []:
         item = ParsedInvoiceItem(
             description=raw.get("description"),
+            is_device=raw.get("is_device") is not False,
             manufacturer=raw.get("manufacturer"),
             model=raw.get("model") or raw.get("description"),
             quantity=max(1, min(int(raw.get("quantity") or 1), 50)),
             unit_price_net=_num(raw.get("unit_price_net")),
             serials=_clean_serials(raw.get("serials"), raw.get("model"), raw.get("description")),
         )
-        if nbs.enabled():
+        if nbs.enabled() and item.is_device:
             try:
                 item.device_type = await _match_device_type(item.manufacturer, item.model, item.description)
             except nbs.NetboxError:
@@ -294,7 +316,9 @@ async def run_intake(req: IntakeRequest, invoice: bytes, ext: str) -> tuple[list
                                   f"asset tag {found.get('asset_tag') or '—'}) under another invoice", 409)
             existing_by_serial[serial] = found
 
-    supplier = await nbs.ensure_supplier(req.supplier)
+    supplier = await nbs.ensure_supplier(req.supplier, create=req.add_supplier)
+    if supplier is None:
+        raise IntakeError(f"Supplier '{req.supplier}' is not in NetBox — confirm adding it or pick an existing one", 409)
     if supplier != req.supplier.strip():
         warnings.append(f"Supplier recorded as '{supplier}' (existing NetBox value)")
 
