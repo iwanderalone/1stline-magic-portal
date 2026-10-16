@@ -142,7 +142,7 @@ function PaymentForm({ payment, lookups, subs, onClose, onSaved }) {
   );
 }
 
-export default function PaymentsTab({ lookups, reloadKey, onChanged, onToast }) {
+export default function PaymentsTab({ lookups, reloadKey, onChanged, onToast, onInvoice }) {
   const { lang, t: tr } = useLang();
   const L = useLabels();
   const year = new Date().getFullYear();
@@ -214,7 +214,8 @@ export default function PaymentsTab({ lookups, reloadKey, onChanged, onToast }) 
         <div style={{ flex: '1 1 200px' }}>
           <Input label={tr('purSearch')} value={q} onChange={e => setQ(e.target.value)} placeholder={tr('purPaymentSearchHint')} />
         </div>
-        <Button variant="primary" icon="plus" onClick={() => setEditing('new')}>{tr('purNewPayment')}</Button>
+        <Button icon="plus" onClick={() => setEditing('new')}>{tr('purNewPayment')}</Button>
+        {onInvoice && <Button variant="primary" icon="paperclip" onClick={onInvoice}>{tr('purAddInvoice')}</Button>}
       </div>
 
       {data.items.length === 0 ? (

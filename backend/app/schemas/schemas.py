@@ -1383,6 +1383,7 @@ class IntakePayment(BaseModel):
     currency: str = "AED"
     amount_aed: Optional[float] = Field(None, ge=0)
     budget_id: Optional[int] = None
+    category: Optional[_Category] = None        # None = hardware when devices were created
     payment_method: Optional[_PayMethod] = None
     card_id: Optional[int] = None
     description: Optional[str] = Field(None, max_length=500)
@@ -1394,11 +1395,13 @@ class IntakePayment(BaseModel):
 
 
 class IntakeRequest(BaseModel):
+    """One invoice: always a payment; NetBox devices only for the lines marked so."""
     supplier: str = Field(..., min_length=1, max_length=100)
+    add_supplier: bool = False                  # explicit OK to extend NetBox's supplier list
     invoice_no: str = Field(..., min_length=1, max_length=100)
     delivery_date: date
-    items: list[IntakeItem] = Field(..., min_length=1, max_length=20)
-    payment: Optional[IntakePayment] = None     # None = don't log it in Purchases
+    items: list[IntakeItem] = Field(default_factory=list, max_length=20)
+    payment: Optional[IntakePayment] = None
 
     @model_validator(mode="after")
     def _unique_serials(self):
@@ -1407,6 +1410,8 @@ class IntakeRequest(BaseModel):
             raise ValueError("The same serial number appears on two lines")
         if sum(i.quantity for i in self.items) > 100:
             raise ValueError("At most 100 devices per intake")
+        if not self.items and not self.payment:
+            raise ValueError("Nothing to record: no devices and no payment")
         return self
 
 
@@ -1430,6 +1435,7 @@ class IntakeResult(BaseModel):
 
 class ParsedInvoiceItem(BaseModel):
     description: Optional[str] = None
+    is_device: bool = True          # a physical, trackable item — goes to NetBox by default
     manufacturer: Optional[str] = None
     model: Optional[str] = None
     quantity: int = 1
@@ -1440,7 +1446,7 @@ class ParsedInvoiceItem(BaseModel):
 
 class ParsedInvoice(BaseModel):
     supplier_raw: Optional[str] = None
-    supplier: Optional[str] = None                   # matched to NetBox's choice set
+    supplier: Optional[str] = None                   # matched to NetBox's choice set, None = not there
     invoice_no: Optional[str] = None
     invoice_date: Optional[date] = None
     currency: Optional[str] = None

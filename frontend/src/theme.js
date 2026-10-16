@@ -387,6 +387,9 @@ export function getGlobalCSS(t) {
     @keyframes dotPulse {
       0%, 100% { opacity: 0.55; } 50% { opacity: 1; }
     }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
     @keyframes shimmer {
       0%   { background-position: -400px 0; }
       100% { background-position:  400px 0; }
