@@ -801,6 +801,7 @@ class PurchasePayment(Base):
     period_end      = Column(Date, nullable=True)
     invoice_no      = Column(String(100), nullable=True)
     invoice_file    = Column(String(300), nullable=True)      # filename under data/invoices/
+    netbox_device_ids = Column(Text, nullable=True)           # JSON list — devices this invoice bought (intake)
     status          = Column(String(20), nullable=False, default="confirmed")  # confirmed|unconfirmed
     notes           = Column(Text, nullable=True)
     import_ref      = Column(String(50), nullable=True, unique=True)
@@ -810,3 +811,28 @@ class PurchasePayment(Base):
 
     budget = relationship("Department", lazy="joined")
     card   = relationship("PaymentCard", lazy="joined")
+
+
+class HandoverRecord(Base):
+    """A handover recorded in NetBox, tracked until the signed copy comes back.
+
+    NetBox holds the truth (the contact assignments and both documents); this
+    row only remembers which assignments belong to one piece of paper, so the
+    signed scan can replace the generated draft on all of them at once."""
+    __tablename__ = "handover_records"
+
+    id                  = Column(Integer, primary_key=True, autoincrement=True)
+    employee_contact_id = Column(Integer, nullable=False, index=True)
+    employee_name       = Column(String(200), nullable=False)
+    handover_date       = Column(Date, nullable=False)
+    devices             = Column(Text, nullable=False)       # JSON [{id, label, asset_tag, serial}]
+    assignment_ids      = Column(Text, nullable=False)       # JSON list of NetBox contact-assignment ids
+    draft_attachment_id = Column(Integer, nullable=True)
+    draft_url           = Column(String(1000), nullable=True)
+    signed_attachment_id = Column(Integer, nullable=True)
+    signed_url          = Column(String(1000), nullable=True)
+    status              = Column(String(20), nullable=False, default="pending")  # pending|signed
+    created_by          = Column(String(100), nullable=True)
+    signed_uploaded_by  = Column(String(100), nullable=True)
+    created_at          = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    signed_at           = Column(DateTime(timezone=True), nullable=True)

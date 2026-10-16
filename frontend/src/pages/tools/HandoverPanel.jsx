@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { api, apiBlob } from '../../api';
 import { Button, Input, Toast, PageHeader } from '../../components/UI';
 import { Icon } from '../../components/Icons';
@@ -15,7 +15,74 @@ function emptyLine() {
   return { description: '', quantity: 1, serial_no: '', inventory_no: '', additional_info: '', accessories: '' };
 }
 
-export default function HandoverPanel() {
+/** Handovers waiting for the signed copy; upload replaces the draft in NetBox. */
+function PendingSignatures({ reloadKey, onToast }) {
+  const { lang, t: tr } = useLang();
+  const [items, setItems] = useState([]);
+  const [busyId, setBusyId] = useState(null);
+
+  const load = useCallback(() => api('/tools/inventory/handovers?status=pending')
+    .then(d => setItems(d || [])).catch(() => setItems([])), []);
+  useEffect(() => { load(); }, [load, reloadKey]);
+
+  const upload = async (rec, file) => {
+    if (!file) return;
+    setBusyId(rec.id);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      await api(`/tools/inventory/handovers/${rec.id}/signed`, { method: 'POST', body: fd });
+      onToast({ message: tr('hoSignedUploaded'), type: 'success' });
+      load();
+    } catch (err) {
+      onToast({ message: err.message, type: 'error' });
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  if (!items.length) return null;
+  return (
+    <div style={{
+      border: '1px solid var(--border)', borderLeft: '3px solid var(--warning)', borderRadius: 'var(--radius-sm)',
+      background: 'var(--surface)', display: 'flex', flexDirection: 'column',
+    }}>
+      <div style={{ padding: '10px 14px', fontSize: 13, fontWeight: 600 }}>
+        {tr('hoPendingTitle').replace('{n}', items.length)}
+      </div>
+      {items.map(rec => (
+        <div key={rec.id} style={{
+          display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', gap: 10, alignItems: 'center',
+          padding: '9px 14px', borderTop: '1px solid var(--border-light)',
+        }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 500 }}>
+              {rec.employee_name}
+              <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 400 }}>
+                {' '}· {new Date(rec.handover_date).toLocaleDateString(lang === 'ru' ? 'ru-RU' : 'en-GB')}
+              </span>
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {rec.devices.map(d => [d.asset_tag, d.label].filter(Boolean).join(' ')).join(' · ')}
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            {rec.draft_url && (
+              <a href={rec.draft_url} target="_blank" rel="noreferrer" className="btn btn-ghost btn-sm">{tr('hoDraft')} ↗</a>
+            )}
+            <label className="btn btn-secondary btn-sm" style={{ cursor: busyId === rec.id ? 'wait' : 'pointer' }}>
+              <Icon name="paperclip" size={13} /> {busyId === rec.id ? '…' : tr('hoUploadSigned')}
+              <input type="file" accept=".pdf,.png,.jpg,.jpeg" style={{ display: 'none' }} disabled={busyId === rec.id}
+                onChange={e => { upload(rec, e.target.files?.[0]); e.target.value = ''; }} />
+            </label>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export default function HandoverPanel({ subPath }) {
   const { t: tr } = useLang();
   // Two ways to produce a handover: from the inventory, which also records the
   // assignment in NetBox, or free-text, which still works with no NetBox at all.
@@ -33,6 +100,17 @@ export default function HandoverPanel() {
   const [comments, setComments] = useState('');
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState(null);
+  const [pendingKey, setPendingKey] = useState(0);
+
+  // 'handover/devices/12,13' — arriving from Intake with the new devices picked.
+  useEffect(() => {
+    const m = /^devices\/([\d,]+)$/.exec(subPath || '');
+    if (!m) return;
+    const ids = m[1].split(',').filter(Boolean).slice(0, 50);
+    setMode('netbox');
+    Promise.all(ids.map(id => api(`/tools/inventory/devices/${id}`).catch(() => null)))
+      .then(devs => setPicked(devs.filter(Boolean)));
+  }, [subPath]);
 
   const setLine = (i, key) => (e) => {
     const v = key === 'quantity' ? Math.max(1, Number(e.target.value) || 1) : e.target.value;
@@ -67,6 +145,7 @@ export default function HandoverPanel() {
       setResult(res);
       setToast({ message: tr('hoRecorded'), type: 'success' });
       setPicked([]);
+      setPendingKey(k => k + 1);
     } catch (err) {
       setToast({ message: err.message, type: 'error' });
     } finally {
@@ -123,6 +202,8 @@ export default function HandoverPanel() {
 
       <PageHeader title={tr('handoverTitle')} subtitle={tr('handoverSubtitle')} />
 
+      <PendingSignatures reloadKey={pendingKey} onToast={setToast} />
+
       <div style={{ display: 'flex', gap: 6 }}>
         {[['netbox', tr('hoModeNetbox')], ['manual', tr('hoModeManual')]].map(([id, label]) => (
           <button
@@ -155,6 +236,7 @@ export default function HandoverPanel() {
               {tr('hoDownloadDoc')} ↗
             </a>
           )}
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{tr('hoSignNext')}</div>
           {result.skipped?.length > 0 && (
             <div style={{ fontSize: 12, color: 'var(--danger)' }}>
               {tr('hoSkipped')}: {result.skipped.join('; ')}
