@@ -650,12 +650,12 @@ async def run_intake(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_admin_or_manager),
 ):
-    if not nbs.enabled():
-        raise _netbox_unavailable()
     try:
         req = IntakeRequest.model_validate_json(payload)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+    if req.items and not nbs.enabled():
+        raise _netbox_unavailable()
     ext, content = await _read_document(file)
 
     pay = req.payment
@@ -669,32 +669,34 @@ async def run_intake(
         if pay.amount_aed is None and ps.to_aed(pay.amount, pay.currency) is None:
             raise HTTPException(status_code=422, detail=f"No exchange rate for {pay.currency} — enter the AED amount")
 
-    try:
-        devices, attachment, supplier, warnings, error = await intake.run_intake(req, content, ext)
-    except (nbs.NetboxError, intake.IntakeError) as exc:
-        # Failed before any device existed (supplier, type or upload step).
-        raise HTTPException(status_code=exc.status_code, detail=str(exc))
+    devices, attachment, supplier, warnings, error = [], {}, req.supplier.strip(), [], None
+    if req.items:
+        try:
+            devices, attachment, supplier, warnings, error = await intake.run_intake(req, content, ext)
+        except (nbs.NetboxError, intake.IntakeError) as exc:
+            # Failed before any device existed (supplier, type or upload step).
+            raise HTTPException(status_code=exc.status_code, detail=str(exc))
 
     payment_id = None
-    if pay and devices and not error:
+    if pay and not error:
         from app.api.purchases import _INVOICE_DIR
         import uuid as _uuid
         tags = ", ".join(d.asset_tag or f"#{d.id}" for d in devices)
         p = PurchasePayment(
             paid_on=pay.paid_on,
             vendor=supplier,
-            description=pay.description or "; ".join(sorted({d.label for d in devices}))[:500],
-            category="hardware",
+            description=(pay.description or "; ".join(sorted({d.label for d in devices})))[:500] or None,
+            category=pay.category or ("hardware" if devices else "other"),
             budget_id=pay.budget_id,
             payment_method=pay.payment_method or "card",
-            card_id=pay.card_id,
+            card_id=pay.card_id if (pay.payment_method or "card") == "card" else None,
             amount=pay.amount,
             currency=pay.currency,
             amount_aed=pay.amount_aed if pay.amount_aed is not None else ps.to_aed(pay.amount, pay.currency),
             invoice_no=req.invoice_no,
-            netbox_device_ids=json.dumps([d.id for d in devices]),
+            netbox_device_ids=json.dumps([d.id for d in devices]) if devices else None,
             status="confirmed",
-            notes=f"Intake: {len(devices)} device(s) — asset tags {tags}",
+            notes=f"Intake: {len(devices)} device(s) — asset tags {tags}" if devices else None,
             created_by=user.username,
         )
         db.add(p)
