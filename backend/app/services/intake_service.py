@@ -210,6 +210,20 @@ async def _match_device_type(manufacturer: Optional[str], model: Optional[str],
     return None
 
 
+def _clean_serials(serials, *line_text: Optional[str]) -> list[str]:
+    """Upper-cased (NetBox serials are; models tend to lower-case what they
+    read) and without anything printed in the product name itself — that is a
+    part number the model mistook for a serial, which the prompt alone does
+    not reliably prevent."""
+    text = " ".join(filter(None, line_text)).upper()
+    out = []
+    for s in serials or []:
+        s = (s or "").strip().upper()
+        if s and s not in text and s not in out:
+            out.append(s)
+    return out
+
+
 async def parse_invoice(content: bytes, mime: str) -> ParsedInvoice:
     data = await _gemini_extract(content, mime)
     suppliers = await nbs.list_suppliers() if nbs.enabled() else []
@@ -221,8 +235,7 @@ async def parse_invoice(content: bytes, mime: str) -> ParsedInvoice:
             model=raw.get("model") or raw.get("description"),
             quantity=max(1, min(int(raw.get("quantity") or 1), 50)),
             unit_price_net=_num(raw.get("unit_price_net")),
-            # NetBox serials are upper-case; models tend to lower-case what they read.
-            serials=[s.strip().upper() for s in raw.get("serials") or [] if s and s.strip()],
+            serials=_clean_serials(raw.get("serials"), raw.get("model"), raw.get("description")),
         )
         if nbs.enabled():
             try:

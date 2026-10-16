@@ -101,3 +101,8 @@ def test_part_numbers_and_similarity():
     good = 'MS Surface 7th Ed 13.8" Touch, Snapdragon X Plus, 16GB/512GB SSD, Win11, Saphire - ZGM-00062'
     other = 'Microsoft Surface 7th Snapdragon X Elite 12-core, 32GB/1TB SSD, 15" Touch'
     assert intake._similarity(a, good) > intake._similarity(a, other)
+
+
+def test_part_number_is_not_a_serial():
+    desc = 'MS SURFACE 7TH EDITION 13.8" SAPHIRE ZGM-00062'
+    assert intake._clean_serials(["zgm-00062", "0f38b7b24353hh", "0F38B7B24353HH", ""], desc) == ["0F38B7B24353HH"]
