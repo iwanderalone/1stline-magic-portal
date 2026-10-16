@@ -240,6 +240,15 @@ export default function PaymentsTab({ lookups, reloadKey, onChanged, onToast }) 
                   <div style={{ fontSize: 12, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {p.description || L.category(p.category)}
                   </div>
+                  {p.netbox_device_ids?.length > 0 && lookups.meta.netbox_url && (
+                    <div style={{ fontSize: 11, display: 'flex', gap: 6, flexWrap: 'wrap' }} onClick={e => e.stopPropagation()}>
+                      <span style={{ color: 'var(--text-muted)' }}>{tr('purDevices')}:</span>
+                      {p.netbox_device_ids.map(id => (
+                        <a key={id} href={`${lookups.meta.netbox_url}/dcim/devices/${id}/`} target="_blank" rel="noreferrer"
+                          style={{ color: 'var(--accent)', textDecoration: 'none' }}>#{id}</a>
+                      ))}
+                    </div>
+                  )}
                 </span>
                 <span style={{ fontSize: 12 }}><VendorPrice amount={p.amount} currency={p.currency} /></span>
                 <span><Money aed={p.amount_aed} usd={p.amount_usd} /></span>

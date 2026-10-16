@@ -11,7 +11,11 @@ at a v3 instance, the field name on create/update payloads and the response
 parsing below will need a compat shim. Confirm the NetBox version before
 go-live.
 """
+import asyncio
 import logging
+import re
+import time
+import uuid
 from typing import Any, Optional
 
 import httpx
@@ -35,12 +39,14 @@ MANUFACTURERS_PATH = "/api/dcim/manufacturers/"
 CONTACTS_PATH = "/api/tenancy/contacts/"
 ASSIGNMENTS_PATH = "/api/tenancy/contact-assignments/"
 TENANTS_PATH = "/api/tenancy/tenants/"
+LOCATIONS_PATH = "/api/dcim/locations/"
 CHOICE_SETS_PATH = "/api/extras/custom-field-choice-sets/"
 CONTACT_ROLES_PATH = "/api/tenancy/contact-roles/"
 ATTACHMENTS_PATH = "/api/plugins/netbox-attachments/netbox-attachments/"
 ATTACHMENT_ASSIGN_PATH = "/api/plugins/netbox-attachments/netbox-attachment-assignments/"
 
 DEVICE_OBJECT_TYPE = "dcim.device"
+SUPPLIER_CHOICE_SET = "suppliers"
 HANDOVER_ROLE_SLUG = "handover"
 
 # Roles that hold something other than hardware. NetBox has no object class, so
@@ -102,6 +108,11 @@ async def _request(method: str, path: str, **kwargs) -> httpx.Response:
     except httpx.HTTPError as exc:
         logger.warning("[netbox] %s %s failed: %s", method, path, exc)
         raise NetboxError("Cannot reach NetBox", status_code=502) from exc
+
+
+def device_web_url(device_id: int) -> str:
+    """The NetBox UI page (the API `url` field points at the REST endpoint)."""
+    return f"{get_settings().NETBOX_URL.rstrip('/')}/dcim/devices/{device_id}/"
 
 
 def _ref(data: Optional[dict]) -> Optional[dict]:
@@ -307,16 +318,46 @@ async def update_device(device_id: int, payload: NetboxDeviceUpdate) -> NetboxDe
     return NetboxDeviceDetail.model_validate(_to_detail(response.json()))
 
 
-async def _list_lookup(path: str) -> list[NetboxLookupItem]:
-    response = await _request("GET", path, params={"limit": 250})
+async def _list_lookup(path: str, q: Optional[str] = None, limit: int = 250) -> list[NetboxLookupItem]:
+    params: dict[str, Any] = {"limit": limit}
+    if q:
+        params["q"] = q
+    response = await _request("GET", path, params=params)
     return [
-        NetboxLookupItem(id=item["id"], name=item.get("name") or item.get("display") or str(item["id"]), slug=item.get("slug"))
+        NetboxLookupItem(
+            id=item["id"],
+            name=item.get("name") or item.get("model") or item.get("display") or str(item["id"]),
+            slug=item.get("slug"),
+            display=item.get("display"),
+        )
         for item in response.json().get("results", [])
     ]
 
 
-async def list_device_types() -> list[NetboxLookupItem]:
-    return await _list_lookup(DEVICE_TYPES_PATH)
+def _type_display(manufacturer: Optional[str], model: Optional[str]) -> Optional[str]:
+    """'Apple' + 'MacBook Air' → 'Apple MacBook Air', but many models here
+    already start with the brand ('Apple MacBook…', 'Microsoft Surface…')."""
+    model = (model or "").strip()
+    if manufacturer and not model.casefold().startswith(manufacturer.casefold()):
+        return f"{manufacturer} {model}".strip()
+    return model or manufacturer
+
+
+async def list_device_types(q: Optional[str] = None) -> list[NetboxLookupItem]:
+    """All types for the inventory form; with `q`, a short search for the intake
+    form (there are more types than a dropdown can sensibly hold). `display`
+    carries the manufacturer, which the bare model name often omits."""
+    params: dict[str, Any] = {"limit": 25 if q else 1000}
+    if q:
+        params["q"] = q
+    results = (await _request("GET", DEVICE_TYPES_PATH, params=params)).json().get("results", [])
+    return [
+        NetboxLookupItem(
+            id=t["id"], name=t.get("model") or t.get("display") or str(t["id"]), slug=t.get("slug"),
+            display=_type_display((t.get("manufacturer") or {}).get("name"), t.get("model")),
+        )
+        for t in results
+    ]
 
 
 async def list_sites() -> list[NetboxLookupItem]:
@@ -328,7 +369,7 @@ async def list_device_roles() -> list[NetboxLookupItem]:
 
 
 async def list_manufacturers() -> list[NetboxLookupItem]:
-    return await _list_lookup(MANUFACTURERS_PATH)
+    return await _list_lookup(MANUFACTURERS_PATH, limit=1000)
 
 
 async def list_device_assignments(device_id: int) -> list[dict]:
@@ -368,14 +409,117 @@ async def list_tenants() -> list[NetboxLookupItem]:
     return await _list_lookup(TENANTS_PATH)
 
 
+async def list_locations() -> list[NetboxLookupItem]:
+    return await _list_lookup(LOCATIONS_PATH, limit=1000)
+
+
+async def _supplier_choice_set() -> Optional[dict]:
+    data = (await _request("GET", CHOICE_SETS_PATH, params={"name": SUPPLIER_CHOICE_SET, "limit": 5})).json()
+    for cs in data.get("results", []):
+        if cs.get("name") == SUPPLIER_CHOICE_SET:
+            return cs
+    return None
+
+
 async def list_suppliers() -> list[str]:
     """`supplier` is a required device field backed by a NetBox choice set, so
     the create form has to offer exactly these values or every save fails."""
-    data = (await _request("GET", CHOICE_SETS_PATH, params={"limit": 50})).json()
-    for cs in data.get("results", []):
-        if cs.get("name") == "suppliers":
-            return [c[0] if isinstance(c, (list, tuple)) else c for c in (cs.get("extra_choices") or [])]
-    return []
+    cs = await _supplier_choice_set()
+    if not cs:
+        return []
+    return [c[0] if isinstance(c, (list, tuple)) else c for c in (cs.get("extra_choices") or [])]
+
+
+async def ensure_supplier(name: str) -> str:
+    """The supplier value to write on a device. An existing choice is matched
+    case-insensitively (the set mixes 'IKEA' and 'sharafdg'); a new one is
+    appended to the choice set, since NetBox rejects any value outside it."""
+    name = " ".join(name.split())
+    cs = await _supplier_choice_set()
+    if not cs:
+        raise NetboxError("NetBox has no 'suppliers' choice set", status_code=409)
+    choices = [list(c) if isinstance(c, (list, tuple)) else [c, c] for c in (cs.get("extra_choices") or [])]
+    for value, label in choices:
+        if name.casefold() in (str(value).casefold(), str(label).casefold()):
+            return value
+    await _request("PATCH", f"{CHOICE_SETS_PATH}{cs['id']}/", json={"extra_choices": choices + [[name, name]]})
+    logger.info("[netbox] supplier '%s' added to the choice set", name)
+    return name
+
+
+# ─── Intake writes ────────────────────────────────────────────────────
+
+
+def slugify(text: str, max_len: int = 100) -> str:
+    out = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+    return (out or "item")[:max_len].strip("-")
+
+
+async def ensure_manufacturer(name: str) -> int:
+    name = " ".join(name.split())
+    for found in (await _request("GET", MANUFACTURERS_PATH, params={"name__ie": name})).json().get("results", []):
+        return found["id"]
+    slug = slugify(name, 50)
+    if (await _request("GET", MANUFACTURERS_PATH, params={"slug": slug})).json().get("count"):
+        slug = f"{slug[:44]}-{uuid.uuid4().hex[:5]}"
+    created = (await _request("POST", MANUFACTURERS_PATH, json={"name": name, "slug": slug})).json()
+    logger.info("[netbox] manufacturer '%s' created (#%s)", name, created["id"])
+    return created["id"]
+
+
+async def ensure_device_type(manufacturer: str, model: str) -> NetboxLookupItem:
+    """Reuse a type with this exact model under this manufacturer, else create
+    it. Slugs are unique per manufacturer, so a clash gets a short suffix."""
+    model = " ".join(model.split())
+    manufacturer_id = await ensure_manufacturer(manufacturer)
+    existing = (await _request("GET", DEVICE_TYPES_PATH, params={
+        "manufacturer_id": manufacturer_id, "model__ie": model,
+    })).json().get("results", [])
+    if existing:
+        t = existing[0]
+        return NetboxLookupItem(id=t["id"], name=t["model"], slug=t.get("slug"), display=_type_display(manufacturer, t["model"]))
+    slug = slugify(model)
+    if (await _request("GET", DEVICE_TYPES_PATH, params={
+        "manufacturer_id": manufacturer_id, "slug": slug,
+    })).json().get("count"):
+        slug = f"{slug[:94]}-{uuid.uuid4().hex[:5]}"
+    t = (await _request("POST", DEVICE_TYPES_PATH, json={
+        "manufacturer": manufacturer_id, "model": model, "slug": slug, "u_height": 0,
+    })).json()
+    logger.info("[netbox] device type '%s' created (#%s)", model, t["id"])
+    return NetboxLookupItem(id=t["id"], name=t["model"], slug=t.get("slug"), display=_type_display(manufacturer, t["model"]))
+
+
+async def find_device_by_serial(serial: str) -> Optional[dict]:
+    results = (await _request("GET", DEVICES_PATH, params={"serial": serial, "limit": 2})).json().get("results", [])
+    return results[0] if results else None
+
+
+async def create_device_raw(body: dict) -> NetboxDeviceDetail:
+    """Device create with custom fields and tenant — the intake path. The
+    regular `create_device` keeps its narrow schema for the inventory form."""
+    response = await _request("POST", DEVICES_PATH, json=body)
+    return NetboxDeviceDetail.model_validate(_to_detail(response.json()))
+
+
+async def wait_for_asset_tags(device_ids: list[int], timeout: float = 20.0) -> dict[int, Optional[str]]:
+    """Asset tags are not ours to pick: a webhook receiver on the NetBox host
+    numbers each new device from its tenant's `asset_tag_start`. It runs
+    asynchronously, so poll briefly; whatever has not arrived stays None and
+    the UI says it will appear in NetBox shortly."""
+    tags: dict[int, Optional[str]] = {i: None for i in device_ids}
+    deadline = time.monotonic() + timeout
+    while True:
+        missing = [i for i, tag in tags.items() if not tag]
+        if not missing:
+            break
+        params = {"id": missing, "limit": len(missing)}
+        for d in (await _request("GET", DEVICES_PATH, params=params)).json().get("results", []):
+            tags[d["id"]] = d.get("asset_tag") or None
+        if all(tags.values()) or time.monotonic() >= deadline:
+            break
+        await asyncio.sleep(1.5)
+    return tags
 
 
 # ─── Handover writes ──────────────────────────────────────────────────
@@ -444,6 +588,14 @@ async def create_handover_assignment(*, device_id: int, contact_id: int, signed_
     if role_id:
         body["role"] = role_id
     response = await _request("POST", ASSIGNMENTS_PATH, json=body)
+    return _to_assignment(response.json())
+
+
+async def set_assignment_document(assignment_id: int, attachment_id: int) -> dict:
+    """Point a handover at a different document — the signed scan replacing the draft."""
+    response = await _request("PATCH", f"{ASSIGNMENTS_PATH}{assignment_id}/", json={
+        "custom_fields": {"handover_attachment": attachment_id},
+    })
     return _to_assignment(response.json())
 
 

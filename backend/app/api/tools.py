@@ -14,15 +14,16 @@ POST /tools/inventory/handover                fill the handover .docx template (
 GET  /tools/status                which tools are configured
 """
 import asyncio
+import json
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from sqlalchemy import select, desc, func, case
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import get_current_user, get_or_404, require_admin_or_manager
-from app.models.models import MailboxBackupJob, User, utcnow
+from app.models.models import HandoverRecord, MailboxBackupJob, PurchasePayment, User, utcnow
 from app.schemas.schemas import (
     HandoverGenerate,
     MailboxBackupBatchStart,
@@ -34,13 +35,19 @@ from app.schemas.schemas import (
     NetboxAssignment,
     NetboxContact,
     NetboxContactsPage,
-    HandoverRecord,
+    HandoverRecord as HandoverRecordIn,
+    HandoverRecordOut,
     HandoverRecordResult,
+    IntakeRequest,
+    IntakeResult,
+    ParsedInvoice,
     NetboxDeviceUpdate,
     NetboxLookupItem,
 )
 from app.services import mailbox_backup_service as mbs
+from app.services import intake_service as intake
 from app.services import netbox_service as nbs
+from app.services import purchases_service as ps
 from app.services.audit import log_action
 from app.services.handover_service import generate_handover_docx
 from app.core.config import get_settings
@@ -259,11 +266,11 @@ async def update_device(
 
 
 @router.get("/inventory/device-types", response_model=list[NetboxLookupItem])
-async def list_device_types(_: User = Depends(get_current_user)):
+async def list_device_types(q: str | None = None, _: User = Depends(get_current_user)):
     if not nbs.enabled():
         raise _netbox_unavailable()
     try:
-        return await nbs.list_device_types()
+        return await nbs.list_device_types(q=q.strip() if q and q.strip() else None)
     except nbs.NetboxError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc))
 
@@ -284,6 +291,26 @@ async def list_device_roles(_: User = Depends(get_current_user)):
         raise _netbox_unavailable()
     try:
         return await nbs.list_device_roles()
+    except nbs.NetboxError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc))
+
+
+@router.get("/inventory/tenants", response_model=list[NetboxLookupItem])
+async def list_tenants(_: User = Depends(get_current_user)):
+    if not nbs.enabled():
+        raise _netbox_unavailable()
+    try:
+        return await nbs.list_tenants()
+    except nbs.NetboxError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc))
+
+
+@router.get("/inventory/locations", response_model=list[NetboxLookupItem])
+async def list_locations(_: User = Depends(get_current_user)):
+    if not nbs.enabled():
+        raise _netbox_unavailable()
+    try:
+        return await nbs.list_locations()
     except nbs.NetboxError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc))
 
@@ -406,7 +433,7 @@ async def list_suppliers(_: User = Depends(get_current_user)):
     ),
 )
 async def record_handover(
-    payload: HandoverRecord,
+    payload: HandoverRecordIn,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_admin_or_manager),
 ):
@@ -482,6 +509,22 @@ async def record_handover(
     except nbs.NetboxError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc))
 
+    record = HandoverRecord(
+        employee_contact_id=payload.employee_contact_id,
+        employee_name=employee.get("name") or f"contact #{payload.employee_contact_id}",
+        handover_date=payload.date,
+        devices=json.dumps([
+            {"id": d.id, "label": (d.device_type.display if d.device_type else None) or d.name or f"#{d.id}",
+             "asset_tag": d.asset_tag, "serial": d.serial}
+            for d in assignable
+        ]),
+        assignment_ids=json.dumps([a["id"] for a in assignments]),
+        draft_attachment_id=attachment["id"],
+        draft_url=attachment.get("file"),
+        status="pending",
+        created_by=user.username,
+    )
+    db.add(record)
     await log_action(
         db, user, "inventory_handover_recorded",
         f"Handover for {employee.get('name')} recorded in NetBox: "
@@ -493,9 +536,192 @@ async def record_handover(
                 user.username, employee.get("name"), len(assignments))
 
     return HandoverRecordResult(
+        record_id=record.id,
         filename=filename,
         attachment_id=attachment["id"],
         attachment_url=attachment.get("file"),
         assignments=assignments,
         skipped=skipped,
+    )
+
+
+# ─── Handover records: pending signature → signed ─────────────────────
+
+@router.get("/inventory/handovers", response_model=list[HandoverRecordOut])
+async def list_handovers(
+    status: str | None = Query(default=None, pattern="^(pending|signed)$"),
+    contact_id: int | None = None,
+    limit: int = Query(default=50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin_or_manager),
+):
+    stmt = select(HandoverRecord).order_by(desc(HandoverRecord.created_at)).limit(limit)
+    if status:
+        stmt = stmt.where(HandoverRecord.status == status)
+    if contact_id:
+        stmt = stmt.where(HandoverRecord.employee_contact_id == contact_id)
+    return (await db.execute(stmt)).scalars().all()
+
+
+@router.post("/inventory/handovers/{record_id}/signed", response_model=HandoverRecordOut,
+             summary="Attach the signed handover",
+             description="Uploads the signed scan to NetBox, binds it to every device of this "
+                         "handover and points each contact-assignment at it instead of the draft.")
+async def upload_signed_handover(
+    record_id: int,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin_or_manager),
+):
+    if not nbs.enabled():
+        raise _netbox_unavailable()
+    record = await get_or_404(db, HandoverRecord, record_id)
+    ext, content = await _read_document(file)
+    devices = json.loads(record.devices or "[]")
+    name = f"{record.employee_name} — handover {record.handover_date.isoformat()} (signed)"
+    try:
+        attachment = await nbs.upload_attachment(
+            filename=intake.attachment_filename(
+                f"handover-{record.employee_name}-{record.handover_date.isoformat()}-signed", ext),
+            content=content, display_name=name,
+            content_type=intake.INVOICE_TYPES[ext],
+        )
+        for d in devices:
+            await nbs.bind_attachment(attachment["id"], d["id"])
+        for assignment_id in json.loads(record.assignment_ids or "[]"):
+            await nbs.set_assignment_document(assignment_id, attachment["id"])
+    except nbs.NetboxError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc))
+
+    record.signed_attachment_id = attachment["id"]
+    record.signed_url = attachment.get("file")
+    record.status = "signed"
+    record.signed_at = utcnow()
+    record.signed_uploaded_by = user.username
+    await log_action(db, user, "inventory_handover_signed",
+                     f"Signed handover for {record.employee_name} attached (#{record.id}, "
+                     f"{len(devices)} device(s), attachment #{attachment['id']})")
+    await db.commit()
+    return record
+
+
+# ─── Intake: invoice → NetBox devices → payment ───────────────────────
+
+async def _read_document(file: UploadFile) -> tuple[str, bytes]:
+    ext = (file.filename or "").rsplit(".", 1)[-1].lower()
+    if ext not in intake.INVOICE_TYPES:
+        raise HTTPException(status_code=415, detail="PDF, PNG or JPG only")
+    content = await file.read(intake.INVOICE_MAX_BYTES + 1)
+    if len(content) > intake.INVOICE_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="File is larger than 15 MB")
+    if not content:
+        raise HTTPException(status_code=422, detail="The file is empty")
+    return ext, content
+
+
+@router.get("/inventory/intake/status")
+async def intake_status(_: User = Depends(require_admin_or_manager)):
+    return {"netbox": nbs.enabled(), "gemini": intake.gemini_enabled()}
+
+
+@router.post("/inventory/intake/parse", response_model=ParsedInvoice,
+             summary="Read an invoice with Gemini",
+             description="Suggestions only — nothing is written. The supplier is matched to NetBox's "
+                         "choice set and each line to an existing device type where confident.")
+async def parse_invoice(file: UploadFile = File(...), db: AsyncSession = Depends(get_db),
+                        user: User = Depends(require_admin_or_manager)):
+    ext, content = await _read_document(file)
+    try:
+        parsed = await intake.parse_invoice(content, intake.INVOICE_TYPES[ext])
+    except intake.IntakeError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc))
+    await log_action(db, user, "inventory_intake_parsed", f"Invoice read by Gemini: {file.filename}")
+    await db.commit()
+    return parsed
+
+
+@router.post("/inventory/intake", response_model=IntakeResult,
+             summary="Receive equipment",
+             description="Creates the devices in NetBox (asset tags come from NetBox's numbering hook), "
+                         "attaches the invoice to each, and optionally logs the payment in Purchases.")
+async def run_intake(
+    file: UploadFile = File(...),
+    payload: str = Form(...),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin_or_manager),
+):
+    if not nbs.enabled():
+        raise _netbox_unavailable()
+    try:
+        req = IntakeRequest.model_validate_json(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    ext, content = await _read_document(file)
+
+    pay = req.payment
+    if pay:
+        # Validate the money side before NetBox is touched — it cannot be undone there.
+        from app.models.models import Department, PaymentCard
+        if pay.budget_id is not None:
+            await get_or_404(db, Department, pay.budget_id)
+        if pay.card_id is not None:
+            await get_or_404(db, PaymentCard, pay.card_id)
+        if pay.amount_aed is None and ps.to_aed(pay.amount, pay.currency) is None:
+            raise HTTPException(status_code=422, detail=f"No exchange rate for {pay.currency} — enter the AED amount")
+
+    try:
+        devices, attachment, supplier, warnings, error = await intake.run_intake(req, content, ext)
+    except (nbs.NetboxError, intake.IntakeError) as exc:
+        # Failed before any device existed (supplier, type or upload step).
+        raise HTTPException(status_code=exc.status_code, detail=str(exc))
+
+    payment_id = None
+    if pay and devices and not error:
+        from app.api.purchases import _INVOICE_DIR
+        import uuid as _uuid
+        tags = ", ".join(d.asset_tag or f"#{d.id}" for d in devices)
+        p = PurchasePayment(
+            paid_on=pay.paid_on,
+            vendor=supplier,
+            description=pay.description or "; ".join(sorted({d.label for d in devices}))[:500],
+            category="hardware",
+            budget_id=pay.budget_id,
+            payment_method=pay.payment_method or "card",
+            card_id=pay.card_id,
+            amount=pay.amount,
+            currency=pay.currency,
+            amount_aed=pay.amount_aed if pay.amount_aed is not None else ps.to_aed(pay.amount, pay.currency),
+            invoice_no=req.invoice_no,
+            netbox_device_ids=json.dumps([d.id for d in devices]),
+            status="confirmed",
+            notes=f"Intake: {len(devices)} device(s) — asset tags {tags}",
+            created_by=user.username,
+        )
+        db.add(p)
+        await db.flush()
+        _INVOICE_DIR.mkdir(parents=True, exist_ok=True)
+        p.invoice_file = f"{p.id}-{_uuid.uuid4().hex[:12]}.{ext}"
+        (_INVOICE_DIR / p.invoice_file).write_bytes(content)
+        payment_id = p.id
+    elif pay and error:
+        warnings.append("Payment not logged because the intake stopped part-way — add it in Purchases "
+                        "once the devices are complete")
+
+    await log_action(
+        db, user, "inventory_intake",
+        f"Intake {supplier} #{req.invoice_no}: {len(devices)} device(s) "
+        f"[{', '.join(str(d.id) for d in devices)}]"
+        + (f", payment #{payment_id}" if payment_id else "")
+        + (f"; ERROR: {error}" if error else ""),
+    )
+    await db.commit()
+    logger.info("[tools] %s intake %s #%s: %d device(s)%s", user.username, supplier, req.invoice_no,
+                len(devices), f" — stopped: {error}" if error else "")
+    return IntakeResult(
+        devices=devices,
+        invoice_url=attachment.get("file"),
+        payment_id=payment_id,
+        supplier=supplier,
+        warnings=warnings,
+        error=error,
     )

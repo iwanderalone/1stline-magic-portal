@@ -19,6 +19,7 @@ import StatusPage from './pages/StatusPage';
 import MailboxBackupPanel from './pages/tools/MailboxBackupPanel';
 import InventoryPanel from './pages/tools/InventoryPanel';
 import HandoverPanel from './pages/tools/HandoverPanel';
+import IntakePanel from './pages/tools/IntakePanel';
 import PurchasesPage from './pages/tools/purchases/PurchasesPage';
 import AssistantChat from './components/AssistantChat';
 import NotificationsPanel from './components/NotificationsPanel';
@@ -53,6 +54,7 @@ const NAV_ICONS = {
   tools:      'archive',
   inventory:  'box',
   handover:   'fileText',
+  intake:     'inbox',
   purchases:  'key',
   admin:      'shield',
 };
@@ -205,7 +207,7 @@ export default function App() {
   // Admin and manager both get the admin page/nav; manager is a narrower role
   // (no Telegram integration settings — gated per-tab inside AdminPage itself).
   const canAccessAdmin = (u) => u?.role === 'admin' || u?.role === 'manager';
-  const PAGES = ['home', 'schedule', 'timeoff', 'profile', 'admin', 'mail', 'reminders', 'runbooks', 'tickets', 'status', 'tools', 'inventory', 'handover', 'purchases'];
+  const PAGES = ['home', 'schedule', 'timeoff', 'profile', 'admin', 'mail', 'reminders', 'runbooks', 'tickets', 'status', 'tools', 'inventory', 'handover', 'intake', 'purchases'];
   // HR is restricted to a fixed page allowlist (enforced for real on the
   // backend too — see get_current_user in deps.py); every other role sees
   // everything it always has. A page outside the list renders NoAccessPage
@@ -229,7 +231,7 @@ export default function App() {
   const [page, setPage] = useState(() => {
     const initialPage = pageFromLocation();
     // Finance data (purchases) shares the admin/manager gate.
-    if (initialPage === 'admin' || initialPage === 'purchases') {
+    if (['admin', 'purchases', 'intake'].includes(initialPage)) {
       const tk = getTokens();
       if (!canAccessAdmin(tk?.user)) return 'home';
     }
@@ -251,7 +253,7 @@ export default function App() {
   const navigate = useCallback((target, runbookId = null) => {
     const [p, ...rest] = String(target).split('/');
     if (!PAGES.includes(p)) return;
-    if ((p === 'admin' || p === 'purchases') && !canAccessAdmin(auth.user)) return;
+    if (['admin', 'purchases', 'intake'].includes(p) && !canAccessAdmin(auth.user)) return;
     const sub = rest.join('/') || null;
     setInitialRunbookId(runbookId);
     setPage(p);
@@ -283,7 +285,7 @@ export default function App() {
   useEffect(() => {
     const syncRoute = () => {
       const { page: nextPage, sub } = parseLocation();
-      if ((nextPage === 'admin' || nextPage === 'purchases') && !canAccessAdmin(auth.user)) {
+      if (['admin', 'purchases', 'intake'].includes(nextPage) && !canAccessAdmin(auth.user)) {
         setPage('home');
         window.history.replaceState(null, '', '/#home');
         return;
@@ -384,6 +386,7 @@ export default function App() {
       items: [
         { id: 'tools',     label: lang === 'ru' ? 'Бэкап почты'    : 'Mailbox Backup' },
         { id: 'inventory', label: lang === 'ru' ? 'Инвентаризация' : 'Inventory' },
+        ...(canAccessAdmin(auth.user) ? [{ id: 'intake', label: lang === 'ru' ? 'Приёмка' : 'Intake' }] : []),
         { id: 'handover',  label: lang === 'ru' ? 'Акт передачи'   : 'Handover' },
         ...(canAccessAdmin(auth.user) ? [{ id: 'purchases', label: lang === 'ru' ? 'Подписки' : 'Subscriptions' }] : []),
       ],
@@ -614,7 +617,8 @@ export default function App() {
                 {page === 'reminders'  && <RemindersPage user={auth.user} />}
                 {page === 'tools'      && <div style={{ padding: 24, maxWidth: 1100, margin: '0 auto' }}><MailboxBackupPanel /></div>}
                 {page === 'inventory'  && <div style={{ padding: 24, maxWidth: 1100, margin: '0 auto' }}><InventoryPanel user={auth.user} /></div>}
-                {page === 'handover'   && <div style={{ padding: 24, maxWidth: 1100, margin: '0 auto' }}><HandoverPanel /></div>}
+                {page === 'handover'   && <div style={{ padding: 24, maxWidth: 1100, margin: '0 auto' }}><HandoverPanel subPath={subPath} /></div>}
+                {page === 'intake'     && canAccessAdmin(auth.user) && <div style={{ padding: 24, maxWidth: 1100, margin: '0 auto' }}><IntakePanel navigate={navigate} /></div>}
                 {page === 'purchases'  && canAccessAdmin(auth.user) && <div style={{ padding: 24, maxWidth: 1240, margin: '0 auto' }}><PurchasesPage subPath={subPath} navigate={navigate} /></div>}
               </>}
             </div>
