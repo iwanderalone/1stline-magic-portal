@@ -91,3 +91,13 @@ def test_payment_device_ids_parse():
             "amount": 1, "currency": "AED", "amount_aed": 1, "status": "confirmed"}
     assert PaymentOut.model_validate({**base, "netbox_device_ids": "[4950, 4951]"}).netbox_device_ids == [4950, 4951]
     assert PaymentOut.model_validate({**base, "netbox_device_ids": None}).netbox_device_ids == []
+
+
+def test_part_numbers_and_similarity():
+    assert intake._PART_NO.findall('MS SURFACE 7TH ED SAPHIRE ZGM-00062') == ["ZGM-00062"]
+    assert "MLY33ZS/A" in intake._PART_NO.findall("MACBOOK AIR M2 STARLIGHT - MLY33ZS/A")
+    assert intake._PART_NO.findall("SURFACE 7TH EDITION 16GB 512GB") == []
+    a = 'MS SURFACE 7TH EDITION 13.8" TOUCH QUALCOMM SNAPDRAGONX PLUS 16GB 512GB SSD WIN11'
+    good = 'MS Surface 7th Ed 13.8" Touch, Snapdragon X Plus, 16GB/512GB SSD, Win11, Saphire - ZGM-00062'
+    other = 'Microsoft Surface 7th Snapdragon X Elite 12-core, 32GB/1TB SSD, 15" Touch'
+    assert intake._similarity(a, good) > intake._similarity(a, other)

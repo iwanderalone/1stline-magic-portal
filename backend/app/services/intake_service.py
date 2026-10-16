@@ -48,10 +48,12 @@ _PARSE_PROMPT = """You are reading a supplier invoice for IT equipment bought by
 Extract the fields below. Rules:
 - Only report what is printed on the document; use null when a value is absent. Never invent serial numbers.
 - items: one entry per invoice line for physical goods. Skip delivery fees, discounts, warranty-only and service lines.
-- manufacturer: the brand (Apple, Lenovo, Dell, Logitech, ...). model: the product model as specific as printed,
-  including the configuration (CPU/RAM/storage/colour/part number) when shown.
+- manufacturer: the brand (Apple, Lenovo, Dell, Logitech, ...).
+- model: the full product name of the line WITHOUT the brand, keeping the configuration exactly as printed
+  (CPU, RAM, storage, screen, colour, part number). Do not shorten it.
 - unit_price_net: price per unit WITHOUT VAT, in the invoice currency.
-- serials: serial numbers printed for that line, if any.
+- serials: serial numbers printed for that line, copied character for character. Part/model numbers
+  (e.g. ZGM-00062, MLY33ZS/A, 21FJ0007AD) are NOT serial numbers — leave serials empty if unsure.
 - total: the grand total INCLUDING VAT. vat: the VAT amount.
 - invoice_date as YYYY-MM-DD. currency as a 3-letter ISO code."""
 
@@ -163,20 +165,48 @@ def match_supplier(raw: Optional[str], choices: list[str]) -> Optional[str]:
     return None
 
 
-async def _match_device_type(manufacturer: Optional[str], model: Optional[str]) -> Optional[NetboxLookupItem]:
-    """Best existing NetBox type for an invoice line, only on a confident hit."""
-    if not model:
+# 'MLY33ZS/A', 'ZGM-00062', '21FJ0007AD' — letters and digits mixed, or slashed/dashed.
+_PART_NO = re.compile(r"\b[A-Z0-9]{3,}[/-][A-Z0-9/-]+\b|\b(?=[A-Z0-9]*\d)(?=[A-Z0-9]*[A-Z])[A-Z0-9]{6,}\b")
+
+
+def _tokens(text: str) -> set[str]:
+    return {t for t in _norm(text).split() if len(t) >= 2}
+
+
+def _similarity(a: str, b: str) -> float:
+    ta, tb = _tokens(a), _tokens(b)
+    if not ta or not tb:
+        return 0.0
+    return len(ta & tb) / len(ta | tb)
+
+
+async def _match_device_type(manufacturer: Optional[str], model: Optional[str],
+                             description: Optional[str]) -> Optional[NetboxLookupItem]:
+    """Best existing NetBox type for an invoice line, only on a confident hit.
+    Invoice wording and NetBox type names differ ('MS SURFACE 7TH EDITION
+    13.8"…' vs 'MS Surface 7th Ed 13.8" Touch…'), so candidates are scored by
+    token overlap with the full line text; a unique part number wins outright."""
+    text = " ".join(filter(None, [manufacturer, model, description]))
+    if not text.strip():
         return None
-    candidates = await nbs.list_device_types(q=model)
-    want = _norm(model)
-    for t in candidates:
-        if _norm(t.name) == want:
-            return t
-    # A part number (MLY33ZS/A) is the most reliable token when it is printed.
-    for token in re.findall(r"[A-Z0-9]{4,}[/-]?[A-Z0-9]*", model):
-        hits = [t for t in candidates if token.casefold() in (t.name or "").casefold()]
+    part_numbers = list(dict.fromkeys(_PART_NO.findall(text.upper())))[:3]
+    words = (model or description or "").split()
+    queries = part_numbers + ([" ".join(words[:2])] if words else [])
+    candidates: dict[int, NetboxLookupItem] = {}
+    for q in queries:
+        for t in await nbs.list_device_types(q=q):
+            candidates[t.id] = t
+    if not candidates:
+        return None
+    for pn in part_numbers:   # a part number found in exactly one type settles it
+        hits = [t for t in candidates.values() if pn.casefold() in (t.name or "").casefold()]
         if len(hits) == 1:
             return hits[0]
+    scored = sorted(((_similarity(text, (t.display or t.name)), t) for t in candidates.values()),
+                    key=lambda x: x[0], reverse=True)
+    best, runner = scored[0], (scored[1][0] if len(scored) > 1 else 0.0)
+    if best[0] >= 0.45 and best[0] - runner >= 0.1:
+        return best[1]
     return None
 
 
@@ -191,11 +221,12 @@ async def parse_invoice(content: bytes, mime: str) -> ParsedInvoice:
             model=raw.get("model") or raw.get("description"),
             quantity=max(1, min(int(raw.get("quantity") or 1), 50)),
             unit_price_net=_num(raw.get("unit_price_net")),
-            serials=[s.strip() for s in raw.get("serials") or [] if s and s.strip()],
+            # NetBox serials are upper-case; models tend to lower-case what they read.
+            serials=[s.strip().upper() for s in raw.get("serials") or [] if s and s.strip()],
         )
         if nbs.enabled():
             try:
-                item.device_type = await _match_device_type(item.manufacturer, item.model)
+                item.device_type = await _match_device_type(item.manufacturer, item.model, item.description)
             except nbs.NetboxError:
                 item.device_type = None
         items.append(item)

@@ -102,8 +102,11 @@ function TypePicker({ line, onChange }) {
         </button>
       </div>
       <input style={field} value={q} onChange={e => setQ(e.target.value)} placeholder={tr('inSearchType')} />
-      {line.model && !q && (
-        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{tr('inFromInvoice')}: {line.manufacturer} {line.model}</div>
+      {(line.invoiceText || line.model) && !q && (
+        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+          {tr('inFromInvoice')}: {line.invoiceText || `${line.manufacturer} ${line.model}`}{' '}
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setQ(line.model || line.invoiceText)}>{tr('inSearch')}</button>
+        </div>
       )}
       {items.length > 0 && (
         <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', background: 'var(--surface)', maxHeight: 200, overflowY: 'auto' }}>
@@ -204,7 +207,7 @@ export default function IntakePanel({ navigate }) {
           const l = {
             ...newLine(prev, look),
             deviceType: it.device_type || null,
-            manufacturer: it.manufacturer || '', model: it.model || '',
+            manufacturer: it.manufacturer || '', model: it.model || '', invoiceText: it.description || '',
             quantity: it.quantity || 1, serials: (it.serials || []).join('\n'),
             price: it.unit_price_net != null && (!r.currency || r.currency === 'AED') ? String(it.unit_price_net) : '',
           };

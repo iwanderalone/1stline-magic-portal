@@ -334,6 +334,15 @@ async def _list_lookup(path: str, q: Optional[str] = None, limit: int = 250) -> 
     ]
 
 
+def _type_display(manufacturer: Optional[str], model: Optional[str]) -> Optional[str]:
+    """'Apple' + 'MacBook Air' → 'Apple MacBook Air', but many models here
+    already start with the brand ('Apple MacBook…', 'Microsoft Surface…')."""
+    model = (model or "").strip()
+    if manufacturer and not model.casefold().startswith(manufacturer.casefold()):
+        return f"{manufacturer} {model}".strip()
+    return model or manufacturer
+
+
 async def list_device_types(q: Optional[str] = None) -> list[NetboxLookupItem]:
     """All types for the inventory form; with `q`, a short search for the intake
     form (there are more types than a dropdown can sensibly hold). `display`
@@ -345,7 +354,7 @@ async def list_device_types(q: Optional[str] = None) -> list[NetboxLookupItem]:
     return [
         NetboxLookupItem(
             id=t["id"], name=t.get("model") or t.get("display") or str(t["id"]), slug=t.get("slug"),
-            display=" ".join(filter(None, [(t.get("manufacturer") or {}).get("name"), t.get("model")])) or None,
+            display=_type_display((t.get("manufacturer") or {}).get("name"), t.get("model")),
         )
         for t in results
     ]
@@ -468,7 +477,7 @@ async def ensure_device_type(manufacturer: str, model: str) -> NetboxLookupItem:
     })).json().get("results", [])
     if existing:
         t = existing[0]
-        return NetboxLookupItem(id=t["id"], name=t["model"], slug=t.get("slug"), display=t.get("display"))
+        return NetboxLookupItem(id=t["id"], name=t["model"], slug=t.get("slug"), display=_type_display(manufacturer, t["model"]))
     slug = slugify(model)
     if (await _request("GET", DEVICE_TYPES_PATH, params={
         "manufacturer_id": manufacturer_id, "slug": slug,
@@ -478,7 +487,7 @@ async def ensure_device_type(manufacturer: str, model: str) -> NetboxLookupItem:
         "manufacturer": manufacturer_id, "model": model, "slug": slug, "u_height": 0,
     })).json()
     logger.info("[netbox] device type '%s' created (#%s)", model, t["id"])
-    return NetboxLookupItem(id=t["id"], name=t["model"], slug=t.get("slug"), display=t.get("display"))
+    return NetboxLookupItem(id=t["id"], name=t["model"], slug=t.get("slug"), display=_type_display(manufacturer, t["model"]))
 
 
 async def find_device_by_serial(serial: str) -> Optional[dict]:
