@@ -323,8 +323,12 @@ export default function SchedulePage({ user }) {
       <PageHeader
         title={tr('schedule_title')}
         subtitle={`${view === 'weekly' ? `${tr('scheduleWeekOf')} ${headerLabel}` : headerLabel} · ${published ? tr('schedulePublished') : tr('scheduleDraft')}`}
+        actions={isAdmin && <>
+          <Button variant="ghost" icon="trash" style={{ color: 'var(--danger)' }} onClick={handleClearDrafts}>{tr('scheduleClearDrafts')}</Button>
+          <Button variant="primary" icon="check" onClick={handlePublish}>{tr('publish')}</Button>
+        </>}
       >
-        {/* Grouped toolbar: navigate · create · bulk · destructive · publish (primary, last). */}
+        {/* Grouped toolbar: navigate · create · bulk. Clear/Publish live in row 1. */}
         <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <Tabs tabs={[{ id: 'weekly', label: tr('week') }, { id: 'monthly', label: tr('month') }]} active={view} onChange={v => { setView(v); setOffset(0); }} />
@@ -346,8 +350,6 @@ export default function SchedulePage({ user }) {
               <Button variant="secondary" size="sm" icon="refresh" onClick={() => setShowRotations(true)}>{tr('scheduleRotations')}</Button>
             </div>
           )}
-          {isAdmin && <Button variant="ghost" size="sm" icon="trash" style={{ color: 'var(--danger)' }} onClick={handleClearDrafts}>{tr('scheduleClearDrafts')}</Button>}
-          {isAdmin && <Button variant="primary" size="sm" icon="check" onClick={handlePublish}>{tr('publish')}</Button>}
         </div>
       </PageHeader>
 

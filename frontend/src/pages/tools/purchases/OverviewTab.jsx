@@ -136,6 +136,7 @@ export default function OverviewTab({ reloadKey, netboxEnabled, onOpenSub, onGo 
             <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>{tr('purNothingUpcoming')}</div>
           ) : s.upcoming.map(x => (
             <div key={x.id} onClick={() => onOpenSub(x.id)} style={{
+              opacity: x.price_aed ? 1 : 0.55,
               display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', fontSize: 13,
               borderTop: '1px solid var(--border-light)', cursor: 'pointer',
             }}>

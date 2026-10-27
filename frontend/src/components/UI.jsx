@@ -170,7 +170,7 @@ export function Avatar({ name, color, size = 28, ring, src }) {
       width: size, height: size, borderRadius: 'var(--radius-sm)',
       background: bg, color: '#fff', flexShrink: 0,
       display: 'flex', alignItems: 'center', justifyContent: 'center',
-      fontSize: Math.max(10, size * 0.40), fontWeight: 600, letterSpacing: '-0.01em',
+      fontSize: Math.min(24, Math.max(10, size * 0.40)), fontWeight: 600, letterSpacing: '-0.01em',
       ...ringStyle,
     }}>{initials}</div>
   );
@@ -403,12 +403,12 @@ export function SectionHeader({ title, eyebrow, action, count }) {
  */
 export function PageHeader({ eyebrow, title, subtitle, count, meta, actions, children }) {
   return (
-    <div style={{ marginBottom: 24 }}>
+    <div className="page-header">
       {eyebrow && <div className="t-eyebrow" style={{ marginBottom: 'var(--space-2)' }}>{eyebrow}</div>}
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', justifyContent: 'space-between', flexWrap: 'wrap', minHeight: 34 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-3)', minWidth: 0 }}>
           <h1 className="t-h1" style={{ margin: 0 }}>{title}</h1>
-          {count != null && <CountChip value={count} />}
+          {count ? <CountChip value={count} /> : null}
           {meta}
         </div>
         {actions && <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' }}>{actions}</div>}

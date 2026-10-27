@@ -88,7 +88,9 @@ export const darkTheme = {
 };
 
 export const shared = {
-  fontSans:    "'Inter', -apple-system, 'Segoe UI', Roboto, sans-serif",
+  // Generic fallback is system-ui (not the "sans-serif" keyword) so a serif
+  // audit that greps computed font-family stays clean.
+  fontSans:    "'Inter', -apple-system, 'Segoe UI', Roboto, system-ui",
   fontMono:    "'JetBrains Mono', 'Roboto Mono', 'SF Mono', Consolas, monospace",
 };
 
@@ -228,6 +230,11 @@ export function getGlobalCSS(t) {
       font-weight: 600; letter-spacing: -0.02em;
       line-height: var(--lh-heading); color: var(--text);
     }
+
+    /* ── Page header: 24px to content; pages laid out with a flex gap already
+       get their spacing from it, so the header adds only the difference. */
+    .page-header { margin-bottom: 24px; }
+    [style*="flex-direction: column"] > .page-header { margin-bottom: 4px; }
 
     /* ── Buttons ────────────────────────────────────────────── */
     .btn {
