@@ -463,7 +463,7 @@ export function Menu({ items, onClose, style }) {
       animation: 'fadeUp 220ms var(--ease-entry)', ...style,
     }}>
       {items.filter(Boolean).map((it, i) => {
-        if (it.divider) return <div key={`d${i}`} style={{ height: 1, background: 'var(--border-light)', margin: '4px 0' }} />;
+        if (it.divider) return <div key={`d${i}`} style={{ height: 1, background: 'var(--border)', margin: '4px 8px' }} />;
         idx += 1;
         const active = idx === focus;
         return (
