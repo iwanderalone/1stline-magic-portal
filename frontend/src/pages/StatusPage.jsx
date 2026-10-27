@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { api } from '../api';
 import { useTheme } from '../components/ThemeContext';
 import { useLang } from '../components/LangContext';
-import { Badge, EmptyState, PageHeader, Toast } from '../components/UI';
+import { Badge, CountChip, EmptyState, PageHeader, Toast } from '../components/UI';
 import { Icon } from '../components/Icons';
 
 const REFRESH_MS = 30000;
@@ -29,45 +29,49 @@ function sectionName(raw) {
     .join(' ');
 }
 
-function Tile({ label, value, tone, unit }) {
-  const { theme: t } = useTheme();
-  const tones = {
-    ok:   { bg: 'rgba(34,197,94,0.12)',  fg: '#16a34a', border: 'rgba(34,197,94,0.35)' },
-    bad:  { bg: 'rgba(217,83,79,0.12)',  fg: t.danger || '#d9534f', border: 'rgba(217,83,79,0.4)' },
-    warn: { bg: 'rgba(234,179,8,0.12)',  fg: '#b45309', border: 'rgba(234,179,8,0.4)' },
-    none: { bg: t.surfaceAlt || t.surface, fg: t.text, border: t.border },
-  };
-  const c = tones[tone] || tones.none;
-  return (
-    <div style={{
-      flex: '1 1 150px', minWidth: 140, padding: '14px 16px',
-      borderRadius: t.radius, border: `1px solid ${c.border}`, background: c.bg,
-    }}>
-      <div style={{ fontSize: 12, color: t.textSecondary, marginBottom: 6 }}>{label}</div>
-      <div style={{ fontSize: 30, fontWeight: 700, color: c.fg, lineHeight: 1 }}>
-        {value}
-        {unit && <span style={{ fontSize: 14, fontWeight: 500, marginLeft: 4 }}>{unit}</span>}
-      </div>
-    </div>
-  );
+// Only an "up" target is quiet text; stale and down are the exceptions.
+function StatusCell({ target, tr }) {
+  if (target.stale) return <Badge color="yellow">{tr('stStale')}</Badge>;
+  if (target.up === false) return <Badge color="red">{tr('stDown')}</Badge>;
+  if (target.up === true) return <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{tr('stUp').toLowerCase()}</span>;
+  return <span style={{ color: 'var(--text-muted)' }}>—</span>;
 }
 
-function StatusCell({ target, tr }) {
-  if (target.stale) return <Badge color="gray">{tr('stStale')}</Badge>;
-  if (target.up === false) return <Badge color="red">{tr('stDown')}</Badge>;
-  if (target.up === true) return <Badge color="green">{tr('stUp')}</Badge>;
-  return <Badge color="gray">—</Badge>;
+/* One summary line instead of KPI tiles: alarm counts go red only when non-zero. */
+function SummaryLine({ summary, tr }) {
+  const items = [
+    [summary.down, tr('stDownTile'), true],
+    [summary.http_5xx, tr('st5xx'), true],
+    [summary.certs_expiring, tr('stCerts7d'), true],
+    [summary.stale, tr('stStaleTile'), true],
+  ];
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 0', fontSize: 13, color: 'var(--text-secondary)', marginBottom: 22 }}>
+      {items.map(([n, label, alarm], i) => (
+        <span key={label}>
+          {i > 0 && <span style={{ color: 'var(--text-muted)', margin: '0 8px' }}>·</span>}
+          <span style={{ fontFamily: 'var(--font-mono)', fontWeight: n && alarm ? 600 : 400, color: n && alarm ? 'var(--danger)' : 'var(--text)' }}>{n ?? 0}</span>
+          {' '}<span style={{ color: n && alarm ? 'var(--danger)' : 'var(--text-secondary)' }}>{label.toLowerCase()}</span>
+        </span>
+      ))}
+      <span>
+        <span style={{ color: 'var(--text-muted)', margin: '0 8px' }}>·</span>
+        {tr('stAvgLatency').toLowerCase()}{' '}
+        <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text)' }}>{summary.avg_latency_ms != null ? `${summary.avg_latency_ms} ms` : '—'}</span>
+      </span>
+    </div>
+  );
 }
 
 function CertCell({ days }) {
   const { theme: t } = useTheme();
   if (days == null) return <span style={{ color: t.textMuted }}>—</span>;
   const d = Math.floor(days);
-  const color = d < 7 ? (t.danger || '#d9534f') : d < 21 ? '#b45309' : t.textSecondary;
-  return <span style={{ color, fontWeight: d < 21 ? 700 : 400 }}>{d}d</span>;
+  const color = d < 7 ? 'var(--danger)' : d < 21 ? 'var(--warning)' : t.textMuted;
+  return <span style={{ color, fontWeight: d < 21 ? 600 : 400 }}>{d}d</span>;
 }
 
-function GroupTable({ group, tr }) {
+function GroupTable({ group, tr, showDns }) {
   const { theme: t } = useTheme();
   const th = {
     textAlign: 'left', padding: '8px 10px', fontSize: 11, fontWeight: 600,
@@ -75,14 +79,15 @@ function GroupTable({ group, tr }) {
     borderBottom: `1px solid ${t.border}`, whiteSpace: 'nowrap',
   };
   const td = { padding: '8px 10px', fontSize: 13, color: t.text, borderBottom: `1px solid ${t.border}`, whiteSpace: 'nowrap' };
+  const num = { ...td, fontFamily: 'var(--font-mono)', fontSize: 12, fontVariantNumeric: 'tabular-nums' };
   const problems = group.targets.filter(x => x.up === false || x.stale).length;
 
   return (
     <section style={{ marginBottom: 26 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
         <h2 className="t-h2" style={{ fontSize: 16, margin: 0, color: t.text }}>{sectionName(group.name)}</h2>
-        <span style={{ fontSize: 12, color: t.textMuted }}>{group.targets.length}</span>
-        {problems > 0 && <Badge color="red">{problems}</Badge>}
+        <span style={{ fontSize: 12, fontFamily: 'var(--font-mono)', color: t.textMuted }}>{group.targets.length}</span>
+        {problems > 0 && <CountChip value={problems} tone="danger" />}
       </div>
       <div style={{ overflowX: 'auto', border: `1px solid ${t.border}`, borderRadius: t.radius }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 720 }}>
@@ -94,7 +99,7 @@ function GroupTable({ group, tr }) {
               <th style={th}>{tr('stTls')}</th>
               <th style={th}>{tr('stCert')}</th>
               <th style={th}>{tr('stProbe')}</th>
-              <th style={th}>{tr('stDns')}</th>
+              {showDns && <th style={th}>{tr('stDns')}</th>}
               <th style={th}>{tr('stAge')}</th>
             </tr>
           </thead>
@@ -103,20 +108,20 @@ function GroupTable({ group, tr }) {
               const bad = x.up === false;
               const codeBad = x.http_status && x.http_status >= 400;
               return (
-                <tr key={x.instance} style={{ background: bad ? 'rgba(217,83,79,0.06)' : 'transparent' }}>
+                <tr key={x.instance} style={{ background: bad ? 'var(--danger-light)' : 'transparent' }}>
                   <td style={{ ...td, whiteSpace: 'normal', wordBreak: 'break-all' }}>
                     <a href={x.instance} target="_blank" rel="noreferrer"
                        style={{ color: t.accent, textDecoration: 'none' }}>{x.instance}</a>
                   </td>
                   <td style={td}><StatusCell target={x} tr={tr} /></td>
-                  <td style={{ ...td, color: codeBad ? (t.danger || '#d9534f') : t.text, fontWeight: codeBad ? 700 : 400 }}>
+                  <td style={{ ...num, color: codeBad ? 'var(--danger)' : t.textSecondary, fontWeight: codeBad ? 600 : 400 }}>
                     {x.http_status || '—'}
                   </td>
-                  <td style={{ ...td, color: t.textSecondary }}>{x.tls_version || '—'}</td>
-                  <td style={td}><CertCell days={x.ssl_expiry_days} /></td>
-                  <td style={{ ...td, color: t.textSecondary }}>{fmtSeconds(x.probe_duration)}</td>
-                  <td style={{ ...td, color: t.textSecondary }}>{fmtSeconds(x.dns_lookup)}</td>
-                  <td style={{ ...td, color: x.stale ? (t.danger || '#d9534f') : t.textMuted }}>{fmtAge(x.age_seconds)}</td>
+                  <td style={{ ...num, color: t.textMuted }}>{x.tls_version || '—'}</td>
+                  <td style={num}><CertCell days={x.ssl_expiry_days} /></td>
+                  <td style={{ ...num, color: t.textSecondary }}>{fmtSeconds(x.probe_duration)}</td>
+                  {showDns && <td style={{ ...num, color: t.textSecondary }}>{fmtSeconds(x.dns_lookup)}</td>}
+                  <td style={{ ...num, color: x.stale ? 'var(--danger)' : t.textMuted }}>{fmtAge(x.age_seconds)}</td>
                 </tr>
               );
             })}
@@ -156,27 +161,21 @@ export default function StatusPage() {
 
   const groups = board?.groups || [];
   const empty = !loading && groups.length === 0;
+  // A column of 0.00s says nothing; show DNS only when some lookup took time.
+  const showDns = groups.some(g => g.targets.some(x => x.dns_lookup != null && x.dns_lookup >= 0.005));
 
   return (
-    <div style={{ padding: 24, maxWidth: 1100, margin: '0 auto' }}>
+    <div>
       {toast && <Toast message={toast.message} tone={toast.tone} onClose={() => setToast(null)} />}
 
       <PageHeader title={tr('stTitle')} subtitle={tr('stSubtitle')} />
 
-      {summary && (
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 22 }}>
-          <Tile label={tr('stDownTile')} value={summary.down} tone={summary.down ? 'bad' : 'ok'} />
-          <Tile label={tr('st5xx')} value={summary.http_5xx} tone={summary.http_5xx ? 'bad' : 'ok'} />
-          <Tile label={tr('stCerts7d')} value={summary.certs_expiring} tone={summary.certs_expiring ? 'warn' : 'ok'} />
-          <Tile label={tr('stStaleTile')} value={summary.stale} tone={summary.stale ? 'warn' : 'ok'} />
-          <Tile label={tr('stAvgLatency')} value={summary.avg_latency_ms ?? '—'} unit={summary.avg_latency_ms != null ? 'ms' : ''} tone="none" />
-        </div>
-      )}
+      {summary && <SummaryLine summary={summary} tr={tr} />}
 
       {summary && summary.stale > 0 && summary.stale === summary.total && (
         <div style={{
           marginBottom: 18, padding: '10px 14px', borderRadius: t.radius, fontSize: 13,
-          border: `1px solid ${t.danger || '#d9534f'}`, background: 'rgba(217,83,79,0.08)', color: t.text,
+          border: '1px solid var(--danger)', background: 'var(--danger-light)', color: t.text,
         }}>
           {tr('stAllStale')}
         </div>
@@ -191,7 +190,7 @@ export default function StatusPage() {
           subtitle={tr('stNoDataDesc')}
         />
       ) : (
-        groups.map(g => <GroupTable key={g.name} group={g} tr={tr} />)
+        groups.map(g => <GroupTable key={g.name} group={g} tr={tr} showDns={showDns} />)
       )}
     </div>
   );

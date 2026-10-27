@@ -8,7 +8,7 @@ function Tile({ label, children, sub, tone }) {
   return (
     <Card padding={16} style={tone ? { borderLeft: `3px solid ${tone}` } : undefined}>
       <div className="t-eyebrow" style={{ marginBottom: 6 }}>{label}</div>
-      <div style={{ fontSize: 20 }}>{children}</div>
+      <div style={{ fontSize: 22, fontVariantNumeric: 'tabular-nums' }}>{children}</div>
       {sub && <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>{sub}</div>}
     </Card>
   );
@@ -130,12 +130,13 @@ export default function OverviewTab({ reloadKey, netboxEnabled, onOpenSub, onGo 
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', alignItems: 'start', gap: 16 }}>
         <Card header={tr('purUpcoming')} padding="12px 18px">
           {s.upcoming.length === 0 ? (
             <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>{tr('purNothingUpcoming')}</div>
           ) : s.upcoming.map(x => (
             <div key={x.id} onClick={() => onOpenSub(x.id)} style={{
+              opacity: x.price_aed ? 1 : 0.55,
               display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', fontSize: 13,
               borderTop: '1px solid var(--border-light)', cursor: 'pointer',
             }}>

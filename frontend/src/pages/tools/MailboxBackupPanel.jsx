@@ -45,7 +45,13 @@ function computeEta(done, total, startedAt, minDone) {
   return formatEta(remaining / rate);
 }
 
-const STATUS_COLOR = { success: 'green', failed: 'red', running: 'blue', queued: 'gray', canceled: 'yellow' };
+const STATUS_COLOR = { failed: 'red', running: 'gray', queued: 'gray', canceled: 'gray' };
+
+// "8 Oct 2026, 01:59" — no seconds.
+const fmtJobTime = (iso) => {
+  const d = new Date(iso);
+  return `${d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}, ${d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`;
+};
 const BYTE_PHASES = ['archiving', 'hashing', 'uploading'];
 
 function ProgressBar({ job, tr }) {
@@ -99,7 +105,10 @@ function JobRow({ job, tr, onCancel, cancelling }) {
   return (
     <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '10px 14px', background: 'var(--surface-alt)', display: 'flex', flexDirection: 'column', gap: 8 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }} onClick={() => setOpen(o => !o)}>
-        <Badge color={STATUS_COLOR[job.status] || 'gray'}>{tr(`toolSt_${job.status}`) || job.status}</Badge>
+        {/* Success is the quiet default: a muted check, no pill. */}
+        {job.status === 'success'
+          ? <Icon name="check" size={13} color="var(--text-muted)" />
+          : <Badge color={STATUS_COLOR[job.status] || 'gray'}>{tr(`toolSt_${job.status}`) || job.status}</Badge>}
         <span style={{ fontWeight: 600, fontSize: 13 }}>{job.email}</span>
         <span style={{ flex: 1 }} />
         {active && (
@@ -110,8 +119,8 @@ function JobRow({ job, tr, onCancel, cancelling }) {
             {tr('toolCancel')}
           </Button>
         )}
-        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-          {job.requested_by} · {new Date(job.created_at).toLocaleString()}
+        <span style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+          {job.requested_by} · {fmtJobTime(job.created_at)}
         </span>
         <span style={{ display: 'flex', transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}>
           <Icon name="chevronDown" size={13} />
@@ -232,7 +241,7 @@ export default function MailboxBackupPanel() {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 860 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       {toast && <Toast {...toast} onClose={() => setToast(null)} />}
 
       <PageHeader title={tr('toolMailboxBackup')} subtitle={tr('toolMbSubtitle')} />

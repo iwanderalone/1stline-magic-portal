@@ -4,7 +4,7 @@ import { useTheme } from '../components/ThemeContext';
 import { useLang } from '../components/LangContext';
 import { Button, Badge, EmptyState, PageHeader, Toast, Overlay, Tabs } from '../components/UI';
 import { Icon } from '../components/Icons';
-import TicketDetailModal, { BUCKET_COLOR, EVENT_META, eventLabel, formatTime, stateLabel } from '../components/TicketDetailModal';
+import TicketDetailModal, { EVENT_META, eventLabel, fmtUpdated, formatTime, personLabel, stateLabel } from '../components/TicketDetailModal';
 
 const ALL_TYPES = Object.keys(EVENT_META);
 
@@ -18,7 +18,9 @@ const BUCKETS = [
 /* ─── Ticket board ─────────────────────────────────────── */
 function TicketBoardView({ onError, user, initialTicket }) {
   const { theme: t } = useTheme();
-  const { t: tr } = useLang();
+  const { t: tr, lang } = useLang();
+  const [users, setUsers] = useState([]);
+  useEffect(() => { api('/users/').then(d => setUsers(d || [])).catch(() => {}); }, []);
   const [tickets, setTickets] = useState([]);
   const [counts, setCounts] = useState({ all: 0, open: 0, paused: 0, closed: 0 });
   const [loading, setLoading] = useState(true);
@@ -88,18 +90,14 @@ function TicketBoardView({ onError, user, initialTicket }) {
 
       {/* filters + search */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16, alignItems: 'center' }}>
-        {BUCKETS.map(b => {
-          const active = bucket === b.id;
-          const n = b.id === '' ? counts.all : counts[b.id];
-          return (
-            <button key={b.id || 'all'} onClick={() => setBucket(b.id)} style={{
-              padding: '4px 14px', borderRadius: 20, fontSize: 13, cursor: 'pointer',
-              border: `1px solid ${active ? t.accent : t.border}`,
-              background: active ? t.accent : 'transparent',
-              color: active ? '#fff' : t.textSecondary,
-            }}>{tr(b.key)} ({n ?? 0})</button>
-          );
-        })}
+        <Tabs
+          tabs={BUCKETS.map(b => ({
+            id: b.id,
+            label: <>{tr(b.key)} <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', marginLeft: 4 }}>{(b.id === '' ? counts.all : counts[b.id]) ?? 0}</span></>,
+          }))}
+          active={bucket}
+          onChange={setBucket}
+        />
         <span style={{ flex: 1 }} />
         <input
           value={search}
@@ -141,11 +139,12 @@ function TicketBoardView({ onError, user, initialTicket }) {
                 >
                   <td style={{ padding: '10px 12px', fontFamily: 'var(--font-mono)', fontSize: 13, color: t.textMuted }}>#{tk.number || tk.id}</td>
                   <td style={{ padding: '10px 12px', color: t.text, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tk.title || '—'}</td>
-                  <td style={{ padding: '10px 12px' }}><Badge color={BUCKET_COLOR[tk.bucket] || 'gray'}>{stateLabel(tk.state, tr) !== '—' ? stateLabel(tk.state, tr) : (tk.bucket || '—')}</Badge></td>
-                  <td style={{ padding: '10px 12px', fontSize: 13, color: t.textSecondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tk.assignee || '—'}</td>
-                  <td style={{ padding: '10px 12px', fontSize: 13, color: t.textSecondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tk.customer || '—'}</td>
-                  <td style={{ padding: '10px 12px', fontSize: 13, color: t.textMuted }}>{tk.article_count ?? '—'}</td>
-                  <td style={{ padding: '10px 12px', fontSize: 12, color: t.textMuted, whiteSpace: 'nowrap' }}>{formatTime(tk.last_event_at)}</td>
+                  {/* Colour is for exceptions: closed recedes, live states read as plain text. */}
+                  <td style={{ padding: '10px 12px', fontSize: 13, color: tk.bucket === 'closed' ? t.textMuted : t.textSecondary }}>{stateLabel(tk.state, tr) !== '—' ? stateLabel(tk.state, tr) : (tk.bucket || '—')}</td>
+                  <td title={tk.assignee || ''} style={{ padding: '10px 12px', fontSize: 13, color: t.textSecondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{personLabel(tk.assignee, users)}</td>
+                  <td title={tk.customer || ''} style={{ padding: '10px 12px', fontSize: 13, color: t.textSecondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{personLabel(tk.customer, users)}</td>
+                  <td style={{ padding: '10px 12px', fontSize: 12, fontFamily: 'var(--font-mono)', color: t.textMuted }}>{tk.article_count ?? '—'}</td>
+                  <td style={{ padding: '10px 12px', fontSize: 12, fontFamily: 'var(--font-mono)', color: t.textMuted, whiteSpace: 'nowrap' }}>{fmtUpdated(tk.last_event_at, lang)}</td>
                 </tr>
               ))}
             </tbody>
@@ -281,11 +280,11 @@ export default function TicketsPage({ user, initialTicket }) {
   const onError = useCallback((message) => setToast({ message, tone: 'error' }), []);
 
   return (
-    <div style={{ padding: 24, maxWidth: 1100, margin: '0 auto' }}>
+    <div>
       {toast && <Toast message={toast.message} tone={toast.tone} onClose={() => setToast(null)} />}
 
       <PageHeader
-        title={tr('tpTabBoard')}
+        title={tr('tpTitle')}
         subtitle={tr('tpSubtitle')}
         actions={
           <Tabs

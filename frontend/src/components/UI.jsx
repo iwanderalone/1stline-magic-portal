@@ -1,4 +1,5 @@
 // frontend/src/components/UI.jsx
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Icon } from './Icons';
 
@@ -169,7 +170,7 @@ export function Avatar({ name, color, size = 28, ring, src }) {
       width: size, height: size, borderRadius: 'var(--radius-sm)',
       background: bg, color: '#fff', flexShrink: 0,
       display: 'flex', alignItems: 'center', justifyContent: 'center',
-      fontSize: Math.max(10, size * 0.40), fontWeight: 600, letterSpacing: '-0.01em',
+      fontSize: Math.min(24, Math.max(10, size * 0.40)), fontWeight: 600, letterSpacing: '-0.01em',
       ...ringStyle,
     }}>{initials}</div>
   );
@@ -346,7 +347,7 @@ export function Overlay({ children, onClose, title, maxWidth = 520 }) {
               background: 'none', border: 'none', fontSize: 17,
               color: 'var(--text-muted)', padding: '2px 4px', lineHeight: 1,
               borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-            }}>✕</button>
+            }} aria-label="Close"><Icon name="x" size={15} /></button>
           </div>
         )}
         <div style={{ padding: 22, overflowY: 'auto' }}>{children}</div>
@@ -394,23 +395,108 @@ export function SectionHeader({ title, eyebrow, action, count }) {
 }
 
 /**
- * PageHeader — shared top-of-page header. Title is always serif (.t-h1) so
- * every page reads as the same product; a secondary toolbar row (filters,
- * view switches) goes in `children`, never inline beside the title.
+ * PageHeader — the one top-of-page header every page uses.
+ *   Row 1: title (.t-h1, 22px) + optional mono `count`/`meta`, actions right.
+ *          The primary action goes LAST in `actions` so it sits rightmost.
+ *   Row 2: optional one-line `subtitle`.
+ *   Row 3: optional toolbar in `children` (tabs left, search/filters right).
  */
-export function PageHeader({ eyebrow, title, subtitle, meta, actions, children }) {
+export function PageHeader({ eyebrow, title, subtitle, count, meta, actions, children }) {
   return (
-    <div style={{ marginBottom: 24 }}>
+    <div className="page-header">
       {eyebrow && <div className="t-eyebrow" style={{ marginBottom: 'var(--space-2)' }}>{eyebrow}</div>}
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-3)', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', justifyContent: 'space-between', flexWrap: 'wrap', minHeight: 34 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-3)', minWidth: 0 }}>
           <h1 className="t-h1" style={{ margin: 0 }}>{title}</h1>
+          {count ? <CountChip value={count} /> : null}
           {meta}
         </div>
-        {actions && <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>{actions}</div>}
+        {actions && <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' }}>{actions}</div>}
       </div>
-      {subtitle && <div className="t-body-sm" style={{ marginTop: 'var(--space-2)' }}>{subtitle}</div>}
+      {subtitle && <div style={{ marginTop: 4, fontSize: 13, color: 'var(--text-secondary)' }}>{subtitle}</div>}
       {children && <div style={{ marginTop: 'var(--space-4)' }}>{children}</div>}
     </div>
+  );
+}
+
+/* ─── CountChip (mono count; tone: muted | warning | danger) ── */
+export function CountChip({ value, tone = 'muted', style }) {
+  if (value == null) return null;
+  const tones = {
+    muted:   { color: 'var(--text-muted)', background: 'transparent' },
+    warning: { color: 'var(--warning)',    background: 'var(--warning-light)' },
+    danger:  { color: 'var(--danger)',     background: 'var(--danger-light)' },
+  };
+  return (
+    <span style={{
+      fontFamily: 'var(--font-mono)', fontSize: 11, fontVariantNumeric: 'tabular-nums',
+      padding: '1px 6px', borderRadius: 'var(--radius-sm)', lineHeight: 1.5,
+      ...(tones[tone] || tones.muted), ...style,
+    }}>{typeof value === 'number' && value > 99 ? '99+' : value}</span>
+  );
+}
+
+/* ─── Menu (popover list; used by the user menu and row ⋯ menus) ── */
+export function Menu({ items, onClose, style }) {
+  const ref = useRef(null);
+  const enabled = items.filter(it => it && !it.divider);
+  const [focus, setFocus] = useState(-1);
+  useEffect(() => {
+    const onDown = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
+    const onKey = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); onClose(); }
+      else if (e.key === 'ArrowDown') { e.preventDefault(); setFocus(f => (f + 1) % enabled.length); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); setFocus(f => (f <= 0 ? enabled.length - 1 : f - 1)); }
+      else if (e.key === 'Enter' && focus >= 0) { e.preventDefault(); enabled[focus].onClick(); onClose(); }
+    };
+    // Defer so the click that opened the menu doesn't immediately close it.
+    const t = setTimeout(() => document.addEventListener('mousedown', onDown));
+    document.addEventListener('keydown', onKey);
+    return () => { clearTimeout(t); document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
+  }, [onClose, enabled, focus]);
+  let idx = -1;
+  return (
+    <div ref={ref} role="menu" style={{
+      position: 'absolute', zIndex: 950, minWidth: 220, padding: 4,
+      background: 'var(--surface-elevated)', border: '1px solid var(--border)',
+      borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-lg)',
+      animation: 'fadeUp 220ms var(--ease-entry)', ...style,
+    }}>
+      {items.filter(Boolean).map((it, i) => {
+        if (it.divider) return <div key={`d${i}`} style={{ height: 1, background: 'var(--border)', margin: '4px 8px' }} />;
+        idx += 1;
+        const active = idx === focus;
+        return (
+          <button key={it.label} role="menuitem" type="button"
+            onMouseEnter={() => setFocus(enabled.indexOf(it))}
+            onClick={() => { it.onClick(); onClose(); }}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+              padding: '8px 12px', border: 'none', borderRadius: 'var(--radius-sm)',
+              background: active ? 'var(--surface-alt)' : 'transparent',
+              color: it.danger ? 'var(--danger)' : 'var(--text)',
+              fontSize: 13, fontFamily: 'inherit', textAlign: 'left', cursor: 'pointer',
+            }}>
+            {it.icon && <Icon name={it.icon} size={15} color={it.danger ? 'var(--danger)' : 'var(--text-secondary)'} />}
+            <span style={{ flex: 1 }}>{it.label}</span>
+            {it.right}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ─── RowMenu (⋯ button that opens a Menu) ─────────────────── */
+export function RowMenu({ items, title = 'More' }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <span style={{ position: 'relative', display: 'inline-flex' }}>
+      <button type="button" title={title} aria-label={title} className="btn btn-ghost btn-sm"
+        style={{ padding: 5 }} onClick={(e) => { e.stopPropagation(); setOpen(o => !o); }}>
+        <Icon name="moreHorizontal" size={15} />
+      </button>
+      {open && <Menu items={items} onClose={() => setOpen(false)} style={{ right: 0, top: 'calc(100% + 4px)' }} />}
+    </span>
   );
 }

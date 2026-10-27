@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { api } from '../api';
 import { useLang } from '../components/LangContext';
-import { Button, Card, Badge, Input, Overlay, Toast, EmptyState, PageHeader, Tag } from '../components/UI';
+import { Button, Card, Badge, CountChip, Input, Overlay, Toast, EmptyState, PageHeader, Tag } from '../components/UI';
 import { Icon } from '../components/Icons';
 import { MessageBody, CommentItem } from '../components/EmailDetailModal';
 import EmailReplies from '../components/EmailReplies';
@@ -108,7 +108,7 @@ function ConditionEditor({ conditions, mode, onChange, onMode }) {
           {result?.results?.[i] != null && (
             <div style={{ gridColumn: '1 / -1', fontSize: 11, marginTop: -4,
               color: result.results[i] ? 'var(--success)' : 'var(--text-muted)' }}>
-              {result.results[i] ? '✓ matches the sample' : '· no match in the sample'}
+              {result.results[i] ? 'matches the sample' : 'no match in the sample'}
             </div>
           )}
         </div>
@@ -229,24 +229,25 @@ function buildTelegramTarget(chatId, threadId) {
 
 // --- Components ---
 
+// Rule labels carry emoji for Telegram ("🔴 Adobe"); the portal shows plain
+// text. A label that is only an emoji falls back to the rule's name.
+const EMOJI_RE = /[\p{Extended_Pictographic}\u{FE0F}\u{200D}\u{1F1E6}-\u{1F1FF}]/gu;
+export const plainText = (v) => String(v || '').replace(EMOJI_RE, '').replace(/\s+/g, ' ').trim();
+export const ruleLabel = (rule) => plainText(rule?.label) || plainText(rule?.name) || rule?.builtin_key || '—';
+
 function RuleBadge({ rule, style }) {
   if (!rule) return null;
   return (
     <span style={{
       display: 'inline-flex', alignItems: 'center', gap: 6,
-      background: rule.color + '15',
-      color: rule.color,
-      border: `1px solid ${rule.color}33`,
-      borderRadius: 'var(--radius-pill)',
-      padding: '1px 10px',
+      color: 'var(--text-secondary)',
       fontSize: '11px',
-      fontWeight: 600,
+      fontWeight: 500,
       whiteSpace: 'nowrap',
-      letterSpacing: '0.01em',
       ...style,
     }}>
-      <Icon name="hash" size={10} color={rule.color} />
-      {rule.label}
+      <span style={{ width: 6, height: 6, borderRadius: '50%', background: rule.color, flexShrink: 0 }} />
+      {ruleLabel(rule)}
     </span>
   );
 }
@@ -385,7 +386,9 @@ function RuleModal({ rule, onClose, onSave, mailboxes = [] }) {
   }, []);
 
   async function submit(e) {
-    e.preventDefault(); setSaving(true); setErr('');
+    e.preventDefault(); setErr('');
+    if (!plainText(form.label)) { setErr('Label needs a name, not just an emoji'); return; }
+    setSaving(true);
     const telegram_target = buildTelegramTarget(tgChatId, tgThreadId) || null;
     const usableConditions = conditions.filter(c => (c.value || '').trim());
     const payload = {
@@ -516,7 +519,7 @@ function RuleModal({ rule, onClose, onSave, mailboxes = [] }) {
 function EmailSidebar({ counts, activeFolder, onSelect, rules, mailboxes }) {
   const { t: tr } = useLang();
 
-  const Item = ({ id, label, icon, count, color }) => (
+  const Item = ({ id, label, icon, count, color, dot }) => (
     <button
       onClick={() => onSelect(id)}
       style={{
@@ -528,15 +531,11 @@ function EmailSidebar({ counts, activeFolder, onSelect, rules, mailboxes }) {
         textAlign: 'left', transition: 'all 0.15s ease',
       }}
     >
-      <Icon name={icon} size={15} color={activeFolder === id ? 'var(--accent)' : color || 'var(--text-muted)'} />
+      {dot
+        ? <span style={{ width: 15, display: 'inline-flex', justifyContent: 'center', flexShrink: 0 }}><span style={{ width: 7, height: 7, borderRadius: '50%', background: dot }} /></span>
+        : <Icon name={icon} size={15} color={activeFolder === id ? 'var(--accent)' : color || 'var(--text-muted)'} />}
       <span style={{ flex: 1 }}>{label}</span>
-      {count > 0 && (
-        <span style={{
-          fontSize: '10px', background: activeFolder === id ? 'var(--accent)' : 'var(--surface-sunken)',
-          color: activeFolder === id ? '#fff' : 'var(--text-muted)',
-          padding: '1px 6px', borderRadius: '10px', minWidth: '18px', textAlign: 'center'
-        }}>{count}</span>
-      )}
+      {count > 0 && <CountChip value={count} />}
     </button>
   );
 
@@ -555,7 +554,7 @@ function EmailSidebar({ counts, activeFolder, onSelect, rules, mailboxes }) {
         <div className="t-eyebrow" style={{ padding: '0 12px', marginBottom: 4 }}>{tr('mailCategories')}</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
           {rules.filter(r => r.builtin_key !== 'general').map(r => (
-            <Item key={r.id} id={`rule:${r.id}`} label={r.label} icon="hash" color={r.color} count={counts[`rule:${r.id}`]} />
+            <Item key={r.id} id={`rule:${r.id}`} label={ruleLabel(r)} dot={r.color} count={counts[`rule:${r.id}`]} />
           ))}
         </div>
       </div>
@@ -577,7 +576,7 @@ function EmailSidebar({ counts, activeFolder, onSelect, rules, mailboxes }) {
   );
 }
 
-function EmailList({ emails, activeId, onSelect, loading, ruleMap }) {
+function EmailList({ emails, activeId, onSelect, loading, ruleMap, hideStatus }) {
   const { t: tr } = useLang();
   if (loading) return <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>{tr('mailLoading')}</div>;
   if (emails.length === 0) return (
@@ -640,12 +639,15 @@ function EmailList({ emails, activeId, onSelect, loading, ruleMap }) {
               </div>
             )}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              {rule ? <RuleBadge rule={rule} style={{ fontSize: '10px', padding: '0 8px' }} /> : <Badge tone="gray" style={{ fontSize: '10px' }}>{tr('mailGeneral')}</Badge>}
+              {rule ? <RuleBadge rule={rule} /> : <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{tr('mailGeneral')}</span>}
               <span style={{ flex: 1 }} />
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4, color: `var(--${status.color})`, fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                <Icon name={status.icon} size={10} />
-                {tr(status.key)}
-              </div>
+              {/* In Inbox every row is unchecked — only show a state that differs. */}
+              {em.status !== hideStatus && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, color: em.status === 'blocked' ? 'var(--danger)' : 'var(--text-muted)', fontSize: '11px', fontWeight: 500 }}>
+                  <Icon name={status.icon} size={11} />
+                  {tr(status.key)}
+                </div>
+              )}
             </div>
           </div>
         );
@@ -764,7 +766,7 @@ function EmailDetail({ email, ruleMap, onStatusChange, onAddComment, onCommentDe
       {/* Header */}
       <section>
         <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-          {email.rule_id ? <RuleBadge rule={ruleMap[email.rule_id]} /> : <Badge tone="gray">{tr('mailGeneral')}</Badge>}
+          {email.rule_id ? <RuleBadge rule={ruleMap[email.rule_id]} /> : <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{tr('mailGeneral')}</span>}
           {email.extracted_code && <Tag>Code: {email.extracted_code}</Tag>}
           <span style={{ flex: 1 }} />
           <div style={{ display: 'flex', background: 'var(--surface-sunken)', padding: 2, borderRadius: 'var(--radius-sm)' }}>
@@ -1012,8 +1014,8 @@ export default function MailReporterPage({ user, initialEmailId }) {
 
       {/* Action Bar */}
       <PageHeader
-        title="Mail"
-        meta={<Badge tone="blue" dot>{emails.length} logs</Badge>}
+        title={tr('mailTitle')}
+        count={emails.length}
         actions={<>
           {isAdmin && <Button variant="secondary" size="sm" icon="settings" onClick={() => setShowRuleModal(true)}>Rules</Button>}
           {isAdmin && <Button variant="secondary" size="sm" icon="plus" onClick={() => setShowMailboxModal(true)}>Mailbox</Button>}
@@ -1032,7 +1034,8 @@ export default function MailReporterPage({ user, initialEmailId }) {
           {activeFolder === 'sent' ? (
             <SentList replies={sentReplies} loading={sentLoading} activeId={selectedEmail?.id} onSelect={(emailId) => pickEmail({ id: emailId })} />
           ) : (
-            <EmailList emails={filteredEmails} activeId={selectedEmail?.id} onSelect={pickEmail} loading={loading} ruleMap={ruleMap} />
+            <EmailList emails={filteredEmails} activeId={selectedEmail?.id} onSelect={pickEmail} loading={loading} ruleMap={ruleMap}
+              hideStatus={['inbox', 'unrouted'].includes(activeFolder) || activeFolder.startsWith('rule:') ? 'unchecked' : activeFolder === 'archive' ? 'solved' : null} />
           )}
         </div>
 

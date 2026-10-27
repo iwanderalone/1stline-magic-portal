@@ -60,7 +60,7 @@ export default function EmailReplies({ emailId, sender, mailboxEmail, onError })
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 4, fontSize: 11 }}>
             <span style={{ fontWeight: 700, color: r.status === 'failed' ? 'var(--danger)' : 'var(--success)' }}>
-              {r.status === 'failed' ? `✗ ${tr('mailFailedTag')}` : `↗ ${tr('mailSentTag')}`} · {r.username} → {r.to_addr}
+              {r.status === 'failed' ? tr('mailFailedTag') : tr('mailSentTag')} · {r.username} → {r.to_addr}
             </span>
             <span style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{fmt(r.created_at)}</span>
           </div>

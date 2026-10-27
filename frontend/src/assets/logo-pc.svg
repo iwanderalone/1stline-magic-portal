@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="68" height="60" viewBox="0 0 34 30" fill="none">
+  <defs>
+    <linearGradient id="logo-g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#2563eb"></stop>
+      <stop offset="100%" stop-color="#1d4ed8"></stop>
+    </linearGradient>
+    <filter id="logo-glow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="2" stdDeviation="2.5" flood-color="#2563eb" flood-opacity="0.35"></feDropShadow>
+    </filter>
+  </defs>
+  <rect x="1" y="1" width="30" height="19" rx="2.5" fill="url(#logo-g)" filter="url(#logo-glow)"></rect>
+  <rect x="2.5" y="2.5" width="27" height="16" rx="1.5" fill="rgba(0,5,25,0.65)"></rect>
+  <rect x="4" y="4" width="24" height="2.2" rx="0.7" fill="rgba(255,255,255,0.10)"></rect>
+  <circle cx="5.5" cy="5.1" r="0.7" fill="rgba(255,255,255,0.35)"></circle>
+  <circle cx="7.8" cy="5.1" r="0.7" fill="rgba(255,255,255,0.22)"></circle>
+  <circle cx="10.1" cy="5.1" r="0.7" fill="rgba(255,255,255,0.16)"></circle>
+  <rect x="4" y="7.5" width="5.5" height="9" rx="0.5" fill="rgba(255,255,255,0.07)"></rect>
+  <rect x="11" y="8" width="16" height="1.1" rx="0.5" fill="rgba(255,255,255,0.55)"></rect>
+  <rect x="11" y="11" width="12" height="0.8" rx="0.4" fill="rgba(255,255,255,0.22)"></rect>
+  <rect x="11" y="12.8" width="14" height="0.8" rx="0.4" fill="rgba(255,255,255,0.17)"></rect>
+  <rect x="11" y="14.6" width="9" height="0.8" rx="0.4" fill="rgba(255,255,255,0.14)"></rect>
+  <rect x="14" y="20" width="5" height="4.5" rx="0.6" fill="url(#logo-g)" opacity="0.65"></rect>
+  <rect x="10.5" y="24" width="12" height="2" rx="1" fill="url(#logo-g)" opacity="0.55"></rect>
+</svg>

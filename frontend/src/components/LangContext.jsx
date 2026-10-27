@@ -2,6 +2,15 @@ import { createContext, useContext, useState, useEffect } from 'react';
 
 const translations = {
   en: {
+    adminAddUser: 'Add user',
+    mailTitle: 'Mail',
+    remLastFired: 'last fired',
+    remNext: 'next',
+    daysShort: 'd',
+    rejected: 'rejected',
+    approved: 'approved',
+    pending: 'pending',
+    tpTitle: 'Tickets',
     // Nav
     home: 'Home',
     schedule: 'Schedule',
@@ -9,6 +18,8 @@ const translations = {
     profile: 'My Profile',
     admin: 'Admin',
     signOut: 'Sign out',
+    themeLight: 'Light theme',
+    themeDark: 'Dark theme',
     lightMode: 'Light mode',
     darkMode: 'Dark mode',
 
@@ -212,7 +223,7 @@ const translations = {
     erConfirm: 'Send this email reply to',
     // Tickets page chrome
     tpSubtitle: 'Zammad tickets, statuses and comments — synced live via webhooks',
-    tpTabBoard: 'Tickets',
+    tpTabBoard: 'Board',
     tpTabEvents: 'Event log',
     tpAll: 'All',
     tpOpen: 'Open',
@@ -297,7 +308,7 @@ const translations = {
     month: 'Month',
     today: 'Today',
     timeOff: 'Time off',
-    addShift: '+ Shift',
+    addShift: 'Shift',
     generate: 'Generate',
     publish: 'Publish',
     timeOffRequests: 'Time-off requests',
@@ -922,6 +933,15 @@ const translations = {
     purCardHolder: "Holder",
   },
   ru: {
+    adminAddUser: 'Добавить пользователя',
+    mailTitle: 'Почта',
+    remLastFired: 'сработало',
+    remNext: 'следующее',
+    daysShort: 'д',
+    rejected: 'отклонено',
+    approved: 'одобрено',
+    pending: 'ожидает',
+    tpTitle: 'Тикеты',
     // Nav
     home: 'Главная',
     schedule: 'Расписание',
@@ -929,6 +949,8 @@ const translations = {
     profile: 'Мой профиль',
     admin: 'Админ',
     signOut: 'Выйти',
+    themeLight: 'Светлая тема',
+    themeDark: 'Тёмная тема',
     lightMode: 'Светлая тема',
     darkMode: 'Тёмная тема',
 
@@ -1132,7 +1154,7 @@ const translations = {
     erConfirm: 'Отправить этот ответ на',
     // Tickets page chrome
     tpSubtitle: 'Тикеты Zammad, статусы и комментарии — синхронизация через вебхуки',
-    tpTabBoard: 'Тикеты',
+    tpTabBoard: 'Доска',
     tpTabEvents: 'Журнал событий',
     tpAll: 'Все',
     tpOpen: 'Открытые',
@@ -1217,7 +1239,7 @@ const translations = {
     month: 'Месяц',
     today: 'Сегодня',
     timeOff: 'Отгул',
-    addShift: '+ Смена',
+    addShift: 'Смена',
     generate: 'Генерировать',
     publish: 'Опубликовать',
     timeOffRequests: 'Заявки на отгул',

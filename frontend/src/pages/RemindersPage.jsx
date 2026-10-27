@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '../api';
 import { useLang } from '../components/LangContext';
-import { Card, Button, Input, Badge, EmptyState, Overlay, PageHeader, Toast, Select } from '../components/UI';
+import { Card, Button, Input, EmptyState, Overlay, PageHeader, Toast, Select, Tabs } from '../components/UI';
 import { Icon } from '../components/Icons';
 
 export default function RemindersPage() {
-  const { t: tr } = useLang();
+  const { t: tr, lang } = useLang();
   const [reminders, setReminders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
@@ -33,7 +33,13 @@ export default function RemindersPage() {
     catch (e) { setToast({ message: e.message, type: 'error' }); }
   };
 
-  const sc = { active: 'blue', fired: 'green', cancelled: 'gray' };
+  // "2 Nov 09:48" — no seconds, no year unless it isn't this year.
+  const fmtWhen = (iso) => {
+    const d = new Date(iso);
+    const opts = { day: 'numeric', month: 'short', ...(d.getFullYear() !== new Date().getFullYear() ? { year: 'numeric' } : {}) };
+    return `${d.toLocaleDateString(lang === 'ru' ? 'ru-RU' : 'en-GB', opts)} ${d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`;
+  };
+  const fmtDay = (iso) => new Date(iso).toLocaleDateString(lang === 'ru' ? 'ru-RU' : 'en-GB', { day: 'numeric', month: 'short' });
 
   return (
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -41,46 +47,46 @@ export default function RemindersPage() {
         title={tr('reminders_title')}
         subtitle={`${reminders.length} ${filter}`}
         actions={<>
-          <Button variant={filter === 'active' ? 'primary' : 'secondary'} size="sm" onClick={() => setFilter('active')}>{tr('active')}</Button>
-          <Button variant={filter === 'all' ? 'primary' : 'secondary'} size="sm" onClick={() => setFilter('all')}>{tr('all')}</Button>
-          <Button size="sm" onClick={() => setShowCreate(true)}>{tr('newReminder')}</Button>
+          <Tabs tabs={[{ id: 'active', label: tr('active') }, { id: 'all', label: tr('all') }]} active={filter} onChange={setFilter} />
+          <Button variant="primary" icon="plus" onClick={() => setShowCreate(true)}>{tr('newReminder')}</Button>
         </>}
       />
-      <Card style={{ padding: '4px', minHeight: '300px', display: 'flex', flexDirection: 'column' }}>
+      <Card style={{ padding: '4px' }}>
         {loading ? <div style={{ padding: '48px', textAlign: 'center', color: 'var(--text-muted)' }}>{tr('loading')}</div> :
           reminders.length === 0 ? (
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div>
               <EmptyState icon={<Icon name="bell" size={32} />} title={tr('noReminders')} subtitle={tr('noRemindersDesc')} />
             </div>
           ) : (
           <div>{reminders.map((r, i) => (
             <div key={r.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', gap: '12px', flexWrap: 'wrap', borderBottom: i < reminders.length - 1 ? `1px solid var(--border-light)` : 'none' }}>
               <div style={{ flex: 1, minWidth: '200px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '3px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginBottom: '2px' }}>
                   <span style={{ fontWeight: 600, fontSize: '14px' }}>{r.title}</span>
-                  <Badge color={sc[r.status]}>{r.status}</Badge>
+                  {r.status !== 'active' && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{r.status}</span>}
                   {r.is_recurring && (
-                    <Badge color="blue" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--text-muted)' }}>
                       <Icon name="refresh" size={12} />
                       {RECURRENCE_OPTIONS.find(o => o.value === r.recurrence_minutes)?.label ?? `${r.recurrence_minutes}m`}
-                    </Badge>
+                    </span>
                   )}
                   {r.telegram_target && r.telegram_target !== 'none' && (
-                    <Badge color="gray" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      <Icon name="message" size={12} />
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--text-muted)' }}>
+                      <Icon name="send" size={12} />
                       {r.telegram_target}
-                    </Badge>
+                    </span>
                   )}
                 </div>
-                {r.description && <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{r.description}</div>}
-                <div style={{ fontSize: '12px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: '4px' }}>
-                  {new Date(r.remind_at).toLocaleString()}{r.fired_at && ` · fired ${new Date(r.fired_at).toLocaleString()}`}
+                {r.description && <div style={{ fontSize: '12px', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.description}</div>}
+                <div style={{ fontSize: '12px', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', marginTop: '4px' }}>
+                  {r.status === 'active' ? `${tr('remNext')} ` : ''}{fmtWhen(r.remind_at)}
+                  {r.fired_at && <span style={{ color: 'var(--text-muted)' }}> · {tr('remLastFired')} {fmtDay(r.fired_at)}</span>}
                 </div>
               </div>
               {r.status === 'active' && (
                 <div style={{ display: 'flex', gap: '6px' }}>
-                  <Button size="sm" variant="secondary" icon="edit" onClick={() => setEditing(r)} />
-                  <Button size="sm" variant="danger" onClick={() => handleCancel(r.id)}>{tr('cancelReminder')}</Button>
+                  <Button size="sm" variant="ghost" icon="edit" aria-label="Edit" onClick={() => setEditing(r)} />
+                  <Button size="sm" variant="ghost" style={{ color: 'var(--danger)' }} onClick={() => handleCancel(r.id)}>{tr('cancelReminder')}</Button>
                 </div>
               )}
             </div>
@@ -176,6 +182,7 @@ function ReminderModal({ initial, onClose, onSubmit }) {
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
           <Button variant="secondary" onClick={onClose}>{tr('cancel')}</Button>
           <Button
+            variant="primary"
             onClick={() => onSubmit({
               title,
               description: desc || null,

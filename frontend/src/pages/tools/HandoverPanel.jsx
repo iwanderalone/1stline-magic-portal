@@ -197,7 +197,7 @@ export default function HandoverPanel({ subPath }) {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 860 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       {toast && <Toast {...toast} onClose={() => setToast(null)} />}
 
       <PageHeader title={tr('handoverTitle')} subtitle={tr('handoverSubtitle')} />

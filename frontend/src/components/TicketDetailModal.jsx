@@ -5,13 +5,13 @@ import { useLang } from './LangContext';
 import { Button, Badge, Overlay, Tabs } from './UI';
 import { Icon } from './Icons';
 
-export const BUCKET_COLOR = { open: 'blue', paused: 'orange', closed: 'green' };
+export const BUCKET_COLOR = { open: 'gray', paused: 'yellow', closed: 'gray' };
 
 export const EVENT_META = {
   ticket_opened:   { label: 'Opened',   key: 'tkEvOpened',   color: 'blue'   },
   ticket_assigned: { label: 'Assigned', key: 'tkEvAssigned', color: 'yellow' },
   comment_added:   { label: 'Comment',  key: 'tkEvComment',  color: 'gray'   },
-  ticket_closed:   { label: 'Closed',   key: 'tkEvClosed',   color: 'green'  },
+  ticket_closed:   { label: 'Closed',   key: 'tkEvClosed',   color: 'gray'   },
   ticket_paused:   { label: 'Paused',   key: 'tkEvPaused',   color: 'orange' },
   ticket_status_changed: { label: 'Status', key: 'tkEvStatus', color: 'blue' },
   ticket_sync:     { label: 'Sync',     key: 'tkEvSync',     color: 'gray'   },
@@ -29,6 +29,39 @@ const STATE_KEY = {
 export function stateLabel(state, tr) {
   const key = STATE_KEY[state];
   return key ? tr(key) : (state || '—');
+}
+
+/**
+ * Zammad people arrive as an email, "First Last", or a doubled login
+ * ("it.support it.support"). Show the portal user's display name when the
+ * login maps to one (danila.dubov → Danila Dubov), else the email's local part.
+ */
+export function personLabel(raw, users = []) {
+  if (!raw || raw === '-') return '—';
+  let v = String(raw).trim();
+  const parts = v.split(/\s+/);
+  if (parts.length === 2 && parts[0].toLowerCase() === parts[1].toLowerCase()) v = parts[0];
+  const local = v.includes('@') ? v.split('@')[0] : v;
+  const norm = (x) => x.toLowerCase().replace(/[._-]+/g, ' ').trim();
+  const hit = users.find(u => u.display_name && norm(u.display_name) === norm(local));
+  return hit ? hit.display_name : local;
+}
+
+/** Mono-friendly timestamp: relative under 24h ("2h ago"), absolute beyond. */
+export function fmtUpdated(iso, lang) {
+  if (!iso) return '—';
+  const raw = String(iso);
+  const d = new Date(raw.endsWith('Z') || raw.includes('+') ? raw : `${raw}Z`);
+  const sec = (Date.now() - d.getTime()) / 1000;
+  if (sec >= 0 && sec < 86400) {
+    const m = Math.floor(sec / 60);
+    if (m < 1) return lang === 'ru' ? 'только что' : 'just now';
+    if (m < 60) return lang === 'ru' ? `${m} мин назад` : `${m}m ago`;
+    const h = Math.floor(m / 60);
+    return lang === 'ru' ? `${h} ч назад` : `${h}h ago`;
+  }
+  return d.toLocaleDateString(lang === 'ru' ? 'ru-RU' : 'en-GB', { day: 'numeric', month: 'short' })
+    + ' ' + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 }
 
 export function formatTime(iso) {
