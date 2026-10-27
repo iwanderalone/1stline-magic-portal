@@ -10,7 +10,9 @@ from app.core.database import AsyncSessionFactory
 logger = logging.getLogger(__name__)
 
 
-ACTIVE_TICKETS_QUERY = 'state.name:(new OR open OR in_progress OR "pending reminder")'
+ACTIVE_STATES = ("new", "open", "in_progress", "pending reminder")
+ACTIVE_TICKETS_QUERY = "state.name:(" + " OR ".join(
+    f'"{s}"' if " " in s else s for s in ACTIVE_STATES) + ")"
 
 
 def _extract_ticket_list(data: object) -> list[dict]:
@@ -82,11 +84,59 @@ async def sync_active_zammad_tickets(*, force: bool = False) -> None:
         await db.commit()
 
     ticket_ids = [tk.get("id") for tk in tickets if tk.get("id")]
+    refreshed = await refresh_stale_active_tickets(set(ticket_ids), base_url, headers)
     backfilled = await backfill_ticket_articles(ticket_ids)
     logger.info(
-        "[tickets] Zammad sync upserted %d active ticket(s), backfilled %d comment(s)",
-        len(tickets), backfilled,
+        "[tickets] Zammad sync upserted %d active ticket(s), refreshed %d stale, backfilled %d comment(s)",
+        len(tickets), refreshed, backfilled,
     )
+
+
+async def refresh_stale_active_tickets(active_ids: set[int], base_url: str, headers: dict) -> int:
+    """Re-read tickets we still hold as active that Zammad no longer lists.
+
+    The active search only returns live tickets, so a close that never reached
+    us as a webhook (missed delivery, or an instance Zammad doesn't call, like
+    dev) would leave the row 'open' forever — and the escalation job keeps
+    announcing it. Fetching those few tickets directly settles their state.
+    """
+    from sqlalchemy import select
+    from app.models.models import ZammadTicket
+
+    async with AsyncSessionFactory() as db:
+        stale = (await db.execute(
+            select(ZammadTicket.id).where(ZammadTicket.state.in_(ACTIVE_STATES))
+        )).scalars().all()
+    stale = [tid for tid in stale if tid not in active_ids]
+    if not stale:
+        return 0
+
+    refreshed = 0
+    async with httpx.AsyncClient(timeout=15) as client, AsyncSessionFactory() as db:
+        for tid in stale:
+            try:
+                resp = await client.get(
+                    f"{base_url}/api/v1/tickets/{tid}",
+                    params={"expand": "true"},
+                    headers=headers,
+                )
+                if resp.status_code == 404:
+                    # Deleted or merged away in Zammad: stop treating it as live.
+                    tk = await db.get(ZammadTicket, tid)
+                    if tk:
+                        tk.state = "removed"
+                    refreshed += 1
+                    continue
+                resp.raise_for_status()
+            except httpx.HTTPError as exc:
+                logger.warning("[tickets] refresh failed for ticket %s: %s", tid, exc)
+                continue
+            ticket = resp.json()
+            if isinstance(ticket, dict) and ticket.get("id"):
+                await upsert_ticket(db, "ticket_sync", {"ticket": ticket})
+                refreshed += 1
+        await db.commit()
+    return refreshed
 
 
 async def backfill_ticket_articles(ticket_ids: list[int]) -> int:
