@@ -28,6 +28,7 @@ services:
       - "127.0.0.1:8000:8000"
     environment:
       DATABASE_URL: "postgresql+asyncpg://portal:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}@db:5432/portal"
+      ENVIRONMENT: "${ENVIRONMENT:-development}"
       SECRET_KEY: "${SECRET_KEY:-change-me-in-production}"
       JWT_SECRET: "${JWT_SECRET:-change-me-in-production}"
       DATA_ENCRYPTION_KEY: "${DATA_ENCRYPTION_KEY:-}"
