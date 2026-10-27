@@ -13,8 +13,8 @@ export const lightTheme = {
 
   // Text
   text:             '#1f1f1f',
-  textSecondary:    '#5f6368',
-  textMuted:        '#80868b',
+  textSecondary:    '#4d5156',
+  textMuted:        '#696e73',   // ≥4.5:1 on surface
 
   // Accent — Google blue
   accent:           '#1a73e8',
@@ -58,8 +58,8 @@ export const darkTheme = {
   borderLight:      '#323a52',
 
   text:             '#e8eaed',
-  textSecondary:    '#9aa0a6',
-  textMuted:        '#5f6368',
+  textSecondary:    '#b6bbc6',
+  textMuted:        '#959baa',   // ≥4.5:1 on surface
 
   accent:           '#8ab4f8',
   accentHover:      '#aecbfa',
@@ -89,7 +89,6 @@ export const darkTheme = {
 
 export const shared = {
   fontSans:    "'Inter', -apple-system, 'Segoe UI', Roboto, sans-serif",
-  fontDisplay: "'Source Serif 4', 'Charter', Georgia, serif",
   fontMono:    "'JetBrains Mono', 'Roboto Mono', 'SF Mono', Consolas, monospace",
 };
 
@@ -138,7 +137,6 @@ export function getGlobalCSS(t) {
       --radius-pill: ${t.radiusPill};
 
       --font-sans:    ${shared.fontSans};
-      --font-display: ${shared.fontDisplay};
       --font-mono:    ${shared.fontMono};
       --font:         var(--font-sans);
 
@@ -150,19 +148,14 @@ export function getGlobalCSS(t) {
       --fs-h4:       16px;
       --fs-h3:       18px;
       --fs-h2:       24px;
-      --fs-h1:       32px;
-      --fs-display:    44px;
-      --fs-display-lg: 64px;
+      --fs-h1:       22px;
 
       --fw-regular:  400;
       --fw-semibold: 600;
 
-      --ls-display: -0.02em;
-      --ls-h1:      -0.025em;
       --ls-h2:      -0.015em;
       --ls-tight:   -0.01em;
 
-      --lh-display: 1.1;
       --lh-heading: 1.25;
 
       --space-2: 8px;
@@ -231,19 +224,9 @@ export function getGlobalCSS(t) {
       line-height: 1.25; color: var(--text);
     }
     .t-h1 {
-      font-family: var(--font-display); font-size: var(--fs-h1);
-      font-weight: var(--fw-regular); letter-spacing: var(--ls-h1);
+      font-family: var(--font-sans); font-size: var(--fs-h1);
+      font-weight: 600; letter-spacing: -0.02em;
       line-height: var(--lh-heading); color: var(--text);
-    }
-    .t-display {
-      font-family: var(--font-display); font-size: var(--fs-display);
-      font-weight: var(--fw-regular); letter-spacing: var(--ls-display);
-      line-height: var(--lh-display); color: var(--text);
-    }
-    .t-display-lg {
-      font-family: var(--font-display); font-size: var(--fs-display-lg);
-      font-weight: var(--fw-regular); letter-spacing: var(--ls-display);
-      line-height: var(--lh-display); color: var(--text);
     }
 
     /* ── Buttons ────────────────────────────────────────────── */
@@ -283,7 +266,7 @@ export function getGlobalCSS(t) {
     /* ── Nav items ──────────────────────────────────────────── */
     .nav-item {
       display: flex; align-items: center; gap: 10px;
-      width: 100%; padding: 7px 10px 7px 14px; border: none;
+      width: 100%; padding: 7px 10px; border: none;
       border-radius: var(--radius-sm); font-size: 13px;
       font-weight: 500; position: relative; font-family: var(--font-sans);
       transition: background var(--dur-fast) ease, color var(--dur-fast) ease;
@@ -294,7 +277,8 @@ export function getGlobalCSS(t) {
     }
     .nav-item.active::before {
       content: ''; position: absolute; left: 0; top: 6px; bottom: 6px;
-      width: 3px; background: var(--accent); border-radius: 0 3px 3px 0;
+      width: 2.5px; background: linear-gradient(to bottom, var(--accent), var(--accent-hover));
+      border-radius: 0 3px 3px 0;
     }
     .nav-item:not(.active):hover { background: var(--surface-alt); color: var(--text); }
 

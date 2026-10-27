@@ -226,6 +226,18 @@ const PATHS = {
       <path d="M9 8v4M9 6h.01" strokeLinecap="round" />
     </>
   ),
+  sparkles: (
+    <>
+      <path d="M8 2.5l1.3 3.7L13 7.5l-3.7 1.3L8 12.5 6.7 8.8 3 7.5l3.7-1.3L8 2.5z" strokeLinejoin="round" />
+      <path d="M14 11.5l.6 1.4 1.4.6-1.4.6-.6 1.4-.6-1.4-1.4-.6 1.4-.6.6-1.4z" strokeLinejoin="round" />
+    </>
+  ),
+  globe: (
+    <>
+      <circle cx="9" cy="9" r="7" />
+      <path d="M2 9h14M9 2c2 2.2 2.8 4.6 2.8 7S11 13.8 9 16C7 13.8 6.2 11.4 6.2 9S7 4.2 9 2z" strokeLinejoin="round" />
+    </>
+  ),
   search: (
     <>
       <circle cx="8" cy="8" r="5.5" />

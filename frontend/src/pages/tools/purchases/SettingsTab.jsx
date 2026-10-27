@@ -54,7 +54,7 @@ export default function SettingsTab({ lookups, onChanged, onToast }) {
   const row = { display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderTop: '1px solid var(--border-light)', fontSize: 13 };
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 16 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', alignItems: 'start', gap: 16 }}>
       <Card header={tr('purBudgets')} padding="12px 18px">
         <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>{tr('purBudgetsHint')}</div>
         {lookups.departments.map(d => (

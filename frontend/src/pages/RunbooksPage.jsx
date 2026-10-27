@@ -182,9 +182,9 @@ function RunbookDetail({ runbook, isAdmin, onRun, onEdit, onDelete }) {
 
       {/* Title */}
       <h1 style={{
-        fontFamily: 'var(--font-display)',
-        fontWeight: 700,
-        fontSize: 26,
+        fontFamily: 'var(--font-sans)',
+        fontWeight: 600,
+        fontSize: 22,
         letterSpacing: '-0.02em',
         margin: '0 0 12px 0',
         color: 'var(--text)',
@@ -399,7 +399,7 @@ function RunbookModal({ initial, users, onSave, onClose }) {
         padding: 28,
       }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-          <h2 style={{ margin: 0, fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 20 }}>
+          <h2 style={{ margin: 0, fontFamily: 'var(--font-sans)', fontWeight: 600, fontSize: 20 }}>
             {initial ? tr('rbEditTitle') : tr('rbNewTitle')}
           </h2>
           <button type="button" onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}>

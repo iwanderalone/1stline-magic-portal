@@ -43,7 +43,7 @@ export default function PeopleTab({ reloadKey, onOpenSub, onToast }) {
           {leavers ? tr('purNoLeavers') : tr('purNoPeople')}
         </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', alignItems: 'start', gap: 12 }}>
           {people.map(p => (
             <Card key={`${p.netbox_contact_id || p.person_name}`} padding={14}
               style={p.offboarded ? { borderLeft: '3px solid var(--danger)' } : undefined}>

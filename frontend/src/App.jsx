@@ -4,7 +4,8 @@ import { getGlobalCSS } from './theme';
 import { useTheme } from './components/ThemeContext';
 import { useLang } from './components/LangContext';
 import { Icon } from './components/Icons';
-import { Kbd, EmptyState } from './components/UI';
+import { Kbd, EmptyState, CountChip, Menu } from './components/UI';
+import logoUrl from './assets/logo-pc.svg';
 import LoginPage from './pages/LoginPage';
 import SchedulePage from './pages/SchedulePage';
 import AdminPage from './pages/AdminPage';
@@ -39,6 +40,9 @@ function useBreakpoint() {
   }, []);
   return bp;
 }
+
+// Forms and settings read better narrow; tables, boards and calendars get 1200.
+const FORM_PAGES = ['tools', 'handover', 'profile'];
 
 const NAV_ICONS = {
   home:       'grid',
@@ -181,6 +185,22 @@ function TopBar({ isMobile, onMenu, mode, toggle, lang, toggleLang, unread, onNo
   );
 }
 
+// Sidebar counters: which number each nav item shows and in what tone.
+// Hidden at 0; colour only when someone needs to act.
+function navCountFor(id, counts) {
+  const c = counts || {};
+  if (id === 'mail' && c.mail?.count) return { n: c.mail.count, tone: c.mail.old ? 'danger' : 'muted' };
+  if (id === 'tickets' && c.tickets?.count) return { n: c.tickets.count, tone: c.tickets.old ? 'danger' : 'muted' };
+  if (id === 'timeoff' && c.timeoff) return { n: c.timeoff, tone: 'warning' };
+  if (id === 'handover' && c.handover) return { n: c.handover, tone: 'warning' };
+  return null;
+}
+
+function NavCount({ id, counts }) {
+  const c = navCountFor(id, counts);
+  return c ? <CountChip value={c.n} tone={c.tone} /> : null;
+}
+
 export default function App() {
   const { theme: t, mode, toggle } = useTheme();
   const { lang, toggle: toggleLang, t: tr } = useLang();
@@ -238,6 +258,8 @@ export default function App() {
 
   const [showNotifs, setShowNotifs] = useState(false);
   const [unread, setUnread] = useState(0);
+  const [navCounts, setNavCounts] = useState({});
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [initialRunbookId, setInitialRunbookId] = useState(null);
@@ -304,6 +326,8 @@ export default function App() {
     if (bp !== 'mobile') setSidebarOpen(false);
   }, [bp]);
 
+  useEffect(() => { setUserMenuOpen(false); }, [page]);
+
   const onLogin      = (data) => setAuth({ loggedIn: true, user: data.user });
   const onLogout     = () => { clearTokens(); setAuth({ loggedIn: false, user: null }); };
   const onUserUpdate = (u) => setAuth(a => ({ ...a, user: { ...a.user, ...u } }));
@@ -337,7 +361,12 @@ export default function App() {
 
   useEffect(() => {
     if (!auth.loggedIn) return;
-    const poll = () => api('/notifications/unread-count').then(d => d && setUnread(d.count)).catch(() => {});
+    // One poll feeds the bell and the sidebar counters.
+    const poll = () => api('/notifications/nav-counts').then(d => {
+      if (!d) return;
+      setUnread(d.unread || 0);
+      setNavCounts(d);
+    }).catch(() => {});
     poll();
     const i = setInterval(poll, 15000);
     return () => clearInterval(i);
@@ -388,13 +417,6 @@ export default function App() {
         ...(canAccessAdmin(auth.user) ? [{ id: 'purchases', label: lang === 'ru' ? 'Финансы' : 'Finances' }] : []),
       ],
     },
-    {
-      id: 'bottom', divider: true,
-      items: [
-        { id: 'profile', label: lang === 'ru' ? 'Профиль' : 'My Profile' },
-        ...(canAccessAdmin(auth.user) ? [{ id: 'admin', label: tr('admin') }] : []),
-      ],
-    },
   ]
     .map(g => ({ ...g, items: g.items.filter(it => canAccessPage(auth.user, it.id)) }))
     .filter(g => g.items.length > 0);
@@ -428,50 +450,39 @@ export default function App() {
       boxShadow: isMobile && sidebarOpen ? 'var(--shadow-lg)' : 'none',
       padding: '18px 12px 14px',
     }}>
-      {/* Workspace identity pill */}
-      {!isRail && (
-        <button
-          onClick={() => navigate('schedule')}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 10,
-            padding: '8px 10px', marginBottom: 12,
-            background: 'var(--surface-alt)',
-            border: '1px solid var(--border)',
-            borderRadius: 'var(--radius-sm)',
-            cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left', width: '100%',
-            color: 'var(--text-secondary)',
-          }}
-        >
-          <span style={{
-            width: 22, height: 22, borderRadius: 5,
-            background: 'var(--surface)', border: '1px solid var(--border)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: 'var(--accent)', flexShrink: 0,
-          }}>
-            <Icon name="workspace" size={13} />
+      {/* Logo row — plain identity, no switcher. `dev` only off production. */}
+      <button
+        onClick={() => navigate('home')}
+        title={isRail ? appName : undefined}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 10, height: 48,
+          padding: isRail ? 0 : '0 10px', marginBottom: 8,
+          justifyContent: isRail ? 'center' : 'flex-start',
+          background: 'none', border: 'none', cursor: 'pointer',
+          fontFamily: 'inherit', textAlign: 'left', width: '100%', flexShrink: 0,
+        }}
+      >
+        <img src={logoUrl} alt="" width={22} height={20} style={{ display: 'block', flexShrink: 0 }} />
+        {!isRail && (
+          <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {appName}
           </span>
-          <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
-            <div style={{ fontSize: 14.5, fontWeight: 600, color: 'var(--text)', lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {appName}
-            </div>
-            {envName !== 'prod' && (
-              <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2, fontFamily: 'var(--font-mono)' }}>
-                {envName}
-              </div>
-            )}
-          </div>
-          <Icon name="arrowUpDown" size={11} />
-        </button>
-      )}
-      {isRail && <div style={{ marginBottom: 12 }} />}
+        )}
+        {!isRail && envName !== 'prod' && (
+          <span style={{
+            fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--warning)',
+            background: 'var(--warning-light)', padding: '0 5px', borderRadius: 'var(--radius-xs)',
+          }}>{envName}</span>
+        )}
+      </button>
 
       {/* Primary nav — grouped sections with collapse */}
       <nav style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 1 }}>
-        {navGroups.map(group => {
+        {navGroups.map((group, gi) => {
           const hasActive = group.items.some(it => it.id === page);
           const collapsed = !isRail && group.label && collapsedGroups.includes(group.id) && !hasActive;
           return (
-            <div key={group.id} style={group.divider ? { marginTop: 'auto', paddingTop: 10, borderTop: '1px solid var(--border-light)' } : undefined}>
+            <div key={group.id} style={{ marginTop: gi === 0 ? 0 : (isRail ? 8 : 16) }}>
               {group.label && !isRail && (
                 <button
                   onClick={() => toggleGroup(group.id)}
@@ -479,7 +490,7 @@ export default function App() {
                   style={{
                     display: 'flex', alignItems: 'center', gap: 5, width: '100%',
                     background: 'none', border: 'none', cursor: 'pointer',
-                    padding: '9px 10px 4px 14px', color: 'var(--text-muted)',
+                    padding: '0 10px 6px', color: 'var(--text-muted)',
                     fontFamily: 'inherit', textAlign: 'left',
                   }}
                 >
@@ -498,11 +509,18 @@ export default function App() {
                     color: page === item.id ? 'var(--accent)' : 'var(--text-secondary)',
                     background: page === item.id ? 'var(--accent-light)' : 'transparent',
                     justifyContent: isRail ? 'center' : 'flex-start',
-                    padding: isRail ? '9px' : '7px 10px 7px 14px',
+                    padding: isRail ? '9px' : '7px 10px', lineHeight: 1.4,
                   }}
                 >
                   <Icon name={NAV_ICONS[item.id]} size={15} color="currentColor" />
                   {!isRail && <span style={{ flex: 1 }}>{item.label}</span>}
+                  {!isRail && <NavCount id={item.id} counts={navCounts} />}
+                  {isRail && navCountFor(item.id, navCounts) && (
+                    <span style={{
+                      position: 'absolute', top: 6, right: 8, width: 6, height: 6, borderRadius: '50%',
+                      background: navCountFor(item.id, navCounts).tone === 'muted' ? 'var(--text-muted)' : `var(--${navCountFor(item.id, navCounts).tone})`,
+                    }} />
+                  )}
                 </button>
               ))}
             </div>
@@ -510,19 +528,35 @@ export default function App() {
         })}
       </nav>
 
-      {/* User profile + logout */}
+      {/* One user row; Profile / Admin / theme / language / sign out live in its menu. */}
       <div style={{
-        paddingTop: 12, borderTop: '1px solid var(--border-light)',
-        marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4,
-        flexShrink: 0,
+        position: 'relative', paddingTop: 8, marginTop: 8,
+        borderTop: '1px solid var(--border-light)', flexShrink: 0,
       }}>
+        {userMenuOpen && (
+          <Menu
+            onClose={() => setUserMenuOpen(false)}
+            style={{ bottom: 'calc(100% + 4px)', left: isRail ? 4 : 0, right: isRail ? 'auto' : 0 }}
+            items={[
+              { label: tr('myProfile'), icon: 'user', onClick: () => navigate('profile') },
+              canAccessAdmin(auth.user) && { label: tr('admin'), icon: 'shield', onClick: () => navigate('admin') },
+              { divider: true },
+              { label: mode === 'dark' ? tr('themeLight') : tr('themeDark'), icon: mode === 'dark' ? 'sun' : 'moon', onClick: toggle },
+              { label: lang === 'ru' ? 'English' : 'Русский', icon: 'globe', onClick: toggleLang,
+                right: <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>{lang.toUpperCase()}</span> },
+              { divider: true },
+              { label: tr('signOut'), icon: 'logout', onClick: onLogout },
+            ]}
+          />
+        )}
         <button
-          onClick={() => navigate('profile')}
+          onClick={() => setUserMenuOpen(o => !o)}
           title={isRail ? auth.user.display_name : undefined}
+          aria-haspopup="menu" aria-expanded={userMenuOpen}
           style={{
             display: 'flex', alignItems: 'center', gap: 10,
             padding: isRail ? '6px' : '6px 8px',
-            background: 'transparent', border: 'none',
+            background: userMenuOpen ? 'var(--surface-alt)' : 'transparent', border: 'none',
             borderRadius: 'var(--radius-sm)', cursor: 'pointer',
             fontFamily: 'inherit', textAlign: 'left', width: '100%',
             justifyContent: isRail ? 'center' : 'flex-start',
@@ -542,24 +576,10 @@ export default function App() {
               <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text)' }}>
                 {auth.user.display_name}
               </div>
-              <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                {auth.user.role}
-              </div>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{auth.user.role}</div>
             </div>
           )}
-          {!isRail && <Icon name="chevronRight" size={14} color="var(--text-muted)" />}
-        </button>
-        <button
-          onClick={onLogout}
-          title={isRail ? tr('signOut') : undefined}
-          className="btn btn-ghost btn-sm"
-          style={{
-            width: '100%', justifyContent: isRail ? 'center' : 'flex-start',
-            fontSize: 12, gap: 6, padding: isRail ? '5px' : '5px 10px',
-          }}
-        >
-          <Icon name="logout" size={14} />
-          {!isRail && tr('signOut')}
+          {!isRail && <Icon name="arrowUpDown" size={13} color="var(--text-muted)" />}
         </button>
       </div>
     </aside>
@@ -594,7 +614,7 @@ export default function App() {
 
           {/* Page content */}
           <main style={{ flex: 1, minWidth: 0, padding: isMobile ? '20px 16px 32px' : '28px 36px 48px' }}>
-            <div style={{ width: '100%', maxWidth: 1440, margin: '0 auto' }}>
+            <div style={{ width: '100%', maxWidth: FORM_PAGES.includes(page) ? 780 : 1200, margin: '0 auto' }}>
               {!canAccessPage(auth.user, page) ? (
                 <EmptyState
                   icon={<Icon name="shield" size={40} />}
@@ -612,10 +632,10 @@ export default function App() {
                 {page === 'status'     && <StatusPage />}
                 {page === 'runbooks'   && <RunbooksPage user={auth.user} initialRunbookId={initialRunbookId} initialSlug={subPath} />}
                 {page === 'reminders'  && <RemindersPage user={auth.user} />}
-                {page === 'tools'      && <div style={{ padding: 24, maxWidth: 1100, margin: '0 auto' }}><MailboxBackupPanel /></div>}
-                {page === 'inventory'  && <div style={{ padding: 24, maxWidth: 1100, margin: '0 auto' }}><InventoryPanel user={auth.user} /></div>}
-                {page === 'handover'   && <div style={{ padding: 24, maxWidth: 1100, margin: '0 auto' }}><HandoverPanel subPath={subPath} /></div>}
-                {page === 'purchases'  && canAccessAdmin(auth.user) && <div style={{ padding: 24, maxWidth: 1240, margin: '0 auto' }}><PurchasesPage subPath={subPath} navigate={navigate} /></div>}
+                {page === 'tools'      && <MailboxBackupPanel />}
+                {page === 'inventory'  && <InventoryPanel user={auth.user} />}
+                {page === 'handover'   && <HandoverPanel subPath={subPath} />}
+                {page === 'purchases'  && canAccessAdmin(auth.user) && <PurchasesPage subPath={subPath} navigate={navigate} />}
               </>}
             </div>
           </main>

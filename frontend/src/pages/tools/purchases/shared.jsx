@@ -48,13 +48,15 @@ export function useLabels() {
 
 export function RenewalBadge({ sub }) {
   const { t: tr } = useLang();
-  if (sub.status === 'cancelled') return <Badge color="gray">{tr('purCancelled')}</Badge>;
+  if (sub.status === 'cancelled') return <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{tr('purCancelled')}</span>;
   if (sub.lapsed) return <Badge color="red" dot>{tr('purLapsed')}</Badge>;
   const d = sub.days_to_renewal;
-  if (d == null) return <Badge color="gray">—</Badge>;
-  if (d < 0) return <Badge color="yellow" dot>{tr('purOverdue')}</Badge>;
-  if (d === 0) return <Badge color="yellow" dot>{tr('purToday')}</Badge>;
-  return <Badge color={d <= 7 ? 'yellow' : d <= 30 ? 'blue' : 'gray'}>{tr('purInDays').replace('{n}', d)}</Badge>;
+  if (d == null) return <span style={{ color: 'var(--text-muted)' }}>—</span>;
+  if (d < 0) return <Badge color="yellow">{tr('purOverdue')}</Badge>;
+  if (d === 0) return <Badge color="yellow">{tr('purToday')}</Badge>;
+  // Amber only when it is genuinely close; everything further out is plain text.
+  if (d <= 3) return <Badge color="yellow">{tr('purInDays').replace('{n}', d)}</Badge>;
+  return <span style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{tr('purInDays').replace('{n}', d)}</span>;
 }
 
 export function SeatsMeter({ used, total }) {

@@ -3,6 +3,7 @@ import { api } from '../api';
 import { useLang } from '../components/LangContext';
 import EmailDetailModal from '../components/EmailDetailModal';
 import TicketDetailModal, { stateLabel } from '../components/TicketDetailModal';
+import { Icon } from '../components/Icons';
 
 // Home shows the head of every queue and summarises the tail — nothing here
 // scrolls or renders an unbounded list.
@@ -149,6 +150,7 @@ function HeroButton({ children, primary, onClick }) {
       onMouseLeave={() => setHover(false)}
       style={{
         padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+        display: 'inline-flex', alignItems: 'center', gap: 8,
         fontFamily: 'var(--font-sans)', borderRadius: 'var(--radius-sm)',
         transition: 'all 140ms ease',
         transform: primary && hover ? 'translateY(-1px)' : 'none',
@@ -197,7 +199,7 @@ function AllClear({ line }) {
       flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center',
       justifyContent: 'center', gap: 8, padding: 24, textAlign: 'center', minWidth: 0,
     }}>
-      <span style={{ fontSize: 22 }}>✨</span>
+      <Icon name="sparkles" size={22} color="var(--text-muted)" />
       <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{tr('homeAllClear')}</div>
       <div style={{ fontSize: 12, color: 'var(--text-muted)', maxWidth: '22ch', lineHeight: 1.5 }}>{line}</div>
     </div>
@@ -580,10 +582,9 @@ export default function HomePage({ user, onNavigate }) {
             <span style={MONO}>{userNow.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span>
           </div>
 
-          {/* Serif, like every other page's title — at the redesign's 28px
-              rather than the old --fs-h1. */}
+          {/* The one title allowed above 22px: the redesign's 28px greeting. */}
           <h1 style={{
-            margin: '6px 0 0', fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 600,
+            margin: '6px 0 0', fontFamily: 'var(--font-sans)', fontSize: 28, fontWeight: 600,
             letterSpacing: '-0.01em', lineHeight: 1.2, color: 'var(--text)',
           }}>
             {greetingFor(userNow, lang)}, <span style={{ color: 'var(--accent)' }}>{displayName}</span>.
@@ -599,8 +600,8 @@ export default function HomePage({ user, onNavigate }) {
           </p>
 
           <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
-            <HeroButton primary onClick={() => onNavigate?.('mail')}>📧 {tr('homeOpenMail')}</HeroButton>
-            <HeroButton onClick={() => onNavigate?.('schedule')}>📅 {tr('homeMyShifts')}</HeroButton>
+            <HeroButton primary onClick={() => onNavigate?.('mail')}><Icon name="mail" size={15} />{tr('homeOpenMail')}</HeroButton>
+            <HeroButton onClick={() => onNavigate?.('schedule')}><Icon name="calendar" size={15} />{tr('homeMyShifts')}</HeroButton>
           </div>
         </div>
 
@@ -691,8 +692,11 @@ export default function HomePage({ user, onNavigate }) {
                     {row.value}
                   </span>
                   <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{row.label}</span>
+                  {/* No comparison data (or 0 vs 0) → say nothing rather than "0 · on track". */}
                   <Mono size={11}>
-                    {delta === 0 ? tr('homeOnTrack') : `${delta > 0 ? '+' : '−'}${Math.abs(delta)} ${tr('homeVsLastWk')}`}
+                    {row.prev == null || (row.value === 0 && row.prev === 0)
+                      ? ''
+                      : delta === 0 ? tr('homeOnTrack') : `${delta > 0 ? '+' : '−'}${Math.abs(delta)} ${tr('homeVsLastWk')}`}
                   </Mono>
                 </div>
               );
@@ -727,17 +731,17 @@ export default function HomePage({ user, onNavigate }) {
             dot={openTickets.length ? 'var(--text-muted)' : 'var(--success)'}
             title={tr('homeQueueTickets')}
             count={openTickets.length}
-            link={allLink(tickets.length, 'homeOpenTickets')}
+            link={tr('homeOpenTickets')}
             onLink={() => onNavigate?.('tickets')}
             rows={ticketRows}
             footer={ticketFooter}
             emptyLine={`${tr('homeTicketsClearLine')} ${freshness}`}
           />
           <QueueCard
-            dot={mailQueue.length ? 'var(--text-muted)' : 'var(--success)'}
+            dot={mailQueue.length ? 'var(--warning)' : 'var(--success)'}
             title={tr('homeQueueMail')}
             count={mailQueue.length}
-            link={allLink(emails.length, 'homeOpenMailLink')}
+            link={tr('homeOpenMailLink')}
             onLink={() => onNavigate?.('mail')}
             rows={mailRows}
             footer={mailFooter}
@@ -748,7 +752,7 @@ export default function HomePage({ user, onNavigate }) {
 
       {/* 3. Reminders + team on shift today */}
       <section className="home-bottom" style={{
-        display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 16, alignItems: 'stretch',
+        display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 16, alignItems: 'start',
       }}>
         <CardShell>
           <CardHeader
@@ -760,7 +764,7 @@ export default function HomePage({ user, onNavigate }) {
           />
           {reminders.length === 0 ? (
             <div style={{ padding: 16, display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-              <span style={{ fontSize: 16, lineHeight: 1.2 }}>✨</span>
+              <Icon name="sparkles" size={16} color="var(--text-muted)" style={{ marginTop: 1 }} />
               <div>
                 <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{tr('homeAllClear')}</div>
                 <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{tr('homeRemindersClearLine')}</div>

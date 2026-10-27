@@ -1,8 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '../api';
 import { useLang } from '../components/LangContext';
-import { Card, Button, Badge, Input, Select, Overlay, PageHeader, Toast, EmptyState } from '../components/UI';
+import { Card, Button, Input, Select, Overlay, PageHeader, Toast, EmptyState } from '../components/UI';
 import { Icon } from '../components/Icons';
+import { TimeOffStatus } from './SchedulePage';
+
+// Inclusive day count for a YYYY-MM-DD range.
+const spanDays = (a, b) => Math.round((new Date(`${b}T00:00:00Z`) - new Date(`${a}T00:00:00Z`)) / 86400000) + 1;
 
 export default function TimeOffPage({ user }) {
   const { t: tr } = useLang();
@@ -53,8 +57,8 @@ export default function TimeOffPage({ user }) {
     } catch (e) { setToast({ message: e.message, type: 'error' }); }
   };
 
-  const offTypeIcon = { vacation: 'leaf', sick_leave: 'alertTriangle', day_off: 'leaf' };
-  const statusColor = { pending: 'yellow', approved: 'green', rejected: 'red' };
+  const offTypeIcon = { vacation: 'sun', sick_leave: 'alertTriangle', day_off: 'leaf' };
+  const offTypeLabel = { vacation: tr('vacation'), sick_leave: tr('sickLeave'), day_off: tr('dayOff') };
 
   return (
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -64,7 +68,7 @@ export default function TimeOffPage({ user }) {
         title={tr('timeOffRequests')}
         subtitle={tr('timeOffDesc')}
         actions={
-          <Button onClick={() => setShowForm(true)} style={{ background: 'var(--success)', color: '#fff' }}>
+          <Button variant="primary" icon="plus" onClick={() => setShowForm(true)}>
             {tr('requestTimeOff')}
           </Button>
         }
@@ -84,17 +88,21 @@ export default function TimeOffPage({ user }) {
                 borderBottom: i < requests.length - 1 ? `1px solid var(--border-light)` : 'none',
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-                  <Icon name={offTypeIcon[r.off_type] || 'leaf'} size={13} />
                   <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                       {isAdmin && <span style={{ fontWeight: 600, fontSize: '14px' }}>{r.user?.display_name || '—'}</span>}
-                      <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{r.start_date} → {r.end_date}</span>
-                      <Badge color={r.off_type === 'vacation' ? 'blue' : r.off_type === 'sick_leave' ? 'red' : 'gray'}>
-                        {r.off_type.replace('_', ' ')}
-                      </Badge>
-                      <Badge color={statusColor[r.status] || 'gray'} dot>
-                        {r.status}
-                      </Badge>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 13, color: 'var(--text-secondary)' }}>
+                        <Icon name={offTypeIcon[r.off_type] || 'leaf'} size={13} color="var(--text-muted)" />
+                        {offTypeLabel[r.off_type] || r.off_type}
+                      </span>
+                      <span style={{
+                        fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)',
+                        textDecoration: r.status === 'rejected' ? 'line-through' : 'none',
+                      }}>
+                        {r.start_date} → {r.end_date}
+                        <span style={{ color: 'var(--text-muted)' }}> · {spanDays(r.start_date, r.end_date)}{tr('daysShort')}</span>
+                      </span>
+                      <TimeOffStatus status={r.status} tr={tr} />
                     </div>
                     {r.comment && (
                       <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '3px', display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -107,16 +115,12 @@ export default function TimeOffPage({ user }) {
                 <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                   {isAdmin && r.status === 'pending' && (
                     <>
-                      <Button size="sm" onClick={() => handleReview(r.id, 'approved')} style={{ background: 'var(--success)', color: '#fff', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        <Icon name="check" size={14} /> Approve
-                      </Button>
-                      <Button size="sm" variant="danger" onClick={() => handleReview(r.id, 'rejected')} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        <Icon name="x" size={14} /> Reject
-                      </Button>
+                      <Button size="sm" variant="primary" icon="check" onClick={() => handleReview(r.id, 'approved')}>{tr('approve')}</Button>
+                      <Button size="sm" variant="secondary" icon="x" onClick={() => handleReview(r.id, 'rejected')}>{tr('reject')}</Button>
                     </>
                   )}
                   {(isAdmin || r.status === 'pending') && (
-                    <Button size="sm" variant="ghost" onClick={() => handleDelete(r.id)}>Delete</Button>
+                    <Button size="sm" variant="ghost" onClick={() => handleDelete(r.id)}>{tr('delete')}</Button>
                   )}
                 </div>
               </div>
@@ -153,7 +157,7 @@ function TimeOffFormModal({ onClose, onSubmit }) {
         <Input label={tr('comment')} value={cm} onChange={e => setCm(e.target.value)} placeholder="Optional note" />
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
           <Button variant="secondary" onClick={onClose}>{tr('cancel')}</Button>
-          <Button onClick={() => onSubmit(sd, ed, ot, cm || null)} style={{ background: 'var(--success)', color: '#fff' }}>{tr('submit')}</Button>
+          <Button variant="primary" onClick={() => onSubmit(sd, ed, ot, cm || null)}>{tr('submit')}</Button>
         </div>
       </div>
     </Overlay>

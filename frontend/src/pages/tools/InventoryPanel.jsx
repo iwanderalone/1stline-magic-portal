@@ -105,7 +105,15 @@ export default function InventoryPanel({ user }) {
         />
       )}
 
-      <PageHeader title={tr('invTitle')} subtitle={tr('invSubtitle')} />
+      <PageHeader
+        title={tr('invTitle')}
+        subtitle={tr('invSubtitle')}
+        actions={canEdit && (
+          <Button type="button" variant="primary" icon="plus" onClick={() => setEditing('new')}>
+            {tr('invNewDevice')}
+          </Button>
+        )}
+      />
 
       <form onSubmit={onSearchSubmit} style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
         <div style={{ flex: '1 1 220px', display: 'flex', flexDirection: 'column', gap: 5 }}>
@@ -166,12 +174,6 @@ export default function InventoryPanel({ user }) {
           <option value="decommissioning">Decommissioning</option>
         </Select>
         <Button type="submit" variant="secondary" icon="search">{tr('invSearchBtn')}</Button>
-        <span style={{ flex: 1 }} />
-        {canEdit && (
-          <Button type="button" variant="primary" icon="plus" onClick={() => setEditing('new')}>
-            {tr('invNewDevice')}
-          </Button>
-        )}
       </form>
 
       <DeviceList devices={devices} onSelect={(d) => setViewing(d.id)} />

@@ -3,6 +3,7 @@ import { api } from '../api';
 import { useTheme } from '../components/ThemeContext';
 import { useLang } from '../components/LangContext';
 import { Button, EmptyState } from '../components/UI';
+import { Icon } from '../components/Icons';
 
 export default function NotificationsPanel({ onClose }) {
   const { theme: t } = useTheme();
@@ -47,14 +48,14 @@ export default function NotificationsPanel({ onClose }) {
               <Button size="sm" variant="ghost" onClick={markAll}>{tr('markRead')}</Button>
               <Button size="sm" variant="ghost" onClick={clearAll} style={{ color: t.danger }}>{tr('clearAll')}</Button>
             </>}
-            <Button size="sm" variant="ghost" onClick={onClose}>✕</Button>
+            <Button size="sm" variant="ghost" icon="x" aria-label="Close" onClick={onClose} />
           </div>
         </div>
         <div style={{ flex: 1, overflow: 'auto', padding: '8px' }}>
           {loading
             ? <div style={{ padding: '24px', textAlign: 'center', color: t.textMuted }}>{tr('loading')}</div>
             : notifs.length === 0
-              ? <EmptyState icon="✨" title={tr('allClear')} />
+              ? <EmptyState icon={<Icon name="sparkles" size={28} />} title={tr('allClear')} />
               : notifs.map(n => (
                 <div
                   key={n.id}

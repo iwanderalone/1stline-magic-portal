@@ -177,10 +177,10 @@ export default function ProfilePage({ user, onUserUpdate }) {
   const currentAvatar = avatarPreview || user?.avatar_url || undefined;
 
   return (
-    <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '22px', maxWidth: '800px' }}>
+    <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
       <PageHeader title={tr('myProfile')} />
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px', alignItems: 'start' }}>
 
         {/* ── Identity ─────────────────────────────────────── */}
         <Card header={<><Icon name="user" size={18} /><span>{tr('identity')}</span></>}>
@@ -216,7 +216,7 @@ export default function ProfilePage({ user, onUserUpdate }) {
               </div>
             </div>
 
-            <Button variant="primary" onClick={saveIdentity}>{tr('saveIdentity')}</Button>
+            <Button variant="primary" onClick={saveIdentity} style={{ alignSelf: 'flex-start' }}>{tr('saveIdentity')}</Button>
           </div>
         </Card>
 
@@ -229,11 +229,11 @@ export default function ProfilePage({ user, onUserUpdate }) {
             </Select>
             <div style={{ fontSize: '13px' }}>
               <span className="t-eyebrow">{tr('currentLocalTime')}:</span>
-              <div style={{ fontWeight: 700, fontSize: '18px', marginTop: 4 }}>
+              <div style={{ fontWeight: 600, fontSize: '18px', marginTop: 4, fontFamily: 'var(--font-mono)' }}>
                 {new Date().toLocaleTimeString('en-GB', { timeZone: timezone || 'UTC', hour: '2-digit', minute: '2-digit' })}
               </div>
             </div>
-            <Button variant="primary" onClick={saveTimezone}>{tr('saveTimezone')}</Button>
+            <Button variant="primary" onClick={saveTimezone} style={{ alignSelf: 'flex-start' }}>{tr('saveTimezone')}</Button>
           </div>
         </Card>
       </div>
@@ -309,7 +309,7 @@ export default function ProfilePage({ user, onUserUpdate }) {
           {pwForm.confirm.length > 0 && pwForm.next !== pwForm.confirm && (
             <div style={{ fontSize: 12, color: 'var(--danger)' }}>Passwords do not match</div>
           )}
-          <Button variant="primary" onClick={changePassword} disabled={!pwValid || pwLoading}>
+          <Button variant="primary" onClick={changePassword} disabled={!pwValid || pwLoading} style={{ alignSelf: 'flex-start' }}>
             {pwLoading ? 'Changing…' : 'Change password'}
           </Button>
         </div>
@@ -319,7 +319,7 @@ export default function ProfilePage({ user, onUserUpdate }) {
       <Card header={<><Icon name="message" size={18} /><span>{tr('telegramNotifications')}</span></>}>
         <div style={{ padding: '18px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <Badge color={user?.telegram_chat_id ? 'green' : 'gray'}>
+            <Badge color="gray">
               {user?.telegram_chat_id ? tr('linked') : tr('notLinked')}
             </Badge>
             {user?.telegram_chat_id && (
@@ -356,7 +356,7 @@ export default function ProfilePage({ user, onUserUpdate }) {
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-            <Button variant="secondary" onClick={saveTelegramUsername}>Save username</Button>
+            <Button variant="secondary" onClick={saveTelegramUsername} style={{ alignSelf: 'flex-start' }}>Save username</Button>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               {!user?.telegram_chat_id && (
                 <>
@@ -392,7 +392,7 @@ export default function ProfilePage({ user, onUserUpdate }) {
         <div style={{ padding: '18px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
           <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-muted)', lineHeight: 1.5 }}>{tr('twoFactorDesc')}</p>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <Badge color={user?.otp_enabled ? 'green' : 'gray'}>
+            <Badge color="gray">
               {user?.otp_enabled ? tr('otpActive') : tr('otpInactive')}
             </Badge>
           </div>

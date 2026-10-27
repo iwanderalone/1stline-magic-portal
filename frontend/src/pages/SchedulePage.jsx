@@ -51,8 +51,11 @@ function shiftLabel(tr, type) {
   return tr(`shift_${type}`);
 }
 
-function statusColor(status) {
-  return status === 'approved' ? 'green' : status === 'rejected' ? 'red' : 'yellow';
+// Time-off status: only "pending" asks for action; approved is the quiet default.
+export function TimeOffStatus({ status, tr }) {
+  if (status === 'pending') return <Badge color="yellow">{tr('pending')}</Badge>;
+  if (status === 'rejected') return <span style={{ fontSize: 12, color: 'var(--text-muted)', textDecoration: 'line-through' }}>{tr('rejected')}</span>;
+  return <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{tr('approved')}</span>;
 }
 
 // --- Page Component ---
@@ -305,7 +308,7 @@ export default function SchedulePage({ user }) {
           }}>
           <div style={{ fontWeight: 700, fontSize: compact ? '9px' : '10px', textTransform: 'uppercase', letterSpacing: '0.02em', display: 'flex', justifyContent: 'space-between' }}>
             <span style={{ textDecoration: isPendingDelete ? 'line-through' : 'none' }}>{label}</span>
-            {isPendingDelete && <span>🗑</span>}
+            {isPendingDelete && <Icon name="trash" size={10} />}
             {!s.is_published && !isPendingDelete && <span>DRAFT</span>}
           </div>
           <div style={{ fontWeight: 600, color: isPendingDelete ? 'var(--danger)' : 'var(--text)', textDecoration: isPendingDelete ? 'line-through' : 'none' }}>{compact ? uName.split(' ')[0] : uName}</div>
@@ -321,18 +324,30 @@ export default function SchedulePage({ user }) {
         title={tr('schedule_title')}
         subtitle={`${view === 'weekly' ? `${tr('scheduleWeekOf')} ${headerLabel}` : headerLabel} · ${published ? tr('schedulePublished') : tr('scheduleDraft')}`}
       >
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
-          <Tabs tabs={[{ id: 'weekly', label: tr('week') }, { id: 'monthly', label: tr('month') }]} active={view} onChange={v => { setView(v); setOffset(0); }} />
-          <Button variant="secondary" size="sm" icon="chevronLeft" onClick={() => setOffset(o => o - 1)} />
-          <Button variant="secondary" size="sm" onClick={() => setOffset(0)}>{tr('today')}</Button>
-          <Button variant="secondary" size="sm" icon="chevronRight" onClick={() => setOffset(o => o + 1)} />
-          <Button variant="secondary" size="sm" icon="sun" onClick={() => setShowTimeOff(true)}>{tr('timeOff')}</Button>
-          {isAdmin && <Button variant="secondary" size="sm" icon="plus" onClick={() => setAddShiftPrefill({})}>{tr('addShift')}</Button>}
-          {isAdmin && <Button size="sm" icon="zap" onClick={() => setShowGenerate(true)}>{tr('generate')}</Button>}
-          {isAdmin && view === 'weekly' && <Button variant="secondary" size="sm" icon="copy" onClick={handleCopyWeek}>{tr('scheduleCopyWeek')}</Button>}
-          {isAdmin && <Button variant="secondary" size="sm" icon="refresh" onClick={() => setShowRotations(true)}>{tr('scheduleRotations')}</Button>}
-          {isAdmin && <Button variant="secondary" size="sm" icon="check" onClick={handlePublish}>{tr('publish')}</Button>}
-          {isAdmin && <Button variant="danger" size="sm" icon="trash" onClick={handleClearDrafts}>{tr('scheduleClearDrafts')}</Button>}
+        {/* Grouped toolbar: navigate · create · bulk · destructive · publish (primary, last). */}
+        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <Tabs tabs={[{ id: 'weekly', label: tr('week') }, { id: 'monthly', label: tr('month') }]} active={view} onChange={v => { setView(v); setOffset(0); }} />
+            <div style={{ display: 'flex', gap: 4 }}>
+              <Button variant="secondary" size="sm" icon="chevronLeft" aria-label="Previous" onClick={() => setOffset(o => o - 1)} />
+              <Button variant="secondary" size="sm" onClick={() => setOffset(0)}>{tr('today')}</Button>
+              <Button variant="secondary" size="sm" icon="chevronRight" aria-label="Next" onClick={() => setOffset(o => o + 1)} />
+            </div>
+          </div>
+          <span style={{ flex: 1 }} />
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Button variant="secondary" size="sm" icon="sun" onClick={() => setShowTimeOff(true)}>{tr('timeOff')}</Button>
+            {isAdmin && <Button variant="secondary" size="sm" icon="plus" onClick={() => setAddShiftPrefill({})}>{tr('addShift')}</Button>}
+          </div>
+          {isAdmin && (
+            <div style={{ display: 'flex', gap: 8 }}>
+              <Button variant="secondary" size="sm" icon="zap" onClick={() => setShowGenerate(true)}>{tr('generate')}</Button>
+              {view === 'weekly' && <Button variant="secondary" size="sm" icon="copy" onClick={handleCopyWeek}>{tr('scheduleCopyWeek')}</Button>}
+              <Button variant="secondary" size="sm" icon="refresh" onClick={() => setShowRotations(true)}>{tr('scheduleRotations')}</Button>
+            </div>
+          )}
+          {isAdmin && <Button variant="ghost" size="sm" icon="trash" style={{ color: 'var(--danger)' }} onClick={handleClearDrafts}>{tr('scheduleClearDrafts')}</Button>}
+          {isAdmin && <Button variant="primary" size="sm" icon="check" onClick={handlePublish}>{tr('publish')}</Button>}
         </div>
       </PageHeader>
 
@@ -393,7 +408,7 @@ export default function SchedulePage({ user }) {
       </Card>
 
       {!loading && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 420px), 1fr))', gap: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 420px), 1fr))', alignItems: 'start', gap: 16 }}>
           <CoveragePanel shifts={shifts} users={users} configs={configs} tr={tr} />
           <TimeOffPanel timeOff={timeOff} locale={locale} tr={tr} onRequest={readOnly ? null : () => setShowTimeOff(true)} onSelect={setSelectedTimeOff} />
         </div>
@@ -737,14 +752,16 @@ function ShiftDetailModal({ shift, configs, onClose, onSave, onDelete, fmtTime }
             <div style={{ fontWeight: 600 }}>{shift.user?.display_name || '—'}</div>
             <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{shift.date} · {fmtTime ? fmtTime(shift.start_time, shift.date) : shift.start_time?.slice(0,5)}–{fmtTime ? fmtTime(shift.end_time, shift.date) : shift.end_time?.slice(0,5)}</div>
           </div>
-          <Badge color={shift.pending_delete ? 'red' : (isPublished ? 'green' : 'yellow')} style={{ marginLeft: 'auto' }}>
-            {shift.pending_delete ? tr('scheduleStagedForRemoval') : (isPublished ? tr('schedulePublished') : tr('scheduleDraft'))}
-          </Badge>
+          {isPublished && !shift.pending_delete
+            ? <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--text-muted)' }}>{tr('schedulePublished')}</span>
+            : <Badge color={shift.pending_delete ? 'red' : 'yellow'} style={{ marginLeft: 'auto' }}>
+                {shift.pending_delete ? tr('scheduleStagedForRemoval') : tr('scheduleDraft')}
+              </Badge>}
         </div>
 
         {shift.pending_delete && (
           <div style={{ padding: '10px 14px', background: 'var(--danger-light)', border: '1px solid color-mix(in srgb, var(--danger) 30%, transparent)', borderRadius: 'var(--radius-sm)', color: 'var(--danger)', fontSize: 13 }}>
-            🗑 {tr('scheduleStagedForRemoval')} — will be deleted on next Publish
+            <Icon name="trash" size={13} style={{ verticalAlign: '-2px', marginRight: 6 }} />{tr('scheduleStagedForRemoval')} — will be deleted on next Publish
           </div>
         )}
 
@@ -801,7 +818,7 @@ function TimeOffDetailModal({ entry, isAdmin, onClose, onReview, onDelete }) {
             <Badge color={entry.off_type === 'vacation' ? 'blue' : entry.off_type === 'sick_leave' ? 'red' : 'gray'}>
               {entry.off_type === 'vacation' ? tr('vacation') : entry.off_type === 'sick_leave' ? tr('sickLeave') : tr('dayOff')}
             </Badge>
-            <Badge color={entry.status === 'approved' ? 'green' : entry.status === 'rejected' ? 'red' : 'yellow'}>{entry.status}</Badge>
+            <TimeOffStatus status={entry.status} tr={tr} />
           </div>
           {entry.comment && <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '8px' }}>{entry.comment}</div>}
         </div>
@@ -851,9 +868,10 @@ function WeeklyScheduleBoard({ weekDates, shiftTypes, shifts, timeOff, isAdmin, 
               </div>
               <div style={{
                 marginTop: 3,
-                fontFamily: 'var(--font-display)',
-                fontSize: 28,
+                fontFamily: 'var(--font-sans)',
+                fontSize: 20,
                 fontWeight: 600,
+                fontVariantNumeric: 'tabular-nums',
                 lineHeight: 1,
                 color: isToday ? 'var(--accent)' : 'var(--text)',
               }}>
@@ -982,7 +1000,7 @@ function ShiftPill({ shift, config, timeOff, isAdmin, tr, onClick }) {
         fontWeight: 700,
         flexShrink: 0,
       }}>
-        {isPendingDelete ? '🗑' : userName.split(/\s+/).map(s => s[0]).slice(0, 2).join('').toUpperCase()}
+        {isPendingDelete ? <Icon name="trash" size={12} /> : userName.split(/\s+/).map(s => s[0]).slice(0, 2).join('').toUpperCase()}
       </span>
       <span style={{ minWidth: 0 }}>
         <span style={{ display: 'block', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: isPendingDelete ? 'line-through' : 'none', color: isPendingDelete ? 'var(--danger)' : 'inherit' }}>{userName}</span>
@@ -1015,7 +1033,7 @@ function CoveragePanel({ shifts, users, configs, tr }) {
   return (
     <Card
       accent="var(--accent)"
-      header={<><Icon name="clock" size={18} color="var(--accent)" /><h2 style={{ margin: 0, fontSize: 22 }}>{tr('scheduleCoverageThisWeek')}</h2></>}
+      header={<><Icon name="clock" size={18} color="var(--accent)" /><h2 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>{tr('scheduleCoverageThisWeek')}</h2></>}
     >
       {rows.length === 0 ? (
         <EmptyState title={tr('scheduleNoCoverage')} />
@@ -1023,6 +1041,8 @@ function CoveragePanel({ shifts, users, configs, tr }) {
         <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 12 }}>
           {rows.map(row => {
             const pct = Math.min(100, (row.hours / 40) * 100);
+            // Colour by load, not by person: overtime is the signal.
+            const load = row.hours > 48 ? 'var(--danger)' : row.hours > 40 ? 'var(--warning)' : 'var(--text-muted)';
             return (
               <div key={row.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(140px, 220px) 1fr auto', gap: 14, alignItems: 'center' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
@@ -1032,9 +1052,9 @@ function CoveragePanel({ shifts, users, configs, tr }) {
                   <strong style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.name}</strong>
                 </div>
                 <div style={{ height: 7, borderRadius: 999, background: 'var(--surface-sunken)', overflow: 'hidden' }}>
-                  <div style={{ width: `${pct}%`, height: '100%', background: row.color, borderRadius: 999 }} />
+                  <div style={{ width: `${pct}%`, height: '100%', background: load, borderRadius: 999 }} />
                 </div>
-                <div style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: 13 }}>{row.hours}/40h</div>
+                <div style={{ color: load, fontFamily: 'var(--font-mono)', fontSize: 13, fontVariantNumeric: 'tabular-nums', fontWeight: row.hours > 40 ? 600 : 400 }}>{row.hours}/40h</div>
               </div>
             );
           })}
@@ -1049,7 +1069,7 @@ function TimeOffPanel({ timeOff, locale, tr, onRequest, onSelect }) {
   return (
     <Card
       accent="var(--accent)"
-      header={<><Icon name="calendar" size={18} color="var(--accent)" /><h2 style={{ margin: 0, fontSize: 22 }}>{tr('scheduleTimeOffPanel')}</h2><span style={{ flex: 1 }} />{onRequest && <Button size="sm" variant="ghost" icon="plus" onClick={onRequest}>{tr('scheduleRequest')}</Button>}</>}
+      header={<><Icon name="calendar" size={18} color="var(--accent)" /><h2 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>{tr('scheduleTimeOffPanel')}</h2><span style={{ flex: 1 }} />{onRequest && <Button size="sm" variant="ghost" icon="plus" onClick={onRequest}>{tr('scheduleRequest')}</Button>}</>}
     >
       {items.length === 0 ? (
         <EmptyState title={tr('scheduleNoTimeOff')} />
@@ -1083,7 +1103,7 @@ function TimeOffPanel({ timeOff, locale, tr, onRequest, onSelect }) {
                   <strong style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.user?.display_name || '—'} — {label}</strong>
                   <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{range}</span>
                 </span>
-                <Badge color={statusColor(item.status)} dot>{item.status}</Badge>
+                <TimeOffStatus status={item.status} tr={tr} />
               </button>
             );
           })}

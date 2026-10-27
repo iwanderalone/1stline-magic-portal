@@ -4,7 +4,7 @@ import { Badge, Button, Overlay } from './UI';
 import { useLang } from './LangContext';
 
 const STATUS_COLOR = {
-  active: 'green', offline: 'gray', planned: 'blue', staged: 'blue',
+  active: 'gray', offline: 'gray', planned: 'gray', staged: 'gray',
   failed: 'red', inventory: 'yellow', decommissioning: 'red',
 };
 
@@ -127,7 +127,7 @@ export default function DeviceDetailModal({ deviceId, onClose, onEdit, canEdit }
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   <span style={{ fontSize: 13, fontWeight: 600 }}>{h.contact?.name || '—'}</span>
-                  {h.status && <Badge color={h.status === 'active' ? 'green' : 'gray'}>{h.status}</Badge>}
+                  {h.status && <Badge color="gray">{h.status}</Badge>}
                   {h.role?.display && <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{h.role.display}</span>}
                 </div>
                 <Row label={tr('invFieldSignedBy')} value={h.signed_by?.display} />

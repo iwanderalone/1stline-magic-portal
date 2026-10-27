@@ -328,7 +328,7 @@ export default function InvoiceIntake({ lookups, navigate, onCancel, onDone, onT
             ))}
           </div>
         )}
-        {result.warnings.map(w => <div key={w} style={{ fontSize: 12, color: 'var(--warning)' }}>⚠ {w}</div>)}
+        {result.warnings.map(w => <div key={w} style={{ display: 'flex', gap: 6, fontSize: 12, color: 'var(--warning)' }}><Icon name="alertTriangle" size={13} style={{ marginTop: 2 }} /> {w}</div>)}
         {tagged < result.devices.length && <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{tr('inTagHint')}</div>}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {result.devices.length > 0 && (
@@ -362,7 +362,7 @@ export default function InvoiceIntake({ lookups, navigate, onCancel, onDone, onT
           {file && <span style={{ fontSize: 13, ...MONO, overflow: 'hidden', textOverflow: 'ellipsis' }}>{file.name}</span>}
           <span style={{ flex: 1 }} />
           {parsing && <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', fontSize: 13, color: 'var(--text-secondary)' }}><Spinner /> {tr('inReading')}</span>}
-          {!parsing && parsed && <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>✨ {tr('inParsedCheck')}</span>}
+          {!parsing && parsed && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-secondary)' }}><Icon name="sparkles" size={13} /> {tr('inParsedCheck')}</span>}
           {!parsing && file && status.gemini && !parsed && (
             <Button size="sm" variant="ghost" icon="refresh" onClick={() => pickFile(file)}>{tr('inReadAgain')}</Button>
           )}
@@ -379,10 +379,10 @@ export default function InvoiceIntake({ lookups, navigate, onCancel, onDone, onT
 
           {netboxLines.length > 0 && supplier.trim() && (
             supplierInNetbox ? (
-              <div style={{ fontSize: 12, color: 'var(--success)' }}>✓ {tr('inSupplierKnown')}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-secondary)' }}><Icon name="check" size={12} color="var(--success)" /> {tr('inSupplierKnown')}</div>
             ) : addSupplier ? (
               <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                ✓ {tr('inSupplierWillAdd').replace('{s}', supplier.trim())}{' '}
+                <Icon name="check" size={12} style={{ verticalAlign: '-2px', marginRight: 6 }} />{tr('inSupplierWillAdd').replace('{s}', supplier.trim())}{' '}
                 <button type="button" onClick={() => setAddSupplier(false)} style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 12, padding: 0 }}>{tr('cancel')}</button>
               </div>
             ) : (

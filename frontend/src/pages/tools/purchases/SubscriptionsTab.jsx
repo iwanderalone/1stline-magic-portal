@@ -67,7 +67,8 @@ export default function SubscriptionsTab({ lookups, reloadKey, onOpen, onNew }) 
               <span>{tr('purNextRenewal')}</span>
             </div>
             {items.map(s => (
-              <div key={s.id} style={bodyRow(COLS, true)} onClick={() => onOpen(s.id)}>
+              // Free rows (0.00) recede so paid ones carry the eye.
+              <div key={s.id} style={{ ...bodyRow(COLS, true), opacity: s.price ? 1 : 0.55 }} onClick={() => onOpen(s.id)}>
                 <span style={{ minWidth: 0 }}>
                   <div style={{ fontWeight: 600 }}>{s.vendor}</div>
                   <div style={{ fontSize: 12, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>

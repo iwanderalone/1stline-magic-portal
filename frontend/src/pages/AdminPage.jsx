@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { api, getPublicConfig } from '../api';
 import { useLang } from '../components/LangContext';
-import { Card, Button, Input, Badge, Select, Overlay, PageHeader, Toast, Tabs, EmptyState, Avatar } from '../components/UI';
+import { Card, Button, Input, Badge, Select, Overlay, PageHeader, Toast, Tabs, EmptyState, Avatar, RowMenu } from '../components/UI';
 import { Icon } from '../components/Icons';
 
 // Telegram integration config ("website settings") stays admin-only — managers
@@ -23,12 +23,18 @@ export default function AdminPage({ user }) {
   const tabs = isAdmin ? allTabs : allTabs.filter(t => !ADMIN_ONLY_TABS.has(t.id));
   const [tab, setTab] = useState('users');
   const activeTab = tabs.some(t => t.id === tab) ? tab : tabs[0]?.id;
+  const [addUserOpen, setAddUserOpen] = useState(false);
   return (
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      <PageHeader title={tr('adminPanel')}>
+      <PageHeader
+        title={tr('adminPanel')}
+        actions={activeTab === 'users' && (
+          <Button variant="primary" icon="plus" onClick={() => setAddUserOpen(true)}>{tr('adminAddUser')}</Button>
+        )}
+      >
         <Tabs tabs={tabs} active={activeTab} onChange={setTab} />
       </PageHeader>
-      {activeTab === 'users'     && <UsersTab viewer={user} />}
+      {activeTab === 'users'     && <UsersTab viewer={user} addOpen={addUserOpen} setAddOpen={setAddUserOpen} />}
       {activeTab === 'groups'    && <GroupsTab />}
       {activeTab === 'shifts'    && <ShiftConfigTab />}
       {activeTab === 'telegram'  && isAdmin && <TelegramTab />}
@@ -40,12 +46,11 @@ export default function AdminPage({ user }) {
 }
 
 // ─── Users Tab ──────────────────────────────────────────
-function UsersTab({ viewer }) {
+function UsersTab({ viewer, addOpen: show, setAddOpen: setShow }) {
   const viewerIsAdmin = viewer?.role === 'admin';
   const [users, setUsers] = useState([]);
   const [groups, setGroups] = useState([]);
   const [configs, setConfigs] = useState([]);
-  const [show, setShow] = useState(false);
   const [toast, setToast] = useState(null);
   const [resetTarget, setResetTarget] = useState(null);
   const [editTarget, setEditTarget] = useState(null);
@@ -126,9 +131,6 @@ function UsersTab({ viewer }) {
 
   return (
     <>
-      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-        <Button size="sm" icon="plus" onClick={() => setShow(true)}>Add User</Button>
-      </div>
       <Card style={{ padding: '4px' }}>
         {users.length === 0 && (
           <EmptyState icon={<Icon name="user" size={32} />} title="No users" subtitle="Add your first user to get started" />
@@ -148,24 +150,31 @@ function UsersTab({ viewer }) {
                 </div>
                 {u.group_ids?.length > 0 && (
                   <div style={{ display: 'flex', gap: '4px', marginTop: '3px', flexWrap: 'wrap' }}>
-                    {u.group_ids.map(gid => groupMap[gid] && <Badge key={gid} color="blue">{groupMap[gid].name}</Badge>)}
+                    {u.group_ids.map(gid => groupMap[gid] && <Badge key={gid} color="gray">{groupMap[gid].name}</Badge>)}
                   </div>
                 )}
               </div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-              <Badge color={u.role === 'admin' ? 'blue' : u.role === 'manager' ? 'yellow' : u.role === 'hr' ? 'green' : 'gray'}>{u.role}</Badge>
-              {u.sso_subject && <Badge color="blue">SSO</Badge>}
-              {u.otp_enabled && <Badge color="green">OTP</Badge>}
-              {u.telegram_chat_id
-                ? <Badge color="blue"><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>TG <Icon name="check" size={12} /></span></Badge>
-                : linkCodes[u.id]
-                  ? <span onClick={() => copyCode(u.id)} title="Click to copy" style={{ cursor: 'pointer' }}><Badge color="yellow"><Icon name="copy" size={12} /> /link {linkCodes[u.id]}</Badge></span>
-                  : (viewerIsAdmin || u.role !== 'admin') && <Button size="sm" variant="ghost" onClick={() => linkTg(u.id)}>Link TG</Button>}
+              {/* Role is plain text (admin keeps a light accent pill); 2FA/TG/SSO are quiet icons. */}
+              {u.role === 'admin'
+                ? <Badge color="blue">admin</Badge>
+                : <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{u.role}</span>}
+              {u.sso_subject && <span title="Signs in with SSO" style={{ display: 'inline-flex', color: 'var(--text-muted)' }}><Icon name="key" size={14} /></span>}
+              {u.otp_enabled && <span title="2FA enabled" style={{ display: 'inline-flex', color: 'var(--text-muted)' }}><Icon name="shield" size={14} /></span>}
+              {u.telegram_chat_id && <span title="Telegram linked" style={{ display: 'inline-flex', color: 'var(--text-muted)' }}><Icon name="send" size={14} /></span>}
+              {!u.telegram_chat_id && linkCodes[u.id] && (
+                <span onClick={() => copyCode(u.id)} title="Click to copy" style={{ cursor: 'pointer' }}><Badge color="yellow"><Icon name="copy" size={12} /> /link {linkCodes[u.id]}</Badge></span>
+              )}
               {u.is_active && (viewerIsAdmin || u.role !== 'admin') && <Button size="sm" variant="ghost" icon="edit" onClick={() => setEditTarget(u)}>Edit</Button>}
-              {u.is_active && (viewerIsAdmin || u.role !== 'admin') && <Button size="sm" variant="ghost" icon="key" onClick={() => setResetTarget(u.id)}>Reset PW</Button>}
-              {u.is_active && u.otp_enabled && (viewerIsAdmin || u.role !== 'admin') && <Button size="sm" variant="ghost" onClick={() => resetOtp(u.id)}>Reset 2FA</Button>}
-              {u.is_active && u.role !== 'admin' && <Button size="sm" variant="danger" onClick={() => deactivate(u.id)}>Deactivate</Button>}
+              {u.is_active && (viewerIsAdmin || u.role !== 'admin') && (
+                <RowMenu items={[
+                  !u.telegram_chat_id && !linkCodes[u.id] && { label: 'Link Telegram', icon: 'send', onClick: () => linkTg(u.id) },
+                  { label: 'Reset password', icon: 'key', onClick: () => setResetTarget(u.id) },
+                  u.otp_enabled && { label: 'Reset 2FA', icon: 'shield', onClick: () => resetOtp(u.id) },
+                  ...(u.role !== 'admin' ? [{ divider: true }, { label: 'Deactivate', icon: 'x', danger: true, onClick: () => deactivate(u.id) }] : []),
+                ]} />
+              )}
               {!u.is_active && (viewerIsAdmin || u.role !== 'admin') && <Button size="sm" variant="ghost" onClick={() => reactivate(u.id)}>Reactivate</Button>}
               {!u.is_active && viewerIsAdmin && <Button size="sm" variant="danger" icon="trash" onClick={() => hardDelete(u.id, u.display_name)}>Delete</Button>}
             </div>
@@ -568,7 +577,7 @@ function ShiftConfigCard({ config: c, onUpdate }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <div style={{ width: 40, height: 40, borderRadius: 8, background: color + '20', display: 'flex', alignItems: 'center', justifyContent: 'center', color, fontSize: 20 }}>
-            {emoji || <Icon name={c.shift_type === 'night' ? 'moon' : c.shift_type === 'office' ? 'workspace' : 'sun'} size={20} />}
+            <Icon name={c.shift_type === 'night' ? 'moon' : c.shift_type === 'office' ? 'workspace' : 'sun'} size={20} />
           </div>
           <div>
             <div style={{ fontWeight: 700, fontSize: '15px' }}>{label}</div>
@@ -589,7 +598,7 @@ function ShiftConfigCard({ config: c, onUpdate }) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', padding: '16px', background: 'var(--surface-alt)', borderRadius: 'var(--radius-sm)' }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 12, alignItems: 'end' }}>
           <Input label="Label" value={label} onChange={e => setLabel(e.target.value)} />
-          <Input label="Emoji" value={emoji} onChange={e => setEmoji(e.target.value)} placeholder="☀️" style={{ width: 70 }} />
+          <Input label="Telegram emoji" value={emoji} onChange={e => setEmoji(e.target.value)} placeholder="☀️" style={{ width: 70 }} />
           <Input label="Duration (h)" type="number" value={duration} onChange={e => setDuration(parseFloat(e.target.value))} style={{ width: 80 }} />
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
