@@ -75,6 +75,5 @@ README-full.md
 id_rsa*
 id_ed25519*
 
-# Org-specific CI and original (branded) document templates — kept locally
-.gitlab-ci.yml
+# Original (branded) document templates — kept locally
 examples/
