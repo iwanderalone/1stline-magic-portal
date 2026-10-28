@@ -10,7 +10,7 @@ import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import RedirectResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -95,7 +95,10 @@ async def sso_callback(
 
     user = (await db.execute(select(User).where(User.sso_subject == sso_subject))).scalar_one_or_none()
     if user is None and email:
-        user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
+        # AD often capitalises addresses differently from what was typed into the portal
+        user = (await db.execute(
+            select(User).where(func.lower(User.email) == email.lower())
+        )).scalar_one_or_none()
 
     if user is not None:
         if not user.is_active:
