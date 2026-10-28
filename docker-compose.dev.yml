@@ -108,6 +108,7 @@ services:
       KEYCLOAK_ADMIN_GROUP: "${KEYCLOAK_ADMIN_GROUP:-g-app-itportal-admin}"
       KEYCLOAK_MANAGER_GROUP: "${KEYCLOAK_MANAGER_GROUP:-g-app-itportal-manager}"
       KEYCLOAK_ENGINEER_GROUP: "${KEYCLOAK_ENGINEER_GROUP:-g-app-itportal-engineer}"
+      KEYCLOAK_HR_GROUP: "${KEYCLOAK_HR_GROUP:-g-app-itportal-hr}"
       KEYCLOAK_GROUPS_CLAIM: "${KEYCLOAK_GROUPS_CLAIM:-groups}"
       LOG_DIR: /app/data/logs
     volumes:

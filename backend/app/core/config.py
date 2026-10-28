@@ -185,6 +185,7 @@ class Settings(BaseSettings):
     KEYCLOAK_ADMIN_GROUP: str = "g-app-itportal-admin"
     KEYCLOAK_MANAGER_GROUP: str = "g-app-itportal-manager"
     KEYCLOAK_ENGINEER_GROUP: str = "g-app-itportal-engineer"
+    KEYCLOAK_HR_GROUP: str = "g-app-itportal-hr"
     KEYCLOAK_GROUPS_CLAIM: str = "groups"
 
     @property

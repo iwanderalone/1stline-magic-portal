@@ -2,11 +2,12 @@
 
 Group membership in the realm is the sole source of truth for both whether
 someone can log in via SSO at all, and which portal role they get
-(KEYCLOAK_ADMIN_GROUP > KEYCLOAK_MANAGER_GROUP > KEYCLOAK_ENGINEER_GROUP
-priority if somehow in more than one). No new dependency: OIDC discovery and
-token exchange use the already-installed httpx; ID-token signature
-verification uses the already-installed python-jose against the realm's
-JWKS.
+(KEYCLOAK_ADMIN_GROUP > KEYCLOAK_MANAGER_GROUP > KEYCLOAK_ENGINEER_GROUP >
+KEYCLOAK_HR_GROUP priority if somehow in more than one — each role includes
+everything the next one down can see, so the highest is always enough).
+No new dependency: OIDC discovery and token exchange use the already-installed
+httpx; ID-token signature verification uses the already-installed
+python-jose against the realm's JWKS.
 """
 import logging
 import secrets
@@ -221,4 +222,6 @@ def resolve_role(groups: set[str]) -> Optional[UserRole]:
         return UserRole.MANAGER
     if _kc("KEYCLOAK_ENGINEER_GROUP") in groups:
         return UserRole.ENGINEER
+    if _kc("KEYCLOAK_HR_GROUP") in groups:
+        return UserRole.HR
     return None

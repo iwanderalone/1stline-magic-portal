@@ -85,6 +85,7 @@ SETTINGS_REGISTRY = [
     {"key": "KEYCLOAK_ADMIN_GROUP", "category": "Keycloak SSO", "label": "Admin group name", "type": "str"},
     {"key": "KEYCLOAK_MANAGER_GROUP", "category": "Keycloak SSO", "label": "Manager group name", "type": "str"},
     {"key": "KEYCLOAK_ENGINEER_GROUP", "category": "Keycloak SSO", "label": "Engineer group name", "type": "str"},
+    {"key": "KEYCLOAK_HR_GROUP", "category": "Keycloak SSO", "label": "HR group name (read-only schedule)", "type": "str"},
     {"key": "KEYCLOAK_GROUPS_CLAIM", "category": "Keycloak SSO", "label": "Groups claim name", "type": "str"},
 ]
 
