@@ -25,7 +25,7 @@ services:
     command: >
       sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
     ports:
-      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:${API_PORT:-8000}:8000"
     environment:
       DATABASE_URL: "postgresql+asyncpg://portal:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}@db:5432/portal"
       ENVIRONMENT: "${ENVIRONMENT:-development}"
@@ -103,7 +103,12 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     ports:
-      - "127.0.0.1:3000:80"
+      - "127.0.0.1:${WEB_PORT:-3000}:80"
+    # Only the frontend joins the shared reverse-proxy network: angie reaches it
+    # by container name (<project>-frontend-1), the api stays private to the stack.
+    networks:
+      - default
+      - proxy
     depends_on:
       api:
         condition: service_healthy
@@ -117,3 +122,7 @@ services:
 
 volumes:
   postgres_data:
+
+networks:
+  proxy:
+    external: true
