@@ -12,6 +12,7 @@ Branch labels: None
 Depends on: None
 
 """
+import sqlalchemy as sa
 from alembic import op
 
 revision = 'e4f5a6b7c8d9'
@@ -21,6 +22,10 @@ depends_on = None
 
 
 def upgrade():
+    # On a fresh database `runbooks` doesn't exist yet — the app's create_all
+    # makes it at startup, already NOT NULL with a server default.
+    if not sa.inspect(op.get_bind()).has_table('runbooks'):
+        return
     op.execute("UPDATE runbooks SET created_at = now() WHERE created_at IS NULL")
     op.execute("UPDATE runbooks SET updated_at = now() WHERE updated_at IS NULL")
     op.execute("ALTER TABLE runbooks ALTER COLUMN created_at SET DEFAULT now()")
