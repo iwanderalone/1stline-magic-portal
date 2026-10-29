@@ -119,11 +119,19 @@ class Settings(BaseSettings):
     # listed here follow, alphabetically.
     STATUS_GROUP_ORDER: str = ""
 
-    # AI assistant (Gemini). Empty key = assistant disabled.
-    # Privacy boundary: only TEAM data (schedule, time-off, runbooks) is ever
-    # sent to the model — never customer ticket/email content.
+    # AI assistant + invoice reading (app/services/llm.py).
+    # AI_PROVIDER: "gemini" (GEMINI_*) or "openai" = any OpenAI-compatible
+    # endpoint (AI_*), e.g. Open WebUI's Ollama passthrough …/ollama/v1.
+    # Unconfigured provider = assistant hidden, invoices filled by hand.
+    AI_PROVIDER: str = "gemini"
     GEMINI_API_KEY: str = ""
     GEMINI_MODEL: str = "gemini-flash-latest"
+    AI_BASE_URL: str = ""
+    AI_API_KEY: str = ""
+    AI_MODEL: str = ""
+    # reasoning_effort for thinking models (none/low/medium/high; empty = the
+    # model's default). "none" answers several times faster.
+    AI_REASONING: str = "none"
 
     # Mailbox Backup tool (Tools section). Backs up a Yandex mailbox over IMAP
     # into a .tar.zst on S3-compatible storage. Empty S3 creds = tool disabled.

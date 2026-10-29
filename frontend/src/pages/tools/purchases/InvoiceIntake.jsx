@@ -137,7 +137,7 @@ export default function InvoiceIntake({ lookups, navigate, onCancel, onDone, onT
   const { t: tr } = useLang();
   const L = useLabels();
   const [nb, setNb] = useState(null);           // NetBox lookups
-  const [status, setStatus] = useState({ netbox: false, gemini: false });
+  const [status, setStatus] = useState({ netbox: false, ai: false });
   const [file, setFile] = useState(null);
   const [parsing, setParsing] = useState(false);
   const [parsed, setParsed] = useState(null);   // what the AI said, for notes
@@ -195,7 +195,7 @@ export default function InvoiceIntake({ lookups, navigate, onCancel, onDone, onT
   const pickFile = async (f) => {
     setFile(f);
     setParsed(null);
-    if (!f || !status.gemini) return;
+    if (!f || !status.ai) return;
     setParsing(true);
     try {
       const fd = new FormData();
@@ -363,11 +363,11 @@ export default function InvoiceIntake({ lookups, navigate, onCancel, onDone, onT
           <span style={{ flex: 1 }} />
           {parsing && <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', fontSize: 13, color: 'var(--text-secondary)' }}><Spinner /> {tr('inReading')}</span>}
           {!parsing && parsed && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-secondary)' }}><Icon name="sparkles" size={13} /> {tr('inParsedCheck')}</span>}
-          {!parsing && file && status.gemini && !parsed && (
+          {!parsing && file && status.ai && !parsed && (
             <Button size="sm" variant="ghost" icon="refresh" onClick={() => pickFile(file)}>{tr('inReadAgain')}</Button>
           )}
         </div>
-        {!status.gemini && <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{tr('inNoGemini')}</div>}
+        {!status.ai && <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{tr('inNoAi')}</div>}
 
         <div style={{ opacity: parsing ? 0.5 : 1, pointerEvents: parsing ? 'none' : 'auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div style={cols('minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr)')}>

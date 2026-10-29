@@ -54,8 +54,13 @@ SETTINGS_REGISTRY = [
     {"key": "STATUS_GROUP_ORDER", "category": "Service Status", "label": "Section order, comma-separated (unlisted groups follow alphabetically)", "type": "str"},
 
     # ── AI Assistant ────────────────────────────────────────────────
+    {"key": "AI_PROVIDER", "category": "AI Assistant", "label": "Provider: gemini, or openai (OpenAI-compatible endpoint below)", "type": "str"},
     {"key": "GEMINI_API_KEY", "category": "AI Assistant", "label": "Gemini API key", "type": "str", "is_secret": True},
     {"key": "GEMINI_MODEL", "category": "AI Assistant", "label": "Gemini model", "type": "str"},
+    {"key": "AI_BASE_URL", "category": "AI Assistant", "label": "OpenAI-compatible base URL (Open WebUI: https://host/ollama/v1)", "type": "str"},
+    {"key": "AI_API_KEY", "category": "AI Assistant", "label": "OpenAI-compatible API key", "type": "str", "is_secret": True},
+    {"key": "AI_MODEL", "category": "AI Assistant", "label": "OpenAI-compatible model (e.g. gemma4:26b)", "type": "str"},
+    {"key": "AI_REASONING", "category": "AI Assistant", "label": "Thinking effort: none / low / medium / high (empty = model default)", "type": "str"},
 
     # ── Mailbox Backup (S3) ─────────────────────────────────────────
     {"key": "S3_ACCESS_KEY_ID", "category": "Mailbox Backup", "label": "S3 access key ID", "type": "str", "is_secret": True},

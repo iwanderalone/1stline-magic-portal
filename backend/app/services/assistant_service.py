@@ -1,26 +1,23 @@
-"""AI assistant — Gemini function-calling over team data.
+"""AI assistant — function calling over team data (Gemini or a self-hosted model, see llm.py).
 
 Privacy boundary (user-approved, updated 2026-07-09): team data (schedule,
 time-off, runbooks) + email queue METADATA in bulk. Full email/ticket content
 is allowed only per-case, when the user explicitly references that case in
 chat (get_email_case / get_ticket_case) — never in bulk.
 """
-import asyncio
 import json
 import logging
 from datetime import date, datetime, timedelta, timezone as dt_timezone
 
-import httpx
 from sqlalchemy import select, or_
 from sqlalchemy.orm import selectinload
 
-from app.core.config import get_settings
 from app.core.database import AsyncSessionFactory
 from app.models.models import (
     Shift, TimeOffRequest, TimeOffStatus, TimeOffType,
     Runbook, RunbookStep, User,
 )
-from app.services import netbox_service
+from app.services import llm, netbox_service
 
 logger = logging.getLogger(__name__)
 
@@ -730,74 +727,23 @@ def _system_prompt(user: User) -> str:
 
 async def run_chat(user: User, messages: list[dict]) -> dict:
     """Run one assistant turn. `messages` = [{role: user|model, text: str}, ...]."""
-    from app.core.dynamic_settings import eff
-    settings = get_settings()
-    gemini_api_key = eff("GEMINI_API_KEY", settings.GEMINI_API_KEY)
-    gemini_model = eff("GEMINI_MODEL", settings.GEMINI_MODEL)
-    if not gemini_api_key:
-        return {"reply": None, "error": "Assistant is not configured (GEMINI_API_KEY missing)"}
-
-    url = (
-        f"https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{gemini_model}:generateContent"
-    )
-    contents = [
-        {"role": ("model" if m.get("role") == "model" else "user"), "parts": [{"text": (m.get("text") or "")[:4000]}]}
+    history = [
+        {"role": "model" if m.get("role") == "model" else "user", "text": (m.get("text") or "")[:4000]}
         for m in messages[-16:]  # cap history
     ]
-    body = {
-        "system_instruction": {"parts": [{"text": _system_prompt(user)}]},
-        "contents": contents,
-        "tools": [{"function_declarations": TOOL_DECLARATIONS}],
-        "generationConfig": {"temperature": 0.3, "maxOutputTokens": 1024},
-    }
 
-    tools_used: list[str] = []
-    async with httpx.AsyncClient(timeout=45) as client:
-        for _ in range(MAX_TOOL_ROUNDS):
-            # Google intermittently 503s under load ("high demand") — retry with backoff.
-            for attempt in range(3):
-                resp = await client.post(url, params={"key": gemini_api_key}, json=body)
-                if resp.status_code != 503:
-                    break
-                logger.warning("[assistant] Gemini 503 (overloaded), attempt %d/3", attempt + 1)
-                await asyncio.sleep(2 * (attempt + 1))
-            if resp.status_code == 503:
-                return {"reply": None, "error": "The AI model is overloaded on Google's side right now — please try again in a moment."}
-            if resp.status_code == 429:
-                logger.warning("[assistant] Gemini rate-limited: %s", resp.text[:300])
-                return {"reply": None, "error": "The assistant is rate-limited right now — try again in a minute."}
-            if resp.status_code >= 400:
-                logger.warning("[assistant] Gemini %s: %s", resp.status_code, resp.text[:300])
-                return {"reply": None, "error": f"AI service error ({resp.status_code})"}
-            data = resp.json()
-            try:
-                parts = data["candidates"][0]["content"]["parts"]
-            except (KeyError, IndexError):
-                return {"reply": None, "error": "AI returned an empty response"}
+    async def run_tool(name: str, args: dict) -> dict:
+        impl = TOOL_IMPL.get(name)
+        if impl is None:
+            return {"error": f"unknown tool {name}"}
+        try:
+            return await impl(user, args)
+        except Exception as exc:  # keep the chat alive on tool bugs
+            logger.exception("[assistant] tool %s failed", name)
+            return {"error": f"tool failed: {exc}"}
 
-            calls = [p["functionCall"] for p in parts if "functionCall" in p]
-            if not calls:
-                text = "".join(p.get("text", "") for p in parts).strip()
-                return {"reply": text or "…", "tools_used": tools_used}
-
-            # Execute tool calls, then continue the loop with their results.
-            body["contents"].append({"role": "model", "parts": parts})
-            responses = []
-            for call in calls:
-                name = call.get("name")
-                args = call.get("args") or {}
-                impl = TOOL_IMPL.get(name)
-                if impl is None:
-                    result = {"error": f"unknown tool {name}"}
-                else:
-                    try:
-                        result = await impl(user, args)
-                    except Exception as exc:  # keep the chat alive on tool bugs
-                        logger.exception("[assistant] tool %s failed", name)
-                        result = {"error": f"tool failed: {exc}"}
-                tools_used.append(name)
-                responses.append({"functionResponse": {"name": name, "response": result}})
-            body["contents"].append({"role": "user", "parts": responses})
-
-    return {"reply": None, "error": "Too many tool rounds — please rephrase"}
+    try:
+        reply, tools_used = await llm.chat(_system_prompt(user), history, TOOL_DECLARATIONS, run_tool, MAX_TOOL_ROUNDS)
+    except llm.LLMError as exc:
+        return {"reply": None, "error": str(exc)}
+    return {"reply": reply, "tools_used": tools_used}
