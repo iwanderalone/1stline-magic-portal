@@ -10,7 +10,7 @@ Internal operations portal for a first-line IT support team.
 - **Tickets** — read-only Zammad mirror with portal-only notes and Telegram escalation of overdue tickets
 - **Service Status** — live probe board fed by Prometheus `remote_write`
 - **Runbooks** — step-by-step playbook library
-- **AI assistant** — chat over schedule, time off, runbooks, mail and inventory; reads supplier invoices. Runs on Gemini or a self-hosted model (any OpenAI-compatible API)
+- **AI assistant** — chat over schedule, time off, runbooks, mail and inventory; reads supplier invoices
 - **Tools** — NetBox inventory, device handover documents, mailbox backup to S3
 - **Finances** — subscriptions, seats, payments, budgets, renewal reminders; add equipment by invoice (invoice → NetBox devices → payment → handover)
 - **Admin** — users, groups, roles, Telegram destinations, audit log, live settings (no redeploy)
@@ -20,7 +20,7 @@ Internal operations portal for a first-line IT support team.
 - **Backend:** Python 3.12, FastAPI, SQLAlchemy (async) + PostgreSQL, Alembic, APScheduler
 - **Frontend:** React 18 + Vite, EN/RU
 - **Auth:** local accounts with optional TOTP, optional Keycloak SSO
-- **Integrations (all optional):** Telegram, IMAP/SMTP, Zammad, Prometheus, Grafana, NetBox, S3, Gemini / OpenAI-compatible LLM
+- **Integrations (all optional):** Telegram, IMAP/SMTP, Zammad, Prometheus, Grafana, NetBox, S3, LLM (AI assistant)
 
 ## Run
 
