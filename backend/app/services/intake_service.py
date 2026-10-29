@@ -1,6 +1,6 @@
 """Equipment intake: one invoice in, NetBox devices out.
 
-    invoice PDF ──► (Gemini reads it, a human corrects) ──► IntakeRequest
+    invoice PDF ──► (the AI reads it, a human corrects) ──► IntakeRequest
                          │
                          ├─ supplier added to NetBox's choice set if new
                          ├─ device types / manufacturers created if missing
@@ -14,22 +14,15 @@ part-way leaves what was created. Re-running the same intake is safe for
 serialised units: a serial already in NetBox under the same invoice number is
 reused instead of duplicated.
 """
-import asyncio
-import base64
-import json
 import logging
 import re
 from datetime import date
 from typing import Optional
 
-import httpx
-
-from app.core.config import get_settings
-from app.core.dynamic_settings import eff
 from app.schemas.schemas import (
     IntakeDevice, IntakeRequest, NetboxLookupItem, ParsedInvoice, ParsedInvoiceItem,
 )
-from app.services import netbox_service as nbs
+from app.services import llm, netbox_service as nbs
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +36,7 @@ class IntakeError(Exception):
         self.status_code = status_code
 
 
-# ─── Reading the invoice (Gemini) ─────────────────────────────────────
+# ─── Reading the invoice (AI, see llm.py) ─────────────────────────────────────
 
 _PARSE_PROMPT = """You are reading a supplier invoice for IT equipment bought by a company in the UAE.
 Extract the fields below. Rules:
@@ -90,52 +83,15 @@ _PARSE_SCHEMA = {
 }
 
 
-def gemini_enabled() -> bool:
-    return bool(eff("GEMINI_API_KEY", get_settings().GEMINI_API_KEY))
+def ai_enabled() -> bool:
+    return llm.enabled()
 
 
-async def _gemini_extract(content: bytes, mime: str) -> dict:
-    s = get_settings()
-    key = eff("GEMINI_API_KEY", s.GEMINI_API_KEY)
-    model = eff("GEMINI_MODEL", s.GEMINI_MODEL)
-    if not key:
-        raise IntakeError("Invoice reading needs GEMINI_API_KEY", status_code=503)
-    body = {
-        "contents": [{"role": "user", "parts": [
-            {"inline_data": {"mime_type": mime, "data": base64.b64encode(content).decode()}},
-            {"text": _PARSE_PROMPT},
-        ]}],
-        "generationConfig": {
-            "temperature": 0,
-            "responseMimeType": "application/json",
-            "responseSchema": _PARSE_SCHEMA,
-            "maxOutputTokens": 4096,
-        },
-    }
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-    # Google 503s ("high demand") come in bursts; a short backoff usually clears them.
+async def _extract(content: bytes, mime: str) -> dict:
     try:
-        async with httpx.AsyncClient(timeout=90) as client:
-            for attempt in range(4):
-                resp = await client.post(url, params={"key": key}, json=body)
-                if resp.status_code not in (500, 503):
-                    break
-                logger.warning("[intake] Gemini %s, attempt %d/4", resp.status_code, attempt + 1)
-                await asyncio.sleep(2 * (attempt + 1))
-    except httpx.HTTPError as exc:
-        raise IntakeError(f"Cannot reach Gemini: {exc}") from exc
-    if resp.status_code in (500, 503):
-        raise IntakeError("Gemini is overloaded on Google's side — try again in a minute or fill the form by hand", 503)
-    if resp.status_code == 429:
-        raise IntakeError("Gemini is rate-limited right now — fill the form by hand or retry in a minute", 429)
-    if resp.status_code >= 400:
-        logger.warning("[intake] Gemini %s: %s", resp.status_code, resp.text[:300])
-        raise IntakeError(f"Gemini error ({resp.status_code})")
-    try:
-        parts = resp.json()["candidates"][0]["content"]["parts"]
-        return json.loads("".join(p.get("text", "") for p in parts))
-    except (KeyError, IndexError, ValueError) as exc:
-        raise IntakeError("Gemini returned something that is not an invoice reading") from exc
+        return await llm.extract_json(_PARSE_PROMPT, _PARSE_SCHEMA, content, mime)
+    except llm.LLMError as exc:
+        raise IntakeError(f"{exc} — fill the form by hand or retry", exc.status_code) from exc
 
 
 def _num(v) -> Optional[float]:
@@ -246,7 +202,7 @@ def _clean_serials(serials, *line_text: Optional[str]) -> list[str]:
 
 
 async def parse_invoice(content: bytes, mime: str) -> ParsedInvoice:
-    data = await _gemini_extract(content, mime)
+    data = await _extract(content, mime)
     suppliers = await nbs.list_suppliers() if nbs.enabled() else []
     items = []
     for raw in data.get("items") or []:

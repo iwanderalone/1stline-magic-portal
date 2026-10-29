@@ -76,6 +76,11 @@ services:
       STATUS_GROUP_ORDER: "${STATUS_GROUP_ORDER:-}"
       GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
       GEMINI_MODEL: "${GEMINI_MODEL:-gemini-flash-latest}"
+      AI_PROVIDER: "${AI_PROVIDER:-gemini}"
+      AI_BASE_URL: "${AI_BASE_URL:-}"
+      AI_API_KEY: "${AI_API_KEY:-}"
+      AI_MODEL: "${AI_MODEL:-}"
+      AI_REASONING: "${AI_REASONING:-none}"
       S3_BUCKET: "${S3_BUCKET:-}"
       S3_ACCESS_KEY_ID: "${S3_ACCESS_KEY_ID:-}"
       S3_SECRET_ACCESS_KEY: "${S3_SECRET_ACCESS_KEY:-}"
@@ -108,6 +113,7 @@ services:
       KEYCLOAK_ADMIN_GROUP: "${KEYCLOAK_ADMIN_GROUP:-g-app-itportal-admin}"
       KEYCLOAK_MANAGER_GROUP: "${KEYCLOAK_MANAGER_GROUP:-g-app-itportal-manager}"
       KEYCLOAK_ENGINEER_GROUP: "${KEYCLOAK_ENGINEER_GROUP:-g-app-itportal-engineer}"
+      KEYCLOAK_HR_GROUP: "${KEYCLOAK_HR_GROUP:-g-app-itportal-hr}"
       KEYCLOAK_GROUPS_CLAIM: "${KEYCLOAK_GROUPS_CLAIM:-groups}"
       LOG_DIR: /app/data/logs
     volumes:

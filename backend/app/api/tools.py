@@ -621,11 +621,11 @@ async def _read_document(file: UploadFile) -> tuple[str, bytes]:
 
 @router.get("/inventory/intake/status")
 async def intake_status(_: User = Depends(require_admin_or_manager)):
-    return {"netbox": nbs.enabled(), "gemini": intake.gemini_enabled()}
+    return {"netbox": nbs.enabled(), "ai": intake.ai_enabled()}
 
 
 @router.post("/inventory/intake/parse", response_model=ParsedInvoice,
-             summary="Read an invoice with Gemini",
+             summary="Read an invoice with the configured AI model",
              description="Suggestions only — nothing is written. The supplier is matched to NetBox's "
                          "choice set and each line to an existing device type where confident.")
 async def parse_invoice(file: UploadFile = File(...), db: AsyncSession = Depends(get_db),

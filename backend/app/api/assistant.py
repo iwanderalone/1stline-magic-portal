@@ -4,9 +4,9 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.core.config import get_settings
 from app.core.deps import get_current_user
 from app.models.models import User
+from app.services import llm
 from app.services.assistant_service import run_chat
 
 logger = logging.getLogger(__name__)
@@ -24,8 +24,7 @@ class ChatRequest(BaseModel):
 
 @router.get("/status", summary="Is the assistant configured?")
 async def assistant_status(_: User = Depends(get_current_user)):
-    from app.core.dynamic_settings import eff
-    return {"enabled": bool(eff("GEMINI_API_KEY", get_settings().GEMINI_API_KEY))}
+    return {"enabled": llm.enabled()}
 
 
 @router.post("/chat", summary="Chat with the portal assistant")

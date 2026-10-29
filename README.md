@@ -1,67 +1,46 @@
 # 1stline Magic Portal
 
-Internal operations portal for first-line support teams: shift scheduling and time-off, IMAP mail monitoring with Telegram forwarding and SMTP replies, a read-only Zammad ticket mirror, Prometheus-fed service status board, runbooks, an AI assistant (Gemini), NetBox inventory and handover documents, notifications and an admin panel.
+Internal operations portal for a first-line IT support team.
+
+## Modules
+
+- **Home** — what needs attention now: services down, stale tickets, unhandled mail, who is on shift
+- **Schedule & Time off** — shift calendar with auto-generation, time-off requests and approval, Telegram shift reminders
+- **Mail** — IMAP mailbox monitoring, routing rules, forwarding to Telegram, replies from the portal over SMTP
+- **Tickets** — read-only Zammad mirror with portal-only notes and Telegram escalation of overdue tickets
+- **Service Status** — live probe board fed by Prometheus `remote_write`
+- **Runbooks** — step-by-step playbook library
+- **AI assistant** — chat over schedule, time off, runbooks, mail and inventory; reads supplier invoices
+- **Tools** — NetBox inventory, device handover documents, mailbox backup to S3
+- **Finances** — subscriptions, seats, payments, budgets, renewal reminders; add equipment by invoice (invoice → NetBox devices → payment → handover)
+- **Admin** — users, groups, roles, Telegram destinations, audit log, live settings (no redeploy)
 
 ## Stack
 
-- **Backend:** FastAPI (Python 3.12), SQLAlchemy async + PostgreSQL, Alembic, APScheduler (in-process workers)
-- **Frontend:** React 18 + Vite 5 (single-page app, hash routing, EN/RU)
-- **Auth:** local accounts with optional TOTP 2FA, optional Keycloak OIDC SSO, roles `admin` / `manager` / `engineer` / `hr`
-- **Integrations (all optional):** Telegram bot, IMAP/SMTP, Zammad, Grafana webhooks, Prometheus `remote_write`, NetBox, S3-compatible storage, Google Gemini
+- **Backend:** Python 3.12, FastAPI, SQLAlchemy (async) + PostgreSQL, Alembic, APScheduler
+- **Frontend:** React 18 + Vite, EN/RU
+- **Auth:** local accounts with optional TOTP, optional Keycloak SSO
+- **Integrations (all optional):** Telegram, IMAP/SMTP, Zammad, Prometheus, Grafana, NetBox, S3, LLM (AI assistant)
 
-## Quick start (Docker)
+## Run
 
 ```bash
-cp .env.example .env        # then fill in the required values below
+cp .env.example .env    # set SECRET_KEY, JWT_SECRET, POSTGRES_PASSWORD
 mkdir -p data
+docker network create proxy  # once; the reverse proxy reaches the frontend over it
 docker compose up -d --build
 ```
 
-Required in `.env`:
+Frontend on `127.0.0.1:3000`, API on `127.0.0.1:8000` (`/docs`) — put a reverse proxy in front. Migrations run on start; the first run creates demo accounts — change their passwords. Everything optional is in `.env.example` and most of it can be changed later in **Admin → Settings**.
+
+### Local development
 
 ```bash
-SECRET_KEY=            # openssl rand -hex 32
-JWT_SECRET=            # openssl rand -hex 64
-POSTGRES_PASSWORD=     # openssl rand -hex 32
-```
-
-The frontend is served on port 80 (nginx, proxies `/api`), the API on 8000 (`/docs` for the OpenAPI UI). Database migrations run automatically on start, and a first-run seed creates demo accounts (see `seed_defaults` in `backend/app/main.py`) — **change those passwords immediately**.
-
-All other settings are documented in `.env.example`. Most operational values can also be changed at runtime from **Admin → Settings** without a redeploy.
-
-## Local development
-
-```bash
-# backend
-cd backend
-python -m venv venv && source venv/bin/activate
+cd backend && python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 
-# frontend (dev server on :5173, proxies /api to :8000)
-cd frontend
-npm install
-npm run dev
+cd frontend && npm install && npm run dev    # :5173, proxies /api to :8000
 ```
 
-Tests: `cd backend && pytest` (needs a PostgreSQL instance, see `backend/tests/conftest.py`).
-
-## Repository layout
-
-```
-backend/app/
-  api/        FastAPI routers, one per domain
-  core/       config, database, auth/security, scheduler, encryption, runtime settings
-  models/     SQLAlchemy models
-  schemas/    Pydantic schemas
-  services/   business logic and integrations
-  workers/    background jobs
-backend/alembic/   database migrations
-backend/tests/     pytest suite
-frontend/src/      pages, shared components, i18n, theme
-examples/          document templates used by the app
-```
-
-## Branches
-
-Development happens on `dev`; `main` holds tested, stable code.
+Tests: `cd backend && pytest` (needs PostgreSQL).
