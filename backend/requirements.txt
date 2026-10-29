@@ -24,4 +24,4 @@ cramjam>=2.8        # snappy for Prometheus remote_write
 boto3>=1.28
 docxtpl==0.20.2
 openpyxl>=3.1      # Subscriptions & Purchases xlsx report
-pymupdf>=1.24      # PDF invoices → page images for self-hosted vision models
+pypdfium2>=4.30    # PDF invoices → page images + text layer for self-hosted vision models

@@ -118,14 +118,25 @@ def _read_pdf(content: bytes) -> tuple[list[bytes], str]:
     """Open models take images, not PDFs: render the first pages, and keep the
     text layer — a digital invoice's text is exact where a model reading pixels
     misreads serial numbers. Scans have no text layer and go on images alone."""
-    import pymupdf
-    with pymupdf.open(stream=content, filetype="pdf") as doc:
-        if doc.page_count == 0:
+    import io
+    import pypdfium2 as pdfium
+    try:
+        pdf = pdfium.PdfDocument(content)
+    except pdfium.PdfiumError as exc:
+        raise LLMError("The file is not a readable PDF", 422) from exc
+    try:
+        if len(pdf) == 0:
             raise LLMError("The PDF has no pages", 422)
-        pages = list(doc.pages(0, min(doc.page_count, PDF_MAX_PAGES)))
-        images = [page.get_pixmap(dpi=PDF_DPI).tobytes("png") for page in pages]
-        text = "\n\n".join(page.get_text("text", sort=True).strip() for page in pages).strip()
-    return images, text
+        images, texts = [], []
+        for i in range(min(len(pdf), PDF_MAX_PAGES)):
+            page = pdf[i]
+            buf = io.BytesIO()
+            page.render(scale=PDF_DPI / 72).to_pil().save(buf, format="PNG")
+            images.append(buf.getvalue())
+            texts.append(page.get_textpage().get_text_range().replace("\r\n", "\n").strip())
+    finally:
+        pdf.close()
+    return images, "\n\n".join(t for t in texts if t)
 
 
 # ─── Chat with tools ──────────────────────────────────────────────────

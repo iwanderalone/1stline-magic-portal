@@ -1,7 +1,6 @@
 import json
 
 import httpx
-import pymupdf
 import pytest
 
 from app.core import dynamic_settings
@@ -45,15 +44,39 @@ def test_gemini_schema_dialect_becomes_plain_json_schema():
     }
 
 
+def _pdf(pages: list[str]) -> bytes:
+    """Minimal multi-page PDF, one line of Helvetica text per page."""
+    n = len(pages)
+    objs = [b"<< /Type /Catalog /Pages 2 0 R >>",
+            b"<< /Type /Pages /Kids [" + b" ".join(b"%d 0 R" % (4 + 2 * i) for i in range(n)) + b"] /Count %d >>" % n,
+            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"]
+    for i, text in enumerate(pages):
+        stream = b"BT /F1 12 Tf 50 700 Td (" + text.encode() + b") Tj ET"
+        objs.append(b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> "
+                    b"/Contents %d 0 R >>" % (5 + 2 * i))
+        objs.append(b"<< /Length %d >>\nstream\n" % len(stream) + stream + b"\nendstream")
+    out, offsets = bytearray(b"%PDF-1.4\n"), []
+    for i, body in enumerate(objs, 1):
+        offsets.append(len(out))
+        out += b"%d 0 obj\n" % i + body + b"\nendobj\n"
+    xref = len(out)
+    out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objs) + 1)
+    out += b"".join(b"%010d 00000 n \n" % o for o in offsets)
+    out += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (len(objs) + 1, xref)
+    return bytes(out)
+
+
 def test_pdf_pages_rendered_and_capped():
-    doc = pymupdf.open()
-    for _ in range(llm.PDF_MAX_PAGES + 2):
-        doc.new_page()
-    doc[0].insert_text((50, 50), "S/N: C02XK1ABMD6T")
-    pngs, text = llm._read_pdf(doc.tobytes())
+    pngs, text = llm._read_pdf(_pdf(["S/N: C02XK1ABMD6T"] + ["page"] * (llm.PDF_MAX_PAGES + 1)))
     assert len(pngs) == llm.PDF_MAX_PAGES
     assert all(p.startswith(b"\x89PNG") for p in pngs)
     assert "C02XK1ABMD6T" in text
+
+
+def test_not_a_pdf_is_a_clear_error():
+    with pytest.raises(llm.LLMError) as exc:
+        llm._read_pdf(b"not a pdf")
+    assert exc.value.status_code == 422
 
 
 def test_provider_switch(openai_provider):
