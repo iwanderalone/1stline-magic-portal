@@ -128,26 +128,35 @@ async def start_mailbox_backup(
 async def list_backup_jobs(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=10, ge=1, le=100),
+    show_failed: bool = Query(default=True),
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
     """Active jobs (queued/running) sort first — oldest-queued first, matching
     the FIFO order they'll actually run in — so a batch in progress is always
-    visible on page 1 without paging. Finished jobs follow, newest first."""
+    visible on page 1 without paging. Finished jobs follow, newest first.
+    `show_failed=false` hides failed jobs; `failed` is counted either way so the
+    toggle can say how many are hidden."""
     is_active = MailboxBackupJob.status.in_(("queued", "running"))
     active_group = case((is_active, 0), else_=1)
     active_order = case((is_active, MailboxBackupJob.created_at))       # ASC within active
     finished_order = case((is_active, None), else_=MailboxBackupJob.created_at)  # DESC within finished
-    total = (await db.execute(select(func.count()).select_from(MailboxBackupJob))).scalar() or 0
+    failed = (await db.execute(
+        select(func.count()).select_from(MailboxBackupJob).where(MailboxBackupJob.status == "failed")
+    )).scalar() or 0
+    query = select(MailboxBackupJob)
+    if not show_failed:
+        query = query.where(MailboxBackupJob.status != "failed")
+    total = (await db.execute(select(func.count()).select_from(query.subquery()))).scalar() or 0
     res = await db.execute(
-        select(MailboxBackupJob)
+        query
         .order_by(active_group, active_order.asc(), finished_order.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
     )
     return MailboxBackupJobsPage(
         items=[_overlay_progress(j) for j in res.scalars().all()],
-        total=total, page=page, page_size=page_size,
+        total=total, failed=failed, page=page, page_size=page_size,
     )
 
 
