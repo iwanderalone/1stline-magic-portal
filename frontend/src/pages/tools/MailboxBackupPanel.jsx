@@ -170,6 +170,10 @@ export default function MailboxBackupPanel() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 10;
+  const [failedCount, setFailedCount] = useState(0);
+  const [showFailed, setShowFailed] = useState(() => {
+    try { return localStorage.getItem('mbShowFailed') !== '0'; } catch { return true; }
+  });
   const [busy, setBusy] = useState(false);
   const [cancellingId, setCancellingId] = useState(null);
   const [toast, setToast] = useState(null);
@@ -181,11 +185,18 @@ export default function MailboxBackupPanel() {
 
   const loadJobs = useCallback(async () => {
     try {
-      const d = await api(`/tools/mailbox-backup/jobs?page=${page}&page_size=${PAGE_SIZE}`);
+      const d = await api(`/tools/mailbox-backup/jobs?page=${page}&page_size=${PAGE_SIZE}&show_failed=${showFailed}`);
       setJobs(d.items);
       setTotal(d.total);
+      setFailedCount(d.failed ?? 0);
     } catch { /* keep last */ }
-  }, [page]);
+  }, [page, showFailed]);
+
+  const toggleFailed = (on) => {
+    setShowFailed(on);
+    setPage(1);
+    try { localStorage.setItem('mbShowFailed', on ? '1' : '0'); } catch { /* per-browser nicety only */ }
+  };
 
   useEffect(() => { loadJobs(); }, [loadJobs]);
 
@@ -285,7 +296,13 @@ export default function MailboxBackupPanel() {
           </form>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div className="t-eyebrow">{tr('toolJobs')} ({total})</div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+              <div className="t-eyebrow">{tr('toolJobs')} ({total})</div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                <input type="checkbox" checked={showFailed} onChange={e => toggleFailed(e.target.checked)} />
+                {tr('toolShowFailed')}{failedCount > 0 && ` (${failedCount})`}
+              </label>
+            </div>
             {jobs.length === 0
               ? <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>{tr('toolNoJobs')}</div>
               : jobs.map(j => (

@@ -882,6 +882,7 @@ class MailboxBackupJobResponse(BaseOrmModel):
 class MailboxBackupJobsPage(BaseModel):
     items: list[MailboxBackupJobResponse]
     total: int
+    failed: int = 0
     page: int
     page_size: int
 
