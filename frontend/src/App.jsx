@@ -19,7 +19,6 @@ import TicketsPage from './pages/TicketsPage';
 import StatusPage from './pages/StatusPage';
 import MailboxBackupPanel from './pages/tools/MailboxBackupPanel';
 import InventoryPanel from './pages/tools/InventoryPanel';
-import HandoverPanel from './pages/tools/HandoverPanel';
 import PurchasesPage from './pages/tools/purchases/PurchasesPage';
 import AssistantChat from './components/AssistantChat';
 import NotificationsPanel from './components/NotificationsPanel';
@@ -42,7 +41,7 @@ function useBreakpoint() {
 }
 
 // Forms and settings read better narrow; tables, boards and calendars get 1200.
-const FORM_PAGES = ['tools', 'handover', 'profile'];
+const FORM_PAGES = ['tools', 'profile'];
 
 const NAV_ICONS = {
   home:       'grid',
@@ -56,7 +55,6 @@ const NAV_ICONS = {
   reminders:  'bell',
   tools:      'archive',
   inventory:  'box',
-  handover:   'fileText',
   purchases:  'key',
   admin:      'shield',
 };
@@ -192,7 +190,7 @@ function navCountFor(id, counts) {
   if (id === 'mail' && c.mail?.count) return { n: c.mail.count, tone: c.mail.old ? 'danger' : 'muted' };
   if (id === 'tickets' && c.tickets?.count) return { n: c.tickets.count, tone: c.tickets.old ? 'danger' : 'muted' };
   if (id === 'timeoff' && c.timeoff) return { n: c.timeoff, tone: 'warning' };
-  if (id === 'handover' && c.handover) return { n: c.handover, tone: 'warning' };
+  if (id === 'inventory' && c.handover) return { n: c.handover, tone: 'warning' };
   return null;
 }
 
@@ -225,7 +223,7 @@ export default function App() {
   // Admin and manager both get the admin page/nav; manager is a narrower role
   // (no Telegram integration settings — gated per-tab inside AdminPage itself).
   const canAccessAdmin = (u) => u?.role === 'admin' || u?.role === 'manager';
-  const PAGES = ['home', 'schedule', 'timeoff', 'profile', 'admin', 'mail', 'reminders', 'runbooks', 'tickets', 'status', 'tools', 'inventory', 'handover', 'purchases'];
+  const PAGES = ['home', 'schedule', 'timeoff', 'profile', 'admin', 'mail', 'reminders', 'runbooks', 'tickets', 'status', 'tools', 'inventory', 'purchases'];
   // HR is restricted to a fixed page allowlist (enforced for real on the
   // backend too — see get_current_user in deps.py); every other role sees
   // everything it always has. A page outside the list renders NoAccessPage
@@ -241,7 +239,8 @@ export default function App() {
     const rawHash = window.location.hash.replace(/^#\/?/, '');
     const rawPath = window.location.pathname.replace(/^\/+|\/+$/g, '');
     const raw = rawHash || rawPath;
-    const [p, ...rest] = raw.split('/');
+    let [p, ...rest] = raw.split('/');
+    if (p === 'handover') { p = 'inventory'; rest = ['handover', ...rest]; }   // old links: Handover is a tab of Inventory now
     return { page: PAGES.includes(p) ? p : 'home', sub: rest.join('/') || null };
   };
   const pageFromLocation = () => parseLocation().page;
@@ -413,7 +412,6 @@ export default function App() {
       items: [
         { id: 'tools',     label: lang === 'ru' ? 'Бэкап почты'    : 'Mailbox Backup' },
         { id: 'inventory', label: lang === 'ru' ? 'Инвентаризация' : 'Inventory' },
-        { id: 'handover',  label: lang === 'ru' ? 'Акт передачи'   : 'Handover' },
         ...(canAccessAdmin(auth.user) ? [{ id: 'purchases', label: lang === 'ru' ? 'Финансы' : 'Finances' }] : []),
       ],
     },
@@ -633,8 +631,7 @@ export default function App() {
                 {page === 'runbooks'   && <RunbooksPage user={auth.user} initialRunbookId={initialRunbookId} initialSlug={subPath} />}
                 {page === 'reminders'  && <RemindersPage user={auth.user} />}
                 {page === 'tools'      && <MailboxBackupPanel />}
-                {page === 'inventory'  && <InventoryPanel user={auth.user} />}
-                {page === 'handover'   && <HandoverPanel subPath={subPath} />}
+                {page === 'inventory'  && <InventoryPanel user={auth.user} subPath={subPath} navigate={navigate} pendingHandovers={navCounts.handover} />}
                 {page === 'purchases'  && canAccessAdmin(auth.user) && <PurchasesPage subPath={subPath} navigate={navigate} />}
               </>}
             </div>

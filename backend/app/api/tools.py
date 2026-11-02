@@ -37,6 +37,7 @@ from app.schemas.schemas import (
     NetboxContactsPage,
     HandoverRecord as HandoverRecordIn,
     HandoverRecordOut,
+    HandoverUndone,
     HandoverRecordResult,
     IntakeRequest,
     IntakeResult,
@@ -612,6 +613,54 @@ async def upload_signed_handover(
                      f"{len(devices)} device(s), attachment #{attachment['id']})")
     await db.commit()
     return record
+
+
+@router.delete("/inventory/handovers/{record_id}", response_model=HandoverUndone,
+               summary="Cancel a handover recorded by mistake",
+               description="Only while it waits for signature: deletes its contact-assignments and "
+                           "the draft document in NetBox, so the devices are free to hand over again. "
+                           "Returns who and what it was, for the form to refill.")
+async def cancel_handover(
+    record_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin_or_manager),
+):
+    if not nbs.enabled():
+        raise _netbox_unavailable()
+    record = await get_or_404(db, HandoverRecord, record_id)
+    if record.status != "pending":
+        raise HTTPException(status_code=409, detail="The signed copy is already attached — change it in NetBox")
+    assignment_ids = json.loads(record.assignment_ids or "[]")
+    devices = json.loads(record.devices or "[]")
+    signed_by_id = None
+    try:
+        if assignment_ids:
+            try:
+                signed_by_id = ((await nbs.get_assignment(assignment_ids[0])).get("signed_by") or {}).get("id")
+            except nbs.NetboxNotFoundError:
+                pass
+        for assignment_id in assignment_ids:
+            await nbs.delete_assignment(assignment_id)
+    except nbs.NetboxError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc))
+    if record.draft_attachment_id:
+        # The holder is what matters; an orphaned draft is harmless, so don't fail on it.
+        try:
+            await nbs.delete_attachment(record.draft_attachment_id)
+        except nbs.NetboxError as exc:
+            logger.warning("[tools] handover #%s: draft attachment #%s not deleted: %s",
+                           record.id, record.draft_attachment_id, exc)
+    undone = HandoverUndone(
+        employee_contact_id=record.employee_contact_id,
+        signed_by_contact_id=signed_by_id,
+        device_ids=[d["id"] for d in devices],
+    )
+    await log_action(db, user, "inventory_handover_cancelled",
+                     f"Handover for {record.employee_name} cancelled (#{record.id}, "
+                     f"{len(assignment_ids)} assignment(s) removed from NetBox)")
+    await db.delete(record)
+    await db.commit()
+    return undone
 
 
 # ─── Intake: invoice → NetBox devices → payment ───────────────────────
