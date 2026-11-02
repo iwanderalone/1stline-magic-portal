@@ -332,7 +332,7 @@ export default function InvoiceIntake({ lookups, navigate, onCancel, onDone, onT
         {tagged < result.devices.length && <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{tr('inTagHint')}</div>}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {result.devices.length > 0 && (
-            <Button variant="primary" icon="fileText" onClick={() => navigate(`handover/devices/${result.devices.map(d => d.id).join(',')}`)}>
+            <Button variant="primary" icon="fileText" onClick={() => navigate(`inventory/handover/devices/${result.devices.map(d => d.id).join(',')}`)}>
               {tr('inToHandover')}
             </Button>
           )}

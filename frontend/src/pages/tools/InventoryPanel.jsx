@@ -1,16 +1,21 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../../api';
-import { Button, EmptyState, Select, Toast, PageHeader } from '../../components/UI';
+import { Button, EmptyState, Select, Toast, PageHeader, Tabs } from '../../components/UI';
 import { Icon } from '../../components/Icons';
 import { useLang } from '../../components/LangContext';
 import DeviceList from '../../components/DeviceList';
 import DeviceFormModal from '../../components/DeviceFormModal';
 import DeviceDetailModal from '../../components/DeviceDetailModal';
+import HandoverPanel from './HandoverPanel';
 
 const PAGE_SIZE = 20;
 
-export default function InventoryPanel({ user }) {
+// Devices and handovers in one place: #inventory, #inventory/handover[/devices/1,2].
+export default function InventoryPanel({ user, subPath, navigate, pendingHandovers }) {
   const { lang, t: tr } = useLang();
+  const [section, ...rest] = (subPath || '').split('/');
+  const tab = section === 'handover' ? 'handover' : 'devices';
+  const goTab = (id) => navigate(id === 'handover' ? 'inventory/handover' : 'inventory');
   const canEdit = user?.role === 'admin' || user?.role === 'manager';
   const [enabled, setEnabled] = useState(null); // null = loading
   const [q, setQ] = useState('');
@@ -75,13 +80,47 @@ export default function InventoryPanel({ user }) {
 
   if (enabled === null) return null;
 
+  const header = (
+    <PageHeader
+      title={tr('invTitle')}
+      subtitle={tab === 'handover' ? tr('handoverSubtitle') : tr('invSubtitle')}
+      actions={canEdit && enabled && tab === 'devices' && (
+        <Button type="button" variant="primary" icon="plus" onClick={() => setEditing('new')}>
+          {tr('invNewDevice')}
+        </Button>
+      )}
+    >
+      <Tabs
+        tabs={[
+          { id: 'devices', label: tr('invTabDevices') },
+          { id: 'handover', label: pendingHandovers ? `${tr('invTabHandover')} (${pendingHandovers})` : tr('invTabHandover') },
+        ]}
+        active={tab}
+        onChange={goTab}
+      />
+    </PageHeader>
+  );
+
+  // Free-text handovers work without NetBox, so that tab never depends on it.
+  if (tab === 'handover') {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {header}
+        <div style={{ maxWidth: 780 }}><HandoverPanel subPath={rest.join('/')} /></div>
+      </div>
+    );
+  }
+
   if (enabled === false) {
     return (
-      <EmptyState
-        icon={<Icon name="box" size={40} />}
-        title={tr('invNotConfigured')}
-        subtitle={tr('invNotConfiguredDesc')}
-      />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {header}
+        <EmptyState
+          icon={<Icon name="box" size={40} />}
+          title={tr('invNotConfigured')}
+          subtitle={tr('invNotConfiguredDesc')}
+        />
+      </div>
     );
   }
 
@@ -105,15 +144,7 @@ export default function InventoryPanel({ user }) {
         />
       )}
 
-      <PageHeader
-        title={tr('invTitle')}
-        subtitle={tr('invSubtitle')}
-        actions={canEdit && (
-          <Button type="button" variant="primary" icon="plus" onClick={() => setEditing('new')}>
-            {tr('invNewDevice')}
-          </Button>
-        )}
-      />
+      {header}
 
       <form onSubmit={onSearchSubmit} style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
         <div style={{ flex: '1 1 220px', display: 'flex', flexDirection: 'column', gap: 5 }}>

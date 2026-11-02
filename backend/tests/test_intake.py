@@ -119,3 +119,24 @@ def test_invoice_without_devices_needs_payment():
         _req(items=[])
     r = _req(items=[], payment={"paid_on": "2026-10-16", "amount": 50, "category": "software"})
     assert r.items == [] and r.payment.category == "software"
+
+
+async def test_handover_undo_treats_already_deleted_as_done(monkeypatch):
+    import httpx
+    from app.services import netbox_service as nbs
+
+    seen = []
+
+    def handler(req: httpx.Request):
+        seen.append((req.method, req.url.path))
+        return httpx.Response(404 if req.url.path.endswith("/9/") else 204)
+
+    real = httpx.AsyncClient
+    monkeypatch.setattr(nbs, "_client_kwargs", lambda: ("http://nb.test", {}))
+    monkeypatch.setattr(nbs.httpx, "AsyncClient", lambda **kw: real(transport=httpx.MockTransport(handler), **kw))
+    await nbs.delete_assignment(8)
+    await nbs.delete_assignment(9)        # already gone — no error
+    await nbs.delete_attachment(3)
+    assert seen == [("DELETE", "/api/tenancy/contact-assignments/8/"),
+                    ("DELETE", "/api/tenancy/contact-assignments/9/"),
+                    ("DELETE", "/api/plugins/netbox-attachments/netbox-attachments/3/")]

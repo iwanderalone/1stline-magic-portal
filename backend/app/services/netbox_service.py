@@ -601,6 +601,27 @@ async def set_assignment_document(assignment_id: int, attachment_id: int) -> dic
     return _to_assignment(response.json())
 
 
+async def get_assignment(assignment_id: int) -> dict:
+    response = await _request("GET", f"{ASSIGNMENTS_PATH}{assignment_id}/")
+    return _to_assignment(response.json())
+
+
+async def delete_assignment(assignment_id: int) -> None:
+    """Undo a handover recorded by mistake. Already gone counts as done."""
+    try:
+        await _request("DELETE", f"{ASSIGNMENTS_PATH}{assignment_id}/")
+    except NetboxNotFoundError:
+        pass
+
+
+async def delete_attachment(attachment_id: int) -> None:
+    """Drop a document (its device bindings go with it). Already gone counts as done."""
+    try:
+        await _request("DELETE", f"{ATTACHMENTS_PATH}{attachment_id}/")
+    except NetboxNotFoundError:
+        pass
+
+
 async def active_assignment_for(device_id: int) -> Optional[dict]:
     """An active holder blocks a second handover — the device is already out."""
     for assignment in await list_device_assignments(device_id):

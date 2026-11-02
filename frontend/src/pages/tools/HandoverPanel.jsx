@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, apiBlob } from '../../api';
-import { Button, Input, Toast, PageHeader } from '../../components/UI';
+import { Button, Input, Toast } from '../../components/UI';
 import { Icon } from '../../components/Icons';
 import { useLang } from '../../components/LangContext';
 import { ContactPicker, DevicePicker } from '../../components/NetboxPicker';
@@ -15,8 +15,10 @@ function emptyLine() {
   return { description: '', quantity: 1, serial_no: '', inventory_no: '', additional_info: '', accessories: '' };
 }
 
-/** Handovers waiting for the signed copy; upload replaces the draft in NetBox. */
-function PendingSignatures({ reloadKey, onToast }) {
+/** Handovers waiting for the signed copy; upload replaces the draft in NetBox.
+ *  Until then a wrong one can be cancelled (assignments + draft removed from
+ *  NetBox) or edited — cancelled, then the form refilled to record it again. */
+function PendingSignatures({ reloadKey, onToast, onEdit }) {
   const { lang, t: tr } = useLang();
   const [items, setItems] = useState([]);
   const [busyId, setBusyId] = useState(null);
@@ -33,6 +35,22 @@ function PendingSignatures({ reloadKey, onToast }) {
       fd.append('file', file);
       await api(`/tools/inventory/handovers/${rec.id}/signed`, { method: 'POST', body: fd });
       onToast({ message: tr('hoSignedUploaded'), type: 'success' });
+      load();
+    } catch (err) {
+      onToast({ message: err.message, type: 'error' });
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const cancel = async (rec, edit) => {
+    const ask = edit ? 'hoEditConfirm' : 'hoCancelConfirm';
+    if (!window.confirm(tr(ask).replace('{name}', rec.employee_name))) return;
+    setBusyId(rec.id);
+    try {
+      const undone = await api(`/tools/inventory/handovers/${rec.id}`, { method: 'DELETE' });
+      onToast({ message: tr(edit ? 'hoEditReady' : 'hoCancelled'), type: 'success' });
+      if (edit) onEdit(undone);
       load();
     } catch (err) {
       onToast({ message: err.message, type: 'error' });
@@ -70,6 +88,8 @@ function PendingSignatures({ reloadKey, onToast }) {
             {rec.draft_url && (
               <a href={rec.draft_url} target="_blank" rel="noreferrer" className="btn btn-ghost btn-sm">{tr('hoDraft')} ↗</a>
             )}
+            <Button variant="ghost" size="sm" disabled={busyId === rec.id} onClick={() => cancel(rec, true)}>{tr('hoEdit')}</Button>
+            <Button variant="ghost" size="sm" disabled={busyId === rec.id} onClick={() => cancel(rec, false)}>{tr('hoCancel')}</Button>
             <label className="btn btn-secondary btn-sm" style={{ cursor: busyId === rec.id ? 'wait' : 'pointer' }}>
               <Icon name="paperclip" size={13} /> {busyId === rec.id ? '…' : tr('hoUploadSigned')}
               <input type="file" accept=".pdf,.png,.jpg,.jpeg" style={{ display: 'none' }} disabled={busyId === rec.id}
@@ -82,6 +102,7 @@ function PendingSignatures({ reloadKey, onToast }) {
   );
 }
 
+/** The Handover tab of Inventory (its header and tabs come from InventoryPanel). */
 export default function HandoverPanel({ subPath }) {
   const { t: tr } = useLang();
   // Two ways to produce a handover: from the inventory, which also records the
@@ -101,8 +122,24 @@ export default function HandoverPanel({ subPath }) {
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState(null);
   const [pendingKey, setPendingKey] = useState(0);
+  const formRef = useRef(null);
 
-  // 'handover/devices/12,13' — arriving from Intake with the new devices picked.
+  // A cancelled handover comes back as ids; refill the form with the same people and devices.
+  const refill = async (undone) => {
+    setMode('netbox');
+    setResult(null);
+    const contact = (id) => (id ? api(`/tools/inventory/contacts/${id}`).catch(() => null) : null);
+    const [emp, sig, ...devs] = await Promise.all([
+      contact(undone.employee_contact_id), contact(undone.signed_by_contact_id),
+      ...undone.device_ids.map(id => api(`/tools/inventory/devices/${id}`).catch(() => null)),
+    ]);
+    setEmployee(emp);
+    setSignedBy(sig);
+    setPicked(devs.filter(Boolean));
+    formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  // 'devices/12,13' (under #inventory/handover/) — arriving from Intake with the new devices picked.
   useEffect(() => {
     const m = /^devices\/([\d,]+)$/.exec(subPath || '');
     if (!m) return;
@@ -200,9 +237,7 @@ export default function HandoverPanel({ subPath }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       {toast && <Toast {...toast} onClose={() => setToast(null)} />}
 
-      <PageHeader title={tr('handoverTitle')} subtitle={tr('handoverSubtitle')} />
-
-      <PendingSignatures reloadKey={pendingKey} onToast={setToast} />
+      <PendingSignatures reloadKey={pendingKey} onToast={setToast} onEdit={refill} />
 
       <div style={{ display: 'flex', gap: 6 }}>
         {[['netbox', tr('hoModeNetbox')], ['manual', tr('hoModeManual')]].map(([id, label]) => (
@@ -245,7 +280,7 @@ export default function HandoverPanel({ subPath }) {
         </div>
       )}
 
-      <form onSubmit={mode === 'netbox' ? recordInNetbox : submit} style={{
+      <form ref={formRef} onSubmit={mode === 'netbox' ? recordInNetbox : submit} style={{
         display: 'flex', flexDirection: 'column', gap: 14, padding: 18,
         border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--surface-alt)',
       }}>

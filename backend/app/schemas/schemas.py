@@ -1316,6 +1316,13 @@ class SeatHolder(BaseModel):
 
 # ─── Tools: Handover records ────────────────────────────────
 
+class HandoverUndone(BaseModel):
+    """What a cancelled handover was — enough to refill the form and record it again."""
+    employee_contact_id: int
+    signed_by_contact_id: Optional[int] = None
+    device_ids: list[int]
+
+
 class HandoverRecordOut(BaseOrmModel):
     """A recorded handover; `pending` until the signed scan is uploaded."""
     id: int
