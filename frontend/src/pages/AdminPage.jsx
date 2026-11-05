@@ -1097,7 +1097,8 @@ function SettingField({ field, value, onChange }) {
             type="password"
             value={value ?? ''}
             onChange={e => onChange(e.target.value)}
-            placeholder={field.is_set ? 'Configured — leave blank to keep' : 'Not set'}
+            placeholder={field.is_set ? 'Configured — leave blank to keep'
+              : field.env_set ? 'Set in the server environment — type to override' : 'Not set'}
             style={{ flex: 1 }}
           />
           {field.is_set && (

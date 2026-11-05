@@ -158,25 +158,22 @@ function JobRow({ job, tr, onCancel, cancelling }) {
   );
 }
 
-function parseBatch(text, passwordOptional) {
-  // One employee per line: "email", "email:password" or "email password". '#' starts a comment.
-  // Without the Yandex 360 service application every line needs a password.
-  const entries = [];
+function parseBatch(text) {
+  // Logins or addresses, one per line (commas and spaces work too). '#' starts a comment.
+  const logins = [];
   const errors = [];
   text.split('\n').forEach((raw, i) => {
-    const line = raw.split('#')[0].trim();
-    if (!line) return;
-    const m = line.match(/^([^\s:]+@[^\s:]+\.[^\s:]+)(?:[\s:]+(.+))?$/);
-    if (!m || (!m[2] && !passwordOptional)) { errors.push(i + 1); return; }
-    entries.push({ email: m[1], password: m[2]?.trim() || null });
+    raw.split('#')[0].split(/[\s,;]+/).filter(Boolean).forEach(tok => {
+      if (/^[^\s@:]+(@[^\s@:]+\.[^\s@:]+)?$/.test(tok)) logins.push(tok);
+      else errors.push(i + 1);
+    });
   });
-  return { entries, errors };
+  return { logins: [...new Set(logins)], errors: [...new Set(errors)] };
 }
 
 export default function MailboxBackupPanel() {
   const { t: tr } = useLang();
   const [enabled, setEnabled] = useState(null);   // null = loading
-  const [y360, setY360] = useState(false);         // service application configured
   const [doMail, setDoMail] = useState(true);
   const [doDisk, setDoDisk] = useState(false);
   const [batchText, setBatchText] = useState('');
@@ -194,8 +191,7 @@ export default function MailboxBackupPanel() {
   const pollRef = useRef(null);
 
   useEffect(() => {
-    api('/tools/status').then(d => { setEnabled(!!d?.mailbox_backup); setY360(!!d?.yandex360); })
-      .catch(() => setEnabled(false));
+    api('/tools/status').then(d => setEnabled(!!d?.mailbox_backup)).catch(() => setEnabled(false));
   }, []);
 
   const loadJobs = useCallback(async () => {
@@ -223,9 +219,8 @@ export default function MailboxBackupPanel() {
     return () => clearInterval(pollRef.current);
   }, [jobs, loadJobs]);
 
-  const parsed = parseBatch(batchText, y360);
-  const disk = doDisk && y360;
-  const canSubmit = parsed.entries.length > 0 && parsed.errors.length === 0 && (doMail || disk);
+  const parsed = parseBatch(batchText);
+  const canSubmit = parsed.logins.length > 0 && parsed.errors.length === 0 && (doMail || doDisk);
 
   const start = async (e) => {
     e.preventDefault();
@@ -234,7 +229,7 @@ export default function MailboxBackupPanel() {
     try {
       await api('/tools/mailbox-backup', {
         method: 'POST',
-        body: JSON.stringify({ entries: parsed.entries, mail: doMail, disk }),
+        body: JSON.stringify({ logins: parsed.logins, mail: doMail, disk: doDisk }),
       });
       setBatchText('');
       setToast({ message: tr('toolStarted'), type: 'success' });
@@ -297,7 +292,7 @@ export default function MailboxBackupPanel() {
               <div style={{ fontSize: 12, color: parsed.errors.length ? 'var(--danger)' : 'var(--text-muted)' }}>
                 {parsed.errors.length
                   ? `${tr('toolBatchBadLines')}: ${parsed.errors.join(', ')}`
-                  : (parsed.entries.length > 0 ? `${parsed.entries.length} ${tr('toolBatchParsed')}` : tr('toolBatchEmpty'))}
+                  : (parsed.logins.length > 0 ? `${parsed.logins.length} ${tr('toolBatchParsed')}` : tr('toolBatchEmpty'))}
               </div>
             </div>
 
@@ -307,17 +302,16 @@ export default function MailboxBackupPanel() {
                 <input type="checkbox" checked={doMail} onChange={e => setDoMail(e.target.checked)} />
                 {tr('toolKindMail')}
               </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: y360 ? 'pointer' : 'not-allowed', opacity: y360 ? 1 : 0.5 }}>
-                <input type="checkbox" checked={disk} disabled={!y360} onChange={e => setDoDisk(e.target.checked)} />
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                <input type="checkbox" checked={doDisk} onChange={e => setDoDisk(e.target.checked)} />
                 {tr('toolKindDisk')}
               </label>
             </div>
 
-            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{tr(y360 ? 'toolMbHint' : 'toolMbHintNoY360')}</div>
             <div>
               <Button type="submit" variant="primary" disabled={busy || !canSubmit} icon="archive">
                 {(() => {
-                  const n = parsed.entries.length * ((doMail ? 1 : 0) + (disk ? 1 : 0));
+                  const n = parsed.logins.length * ((doMail ? 1 : 0) + (doDisk ? 1 : 0));
                   return n > 1 ? `${tr('toolStartBackup')} (${n})` : tr('toolStartBackup');
                 })()}
               </Button>

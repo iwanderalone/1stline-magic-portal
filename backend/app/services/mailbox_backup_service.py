@@ -3,9 +3,8 @@
 Ported from the standalone mailbox-decom script (decommission_mailbox.py).
 Pipeline: IMAP fetch (Maildir layout) → tar.zst archive → SHA-256 → upload to
 S3-compatible storage → HEAD-verify size → optional per-folder .mbox export →
-local cleanup. The mailbox password lives in memory for the duration of the
-job and is never persisted; without one, the Yandex 360 service application
-signs in as the employee (IMAP XOAUTH2, see yandex360.py).
+local cleanup. The Yandex 360 service application signs in as the employee
+(IMAP XOAUTH2, see yandex360.py) — no password is ever involved.
 
 Jobs have a kind: "mail" (this pipeline) or "disk" (disk_backup_service) —
 both share the queue, progress registry, cancel flags and watchdog below.
@@ -278,29 +277,22 @@ def _parse_fetch(fetched, batch: list[bytes]) -> list[tuple[bytes, bytes]]:
 
 # ─── blocking pipeline (runs in a worker thread) ─────────────────────
 
-def _imap_pull(email_addr: str, password: Optional[str], maildir: Path, prog: JobProgress,
-               cancel: threading.Event) -> int:
-    """Fetch every message from every folder into a Maildir layout.
-    No password = sign in as the employee through the Yandex 360 service app."""
+def _imap_pull(email_addr: str, maildir: Path, prog: JobProgress, cancel: threading.Event) -> int:
+    """Fetch every message from every folder into a Maildir layout, signed in
+    as the employee through the Yandex 360 service application."""
     from app.core.dynamic_settings import eff
+    from app.services.yandex360 import EmployeeToken
     s = get_settings()
     imap_host = eff("MAILBOX_BACKUP_IMAP_HOST", s.MAILBOX_BACKUP_IMAP_HOST)
-    token = None
-    if not password:
-        from app.services.yandex360 import EmployeeToken
-        token = EmployeeToken(email_addr)
+    token = EmployeeToken(email_addr)
 
     def _connect() -> imaplib.IMAP4_SSL:
         conn = imaplib.IMAP4_SSL(imap_host, 993, timeout=IMAP_TIMEOUT)
         try:
-            if token:
-                conn.authenticate("XOAUTH2", lambda _: token.xoauth2())
-            else:
-                conn.login(email_addr, password)
+            conn.authenticate("XOAUTH2", lambda _: token.xoauth2())
         except imaplib.IMAP4.error as e:
-            hint = ("is IMAP enabled for the mailbox and mail:imap_ro granted to the service application?"
-                    if token else "check the address and app password")
-            raise RuntimeError(f"IMAP login failed — {hint} ({e})") from e
+            raise RuntimeError(f"IMAP login failed — is IMAP enabled for the mailbox and mail:imap_ro "
+                               f"granted to the service application? ({e})") from e
         return conn
 
     def _connect_with_retry() -> imaplib.IMAP4_SSL:
@@ -597,7 +589,7 @@ def _s3_upload(s3, local: Path, key: str, prog: JobProgress, metadata: Optional[
         return {}
 
 
-def _run_pipeline(email_addr: str, password: Optional[str], prog: JobProgress,
+def _run_pipeline(email_addr: str, prog: JobProgress,
                   cancel: threading.Event) -> dict:
     """Full blocking pipeline. Returns result fields for the DB row."""
     from app.core.dynamic_settings import eff
@@ -611,7 +603,7 @@ def _run_pipeline(email_addr: str, password: Optional[str], prog: JobProgress,
     try:
         maildir = resume_dir / "Maildir"
         try:
-            total = _imap_pull(email_addr, password, maildir, prog, cancel)
+            total = _imap_pull(email_addr, maildir, prog, cancel)
         finally:
             (resume_dir / ".last_used").touch()
         if total == 0:
@@ -714,7 +706,7 @@ async def _run_pipeline_watched(pipeline, prog: JobProgress, cancel: threading.E
                 f"continue — retry this backup.")
 
 
-async def run_backup_job(job_id: int, email_addr: str, password: Optional[str], kind: str = "mail") -> None:
+async def run_backup_job(job_id: int, email_addr: str, kind: str = "mail") -> None:
     """Execute one backup job; updates the DB row at start and finish."""
     busy_key = f"{kind}:{email_addr.lower()}"
     prog = JOBS.setdefault(job_id, JobProgress())
@@ -741,7 +733,7 @@ async def run_backup_job(job_id: int, email_addr: str, password: Optional[str], 
                     from app.services import disk_backup_service
                     result = await _run_pipeline_watched(disk_backup_service.run_pipeline, prog, cancel, email_addr)
                 else:
-                    result = await _run_pipeline_watched(_run_pipeline, prog, cancel, email_addr, password)
+                    result = await _run_pipeline_watched(_run_pipeline, prog, cancel, email_addr)
                 status, error = "success", None
             except BackupCancelled:
                 result, status, error = {}, "canceled", None

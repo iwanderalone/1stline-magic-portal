@@ -39,6 +39,7 @@ async def list_settings(
                 type=field["type"], is_secret=True,
                 requires_restart=field.get("requires_restart", False),
                 is_set=bool(row and row.value),
+                env_set=bool(getattr(settings, key, "")),
             ))
         else:
             effective = row.value if (row and row.value not in (None, "")) else str(getattr(settings, key, ""))
