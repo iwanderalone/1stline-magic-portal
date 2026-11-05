@@ -134,3 +134,11 @@ def test_find_user_by_alias_and_refuses_blocked(directory):
         yandex360.find_user("gone@example.com")
     with pytest.raises(yandex360.Yandex360Error, match="not an employee"):
         yandex360.find_user("stranger@example.com")
+
+
+def test_unblocked_user_is_seen_without_waiting_for_the_cache(directory, monkeypatch):
+    with pytest.raises(yandex360.Yandex360Error, match="blocked"):
+        yandex360.find_user("gone@example.com")
+    monkeypatch.setattr(yandex360, "_load_users", lambda: {
+        "gone@example.com": {"id": 12, "email": "gone@example.com", "isEnabled": True}})
+    assert yandex360.find_user("gone@example.com")["id"] == 12
