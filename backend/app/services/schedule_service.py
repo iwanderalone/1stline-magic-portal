@@ -5,7 +5,7 @@ from datetime import date, timedelta
 from collections import defaultdict
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, or_
 from app.models.models import (
     User, Shift, TimeOffRequest, UserBlockedDate, ShiftType, ShiftConfig,
     TimeOffStatus, UserRole, ShiftRotation, RotationMode,
@@ -190,7 +190,12 @@ async def generate_schedule(
     shift_types: list[ShiftType],
     user_ids: Optional[list[UUID]] = None,
 ) -> list[dict]:
-    query = select(User).where(User.is_active == True, User.role == UserRole.ENGINEER)
+    # Managers work shifts only when their allowed shift types are set explicitly
+    # (for an engineer an empty field means "any type", for a manager "none").
+    query = select(User).where(User.is_active == True, or_(
+        User.role == UserRole.ENGINEER,
+        and_(User.role == UserRole.MANAGER, User.allowed_shift_types.is_not(None)),
+    ))
     if user_ids:
         query = query.where(User.id.in_(user_ids))
     result = await db.execute(query)

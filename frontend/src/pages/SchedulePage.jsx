@@ -491,7 +491,7 @@ function GenerateModal({ onClose, onGenerate, dates, configs }) {
 function RotationsModal({ onClose, rotations, users, configs, onSave, onDelete }) {
   const { t: tr } = useLang();
   const [editing, setEditing] = useState(null); // null = list view, {} = new, {...rotation} = edit
-  const engineers = users.filter(u => u.role === 'engineer' && u.is_active);
+  const engineers = users.filter(canWorkShifts);
   const engineerName = id => engineers.find(u => String(u.id) === String(id))?.display_name || '—';
 
   if (editing !== null) {
@@ -666,6 +666,9 @@ function RotationForm({ rotation, engineers, configs, onCancel, onSubmit }) {
   );
 }
 
+// Mirrors generate_schedule: managers take shifts only with shift types set explicitly
+const canWorkShifts = u => u.is_active && (u.role === 'engineer' || (u.role === 'manager' && u.allowed_shift_types != null));
+
 function AddShiftModal({ onClose, onSubmit, users, configs, prefill = {} }) {
   const { t: tr } = useLang();
   const [userId, setUserId] = useState('');
@@ -687,7 +690,7 @@ function AddShiftModal({ onClose, onSubmit, users, configs, prefill = {} }) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
         <Select label={tr('engineer')} value={userId} onChange={e => setUserId(e.target.value)}>
           <option value="">{tr('select')}</option>
-          {users.filter(u => ['engineer', 'manager'].includes(u.role) && u.is_active).map(u => <option key={u.id} value={u.id}>{u.display_name}</option>)}
+          {users.filter(canWorkShifts).map(u => <option key={u.id} value={u.id}>{u.display_name}</option>)}
         </Select>
         <Input label={tr('date')} type="date" value={date} onChange={e => setDate(e.target.value)} />
         <Select label={tr('shiftType')} value={shiftType} onChange={e => setShiftType(e.target.value)}>
