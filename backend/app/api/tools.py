@@ -1,8 +1,8 @@
 """Tools API — utilities for engineers. Currently: Mailbox Backup, Inventory
 (NetBox), Handover generator.
 
-POST /tools/mailbox-backup        start a backup job (email + app password)
-GET  /tools/mailbox-backup/jobs   paginated jobs, active ones pinned first (passwords are never stored)
+POST /tools/mailbox-backup        start backup jobs: employee logins × mail/Disk
+GET  /tools/mailbox-backup/jobs   paginated jobs, active ones pinned first
 GET  /tools/mailbox-backup/jobs/{id}   one job with live progress
 POST /tools/mailbox-backup/jobs/{id}/cancel   cancel a queued/running job
 GET  /tools/inventory/devices                 list/search NetBox devices
@@ -80,7 +80,7 @@ def _overlay_progress(job: MailboxBackupJob) -> MailboxBackupJobResponse:
 
 @router.get("/status")
 async def tools_status(_: User = Depends(get_current_user)):
-    return {"mailbox_backup": mbs.enabled(), "netbox": nbs.enabled(), "yandex360": y360.enabled()}
+    return {"mailbox_backup": mbs.enabled() and y360.enabled(), "netbox": nbs.enabled()}
 
 
 @router.post("/mailbox-backup", response_model=list[MailboxBackupJobResponse], status_code=201)
@@ -89,31 +89,35 @@ async def start_mailbox_backup(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Start one or more backup jobs — mail, Disk or both per address, each its
-    own job and archive. Jobs run sequentially (one pipeline at a time).
-    Without a password the Yandex 360 service application signs in as the
-    employee; Disk always goes through it."""
-    if not mbs.enabled():
-        raise HTTPException(status_code=503, detail="Backup is not configured (S3 credentials missing)")
+    """Start one or more backup jobs — mail, Disk or both per employee, each its
+    own job and archive. Jobs run sequentially (one pipeline at a time). The
+    Yandex 360 service application signs in as the employee; logins are checked
+    against the directory here, so a typo or a blocked account is refused now
+    rather than failing later in the queue."""
+    if not (mbs.enabled() and y360.enabled()):
+        raise HTTPException(status_code=503, detail="Backup is not configured")
     kinds = [k for k, on in (("mail", payload.mail), ("disk", payload.disk)) if on]
     if not kinds:
         raise HTTPException(status_code=400, detail="Choose what to back up: mail, Disk or both")
 
-    entries = [(e.email.strip().lower(), (e.password or "").strip() or None) for e in payload.entries]
-    emails = [e for e, _ in entries]
-    dupes = {e for e in emails if emails.count(e) > 1}
-    if dupes:
-        raise HTTPException(status_code=400, detail=f"Duplicate addresses in batch: {', '.join(sorted(dupes))}")
-    if not y360.enabled() and ("disk" in kinds or any(pw is None for _, pw in entries)):
-        raise HTTPException(status_code=400, detail="The Yandex 360 service application is not configured "
-                            "(Admin → Settings → Mailbox Backup) — Disk backups and mail without a password need it")
+    emails, problems = [], []
+    for login in dict.fromkeys(x.strip().lower() for x in payload.logins if x.strip()):
+        try:
+            emails.append((await asyncio.to_thread(y360.find_user, login))["email"].lower())
+        except y360.Yandex360Error as e:
+            problems.append(str(e))
+    if problems:
+        raise HTTPException(status_code=400, detail="; ".join(problems))
+    if not emails:
+        raise HTTPException(status_code=400, detail="Enter at least one login")
+    emails = list(dict.fromkeys(emails))   # a login and its address are the same person
     busy = [f"{e} ({k})" for e in emails for k in kinds if mbs.is_busy(e, k)]
     if busy:
         raise HTTPException(status_code=409, detail=f"Backup already running/queued for: {', '.join(busy)}")
 
-    planned = [(email, pw, kind) for email, pw in entries for kind in kinds]
+    planned = [(email, kind) for email in emails for kind in kinds]
     jobs: list[MailboxBackupJob] = []
-    for email, _pw, kind in planned:
+    for email, kind in planned:
         job = MailboxBackupJob(
             email=email,
             kind=kind,
@@ -123,15 +127,14 @@ async def start_mailbox_backup(
         db.add(job)
         jobs.append(job)
     await log_action(db, user, "mailbox_backup_started",
-                     f"Backup ({' + '.join(kinds)}) started for {len(entries)} employee(s): {', '.join(emails)}")
+                     f"Backup ({' + '.join(kinds)}) started for {len(emails)} employee(s): {', '.join(emails)}")
     await db.commit()
     for job in jobs:
         await db.refresh(job)
 
-    # Fire-and-forget: pipelines run in worker threads, serialized by a global
-    # lock (FIFO). Passwords stay in memory for the job and are never persisted.
-    for job, (email, pw, kind) in zip(jobs, planned):
-        asyncio.create_task(mbs.run_backup_job(job.id, email, pw, kind))
+    # Fire-and-forget: pipelines run in worker threads, serialized by a global lock (FIFO).
+    for job, (email, kind) in zip(jobs, planned):
+        asyncio.create_task(mbs.run_backup_job(job.id, email, kind))
     logger.info("[tools] %s started %d backup job(s) (%s): %s",
                 user.username, len(jobs), "+".join(kinds), ", ".join(emails))
     return [_overlay_progress(j) for j in jobs]

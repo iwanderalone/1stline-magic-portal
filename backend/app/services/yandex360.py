@@ -54,6 +54,8 @@ def _load_users() -> dict[str, dict]:
                                      f"(check YANDEX_ORG_ID and the directory token's directory:read_users)")
             data = r.json()
             for u in data.get("users", []):
+                if u.get("nickname"):
+                    by_email.setdefault(u["nickname"].lower(), u)   # bare login
                 for addr in [u.get("email"), *(u.get("aliases") or [])]:
                     if not addr:
                         continue
@@ -67,7 +69,7 @@ def _load_users() -> dict[str, dict]:
 
 
 def find_user(email: str) -> dict:
-    """The directory entry for an address (primary or alias)."""
+    """The directory entry for a login or an address (primary or alias)."""
     with _users_lock:
         org = _cfg("YANDEX_ORG_ID")
         if time.time() - _users_cache["at"] > _USERS_TTL or _users_cache["org"] != org:

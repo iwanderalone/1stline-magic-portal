@@ -847,14 +847,9 @@ class MailRuleTestResponse(BaseModel):
 
 # ─── Tools: Mailbox Backup ───────────────────────────────
 
-class MailboxBackupStart(BaseModel):
-    email: str = Field(..., max_length=320, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-    # Empty = sign in through the Yandex 360 service application.
-    password: Optional[str] = Field(default=None, max_length=200)
-
-
 class MailboxBackupBatchStart(BaseModel):
-    entries: list[MailboxBackupStart] = Field(..., min_length=1, max_length=50)
+    # Employee logins or addresses; resolved against the Yandex 360 directory.
+    logins: list[str] = Field(..., min_length=1, max_length=50)
     mail: bool = True
     disk: bool = False
 
@@ -1075,6 +1070,7 @@ class SettingFieldResponse(BaseModel):
     requires_restart: bool = False
     value: Optional[str] = None     # only populated for non-secret fields
     is_set: Optional[bool] = None   # only populated for secret fields
+    env_set: Optional[bool] = None  # secret fields: a value comes from the server environment
 
 
 class SettingsUpdate(BaseModel):
