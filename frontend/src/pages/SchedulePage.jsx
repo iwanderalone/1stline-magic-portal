@@ -687,7 +687,7 @@ function AddShiftModal({ onClose, onSubmit, users, configs, prefill = {} }) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
         <Select label={tr('engineer')} value={userId} onChange={e => setUserId(e.target.value)}>
           <option value="">{tr('select')}</option>
-          {users.filter(u => u.role === 'engineer' && u.is_active).map(u => <option key={u.id} value={u.id}>{u.display_name}</option>)}
+          {users.filter(u => ['engineer', 'manager'].includes(u.role) && u.is_active).map(u => <option key={u.id} value={u.id}>{u.display_name}</option>)}
         </Select>
         <Input label={tr('date')} type="date" value={date} onChange={e => setDate(e.target.value)} />
         <Select label={tr('shiftType')} value={shiftType} onChange={e => setShiftType(e.target.value)}>
