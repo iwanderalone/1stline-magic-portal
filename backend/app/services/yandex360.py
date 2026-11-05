@@ -70,11 +70,18 @@ def _load_users() -> dict[str, dict]:
 
 def find_user(email: str) -> dict:
     """The directory entry for a login or an address (primary or alias)."""
-    with _users_lock:
-        org = _cfg("YANDEX_ORG_ID")
-        if time.time() - _users_cache["at"] > _USERS_TTL or _users_cache["org"] != org:
-            _users_cache.update(by_email=_load_users(), at=time.time(), org=org)
-        user = _users_cache["by_email"].get(email.lower())
+    def _lookup(force: bool) -> dict | None:
+        with _users_lock:
+            org = _cfg("YANDEX_ORG_ID")
+            if force or time.time() - _users_cache["at"] > _USERS_TTL or _users_cache["org"] != org:
+                _users_cache.update(by_email=_load_users(), at=time.time(), org=org)
+            return _users_cache["by_email"].get(email.lower())
+
+    user = _lookup(force=False)
+    # The usual flow is "unblock the leaver, back up" — a cached listing would
+    # still say blocked (or not hired yet), so check the directory again first.
+    if not user or user.get("isEnabled") is False:
+        user = _lookup(force=True)
     if not user:
         raise Yandex360Error(f"{email} is not an employee of the Yandex 360 organisation")
     if user.get("isEnabled") is False:
