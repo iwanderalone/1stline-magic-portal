@@ -4,7 +4,11 @@ Ported from the standalone mailbox-decom script (decommission_mailbox.py).
 Pipeline: IMAP fetch (Maildir layout) → tar.zst archive → SHA-256 → upload to
 S3-compatible storage → HEAD-verify size → optional per-folder .mbox export →
 local cleanup. The mailbox password lives in memory for the duration of the
-job and is never persisted.
+job and is never persisted; without one, the Yandex 360 service application
+signs in as the employee (IMAP XOAUTH2, see yandex360.py).
+
+Jobs have a kind: "mail" (this pipeline) or "disk" (disk_backup_service) —
+both share the queue, progress registry, cancel flags and watchdog below.
 
 The blocking pipeline runs in a worker thread (asyncio.to_thread). Live
 progress is kept in the in-memory JOBS registry; the DB row is written when
@@ -92,7 +96,7 @@ class JobProgress:
 
 JOBS: dict[int, JobProgress] = {}       # job_id → live progress (this process only)
 _CANCELS: dict[int, threading.Event] = {}  # job_id → cancel flag (set from the API, read in the worker thread)
-_RUNNING_EMAILS: set[str] = set()       # concurrency guard
+_RUNNING: set[str] = set()              # "<kind>:<email>" — concurrency guard
 _GLOBAL_LOCK: asyncio.Lock = asyncio.Lock()  # one pipeline at a time — batch jobs run sequentially
 
 
@@ -100,8 +104,8 @@ class BackupCancelled(Exception):
     """Raised inside the pipeline when the job's cancel flag is set."""
 
 
-def is_email_busy(email: str) -> bool:
-    return email.lower() in _RUNNING_EMAILS
+def is_busy(email: str, kind: str) -> bool:
+    return f"{kind}:{email.lower()}" in _RUNNING
 
 
 def request_cancel(job_id: int) -> bool:
@@ -274,19 +278,29 @@ def _parse_fetch(fetched, batch: list[bytes]) -> list[tuple[bytes, bytes]]:
 
 # ─── blocking pipeline (runs in a worker thread) ─────────────────────
 
-def _imap_pull(email_addr: str, password: str, maildir: Path, prog: JobProgress,
+def _imap_pull(email_addr: str, password: Optional[str], maildir: Path, prog: JobProgress,
                cancel: threading.Event) -> int:
-    """Fetch every message from every folder into a Maildir layout."""
+    """Fetch every message from every folder into a Maildir layout.
+    No password = sign in as the employee through the Yandex 360 service app."""
     from app.core.dynamic_settings import eff
     s = get_settings()
     imap_host = eff("MAILBOX_BACKUP_IMAP_HOST", s.MAILBOX_BACKUP_IMAP_HOST)
+    token = None
+    if not password:
+        from app.services.yandex360 import EmployeeToken
+        token = EmployeeToken(email_addr)
 
     def _connect() -> imaplib.IMAP4_SSL:
         conn = imaplib.IMAP4_SSL(imap_host, 993, timeout=IMAP_TIMEOUT)
         try:
-            conn.login(email_addr, password)
+            if token:
+                conn.authenticate("XOAUTH2", lambda _: token.xoauth2())
+            else:
+                conn.login(email_addr, password)
         except imaplib.IMAP4.error as e:
-            raise RuntimeError(f"IMAP login failed — check the address and app password ({e})") from e
+            hint = ("is IMAP enabled for the mailbox and mail:imap_ro granted to the service application?"
+                    if token else "check the address and app password")
+            raise RuntimeError(f"IMAP login failed — {hint} ({e})") from e
         return conn
 
     def _connect_with_retry() -> imaplib.IMAP4_SSL:
@@ -583,7 +597,7 @@ def _s3_upload(s3, local: Path, key: str, prog: JobProgress, metadata: Optional[
         return {}
 
 
-def _run_pipeline(email_addr: str, password: str, prog: JobProgress,
+def _run_pipeline(email_addr: str, password: Optional[str], prog: JobProgress,
                   cancel: threading.Event) -> dict:
     """Full blocking pipeline. Returns result fields for the DB row."""
     from app.core.dynamic_settings import eff
@@ -678,14 +692,13 @@ def _swallow_late_result(fut: asyncio.Future) -> None:
         fut.exception()
 
 
-async def _run_pipeline_watched(email_addr: str, password: str, prog: JobProgress,
-                                cancel: threading.Event) -> dict:
+async def _run_pipeline_watched(pipeline, prog: JobProgress, cancel: threading.Event, *args) -> dict:
     """Run the blocking pipeline in a worker thread, but stop waiting on it if
     it goes silent for too long or gets canceled — a thread stuck inside a
     blocking syscall (e.g. a hung DNS lookup) can't be killed from here, so
     "giving up" means abandoning the thread and freeing the job queue rather
     than actually stopping it; it's left to finish or die on its own."""
-    fut = asyncio.ensure_future(asyncio.to_thread(_run_pipeline, email_addr, password, prog, cancel))
+    fut = asyncio.ensure_future(asyncio.to_thread(pipeline, *args, prog, cancel))
     while True:
         done, _pending = await asyncio.wait({fut}, timeout=2)
         if fut in done:
@@ -698,15 +711,15 @@ async def _run_pipeline_watched(email_addr: str, password: str, prog: JobProgres
             raise RuntimeError(
                 f"backup stalled — no progress for over {STALL_TIMEOUT_SEC}s, likely a network "
                 f"call hung below the connection timeout. Gave up so the rest of the queue could "
-                f"continue — retry this mailbox.")
+                f"continue — retry this backup.")
 
 
-async def run_backup_job(job_id: int, email_addr: str, password: str) -> None:
+async def run_backup_job(job_id: int, email_addr: str, password: Optional[str], kind: str = "mail") -> None:
     """Execute one backup job; updates the DB row at start and finish."""
-    email_key = email_addr.lower()
+    busy_key = f"{kind}:{email_addr.lower()}"
     prog = JOBS.setdefault(job_id, JobProgress())
     cancel = _CANCELS.setdefault(job_id, threading.Event())
-    _RUNNING_EMAILS.add(email_key)
+    _RUNNING.add(busy_key)
     try:
         # Serialize pipelines: batch submissions queue up and run one at a time.
         async with _GLOBAL_LOCK:
@@ -724,7 +737,11 @@ async def run_backup_job(job_id: int, email_addr: str, password: str) -> None:
                 await db.commit()
 
             try:
-                result = await _run_pipeline_watched(email_addr, password, prog, cancel)
+                if kind == "disk":
+                    from app.services import disk_backup_service
+                    result = await _run_pipeline_watched(disk_backup_service.run_pipeline, prog, cancel, email_addr)
+                else:
+                    result = await _run_pipeline_watched(_run_pipeline, prog, cancel, email_addr, password)
                 status, error = "success", None
             except BackupCancelled:
                 result, status, error = {}, "canceled", None
@@ -750,7 +767,7 @@ async def run_backup_job(job_id: int, email_addr: str, password: str) -> None:
             await db.commit()
         logger.info("[mbbackup] job %s for %s finished: %s", job_id, email_addr, status)
     finally:
-        _RUNNING_EMAILS.discard(email_key)
+        _RUNNING.discard(busy_key)
         JOBS.pop(job_id, None)
         _CANCELS.pop(job_id, None)
 

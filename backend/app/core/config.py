@@ -142,6 +142,12 @@ class Settings(BaseSettings):
     S3_REGION: str = "ru-central1"
     S3_STORAGE_CLASS: str = "GLACIER"
     S3_PREFIX: str = "Backups/Yandex Mailboxes"
+    S3_DISK_PREFIX: str = "Backups/Yandex Disks"
+    # Yandex 360 service application — back up mail and Disk without passwords
+    YANDEX_ORG_ID: str = ""
+    YANDEX_DIRECTORY_TOKEN: str = ""      # OAuth token with directory:read_users (email → uid)
+    YANDEX_CLIENT_ID: str = ""            # the service application (cloud_api:disk.read, mail:imap_ro)
+    YANDEX_CLIENT_SECRET: str = ""
     MAILBOX_BACKUP_IMAP_HOST: str = "imap.yandex.ru"
     MAILBOX_BACKUP_ZSTD_LEVEL: int = 10  # 19 is very slow in-container; 10 is a good tradeoff
 
