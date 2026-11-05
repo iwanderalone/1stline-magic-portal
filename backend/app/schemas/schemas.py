@@ -849,16 +849,20 @@ class MailRuleTestResponse(BaseModel):
 
 class MailboxBackupStart(BaseModel):
     email: str = Field(..., max_length=320, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-    password: str = Field(..., min_length=1, max_length=200)
+    # Empty = sign in through the Yandex 360 service application.
+    password: Optional[str] = Field(default=None, max_length=200)
 
 
 class MailboxBackupBatchStart(BaseModel):
     entries: list[MailboxBackupStart] = Field(..., min_length=1, max_length=50)
+    mail: bool = True
+    disk: bool = False
 
 
 class MailboxBackupJobResponse(BaseOrmModel):
     id: int
     email: str
+    kind: str = "mail"
     requested_by: str
     status: str
     phase: Optional[str] = None
@@ -873,6 +877,7 @@ class MailboxBackupJobResponse(BaseOrmModel):
     sha256: Optional[str] = None
     s3_url: Optional[str] = None
     mbox_count: Optional[int] = None
+    skipped: Optional[int] = None
     error: Optional[str] = None
     created_at: datetime
     started_at: Optional[datetime] = None

@@ -648,15 +648,18 @@ class ZammadComment(Base):
 
 
 class MailboxBackupJob(Base):
-    """One run of the Mailbox Backup tool (IMAP → tar.zst → S3).
+    """One run of the backup tool: an employee's mailbox (IMAP → tar.zst → S3)
+    or personal Yandex Disk (→ its own tar.zst), per `kind`.
 
-    The mailbox password is used in memory for the duration of the job and is
-    NEVER stored. Progress fields are updated live while the job runs.
+    A mailbox password, if given, is used in memory for the duration of the job
+    and is NEVER stored. Progress fields are updated live while the job runs;
+    for disk jobs messages_* count files.
     """
     __tablename__ = "mailbox_backup_jobs"
 
     id             = Column(Integer, primary_key=True, autoincrement=True)
     email          = Column(String(320), nullable=False, index=True)
+    kind           = Column(String(10), nullable=False, default="mail", server_default="mail")  # mail|disk
     requested_by   = Column(String(100), nullable=False)  # denormalised username
     status         = Column(String(20), nullable=False, default="queued")  # queued|running|success|failed|canceled
     phase          = Column(String(30), nullable=True)    # connecting|listing|fetching|archiving|uploading|verifying|mbox
@@ -669,6 +672,7 @@ class MailboxBackupJob(Base):
     sha256         = Column(String(64), nullable=True)
     s3_url         = Column(String(1000), nullable=True)
     mbox_count     = Column(Integer, nullable=True)
+    skipped        = Column(Integer, nullable=True)   # disk: files Yandex could not serve (list in S3)
     error          = Column(Text, nullable=True)
     created_at     = Column(DateTime(timezone=True), default=utcnow, nullable=False)
     started_at     = Column(DateTime(timezone=True), nullable=True)

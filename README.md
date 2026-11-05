@@ -11,7 +11,7 @@ Internal operations portal for a first-line IT support team.
 - **Service Status** — live probe board fed by Prometheus `remote_write`
 - **Runbooks** — step-by-step playbook library
 - **AI assistant** — chat over schedule, time off, runbooks, mail and inventory; reads supplier invoices
-- **Tools** — NetBox inventory, device handover documents, mailbox backup to S3
+- **Tools** — NetBox inventory, device handover documents, employee mail and Yandex Disk backup to S3
 - **Finances** — subscriptions, seats, payments, budgets, renewal reminders; add equipment by invoice (invoice → NetBox devices → payment → handover)
 - **Admin** — users, groups, roles, Telegram destinations, audit log, live settings (no redeploy)
 

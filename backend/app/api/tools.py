@@ -49,6 +49,7 @@ from app.services import mailbox_backup_service as mbs
 from app.services import intake_service as intake
 from app.services import netbox_service as nbs
 from app.services import purchases_service as ps
+from app.services import yandex360 as y360
 from app.services.audit import log_action
 from app.services.handover_service import generate_handover_docx
 from app.core.config import get_settings
@@ -79,7 +80,7 @@ def _overlay_progress(job: MailboxBackupJob) -> MailboxBackupJobResponse:
 
 @router.get("/status")
 async def tools_status(_: User = Depends(get_current_user)):
-    return {"mailbox_backup": mbs.enabled(), "netbox": nbs.enabled()}
+    return {"mailbox_backup": mbs.enabled(), "netbox": nbs.enabled(), "yandex360": y360.enabled()}
 
 
 @router.post("/mailbox-backup", response_model=list[MailboxBackupJobResponse], status_code=201)
@@ -88,40 +89,51 @@ async def start_mailbox_backup(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Start one or more backup jobs. Jobs run sequentially (one pipeline at a time)."""
+    """Start one or more backup jobs — mail, Disk or both per address, each its
+    own job and archive. Jobs run sequentially (one pipeline at a time).
+    Without a password the Yandex 360 service application signs in as the
+    employee; Disk always goes through it."""
     if not mbs.enabled():
-        raise HTTPException(status_code=503, detail="Mailbox backup is not configured (S3 credentials missing)")
+        raise HTTPException(status_code=503, detail="Backup is not configured (S3 credentials missing)")
+    kinds = [k for k, on in (("mail", payload.mail), ("disk", payload.disk)) if on]
+    if not kinds:
+        raise HTTPException(status_code=400, detail="Choose what to back up: mail, Disk or both")
 
-    entries = [(e.email.strip().lower(), e.password) for e in payload.entries]
+    entries = [(e.email.strip().lower(), (e.password or "").strip() or None) for e in payload.entries]
     emails = [e for e, _ in entries]
     dupes = {e for e in emails if emails.count(e) > 1}
     if dupes:
         raise HTTPException(status_code=400, detail=f"Duplicate addresses in batch: {', '.join(sorted(dupes))}")
-    busy = [e for e in emails if mbs.is_email_busy(e)]
+    if not y360.enabled() and ("disk" in kinds or any(pw is None for _, pw in entries)):
+        raise HTTPException(status_code=400, detail="The Yandex 360 service application is not configured "
+                            "(Admin → Settings → Mailbox Backup) — Disk backups and mail without a password need it")
+    busy = [f"{e} ({k})" for e in emails for k in kinds if mbs.is_busy(e, k)]
     if busy:
         raise HTTPException(status_code=409, detail=f"Backup already running/queued for: {', '.join(busy)}")
 
+    planned = [(email, pw, kind) for email, pw in entries for kind in kinds]
     jobs: list[MailboxBackupJob] = []
-    for email, _pw in entries:
+    for email, _pw, kind in planned:
         job = MailboxBackupJob(
             email=email,
+            kind=kind,
             requested_by=user.display_name or user.username,
             status="queued",
         )
         db.add(job)
         jobs.append(job)
     await log_action(db, user, "mailbox_backup_started",
-                     f"Mailbox backup started for {len(entries)} mailbox(es): {', '.join(emails)}")
+                     f"Backup ({' + '.join(kinds)}) started for {len(entries)} employee(s): {', '.join(emails)}")
     await db.commit()
     for job in jobs:
         await db.refresh(job)
 
     # Fire-and-forget: pipelines run in worker threads, serialized by a global
     # lock (FIFO). Passwords stay in memory for the job and are never persisted.
-    for job, (email, pw) in zip(jobs, entries):
-        asyncio.create_task(mbs.run_backup_job(job.id, email, pw))
-    logger.info("[tools] %s started %d mailbox backup job(s): %s",
-                user.username, len(jobs), ", ".join(emails))
+    for job, (email, pw, kind) in zip(jobs, planned):
+        asyncio.create_task(mbs.run_backup_job(job.id, email, pw, kind))
+    logger.info("[tools] %s started %d backup job(s) (%s): %s",
+                user.username, len(jobs), "+".join(kinds), ", ".join(emails))
     return [_overlay_progress(j) for j in jobs]
 
 

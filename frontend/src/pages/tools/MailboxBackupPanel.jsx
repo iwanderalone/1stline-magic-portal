@@ -52,11 +52,11 @@ const fmtJobTime = (iso) => {
   const d = new Date(iso);
   return `${d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}, ${d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`;
 };
-const BYTE_PHASES = ['archiving', 'hashing', 'uploading'];
+const BYTE_PHASES = ['downloading', 'archiving', 'hashing', 'uploading'];
 
 function ProgressBar({ job, tr }) {
   const phaseKey = {
-    connecting: 'toolPhConnecting', listing: 'toolPhListing', fetching: 'toolPhFetching',
+    connecting: 'toolPhConnecting', listing: 'toolPhListing', fetching: 'toolPhFetching', downloading: 'toolPhDownloading',
     reconnecting: 'toolPhReconnecting',
     archiving: 'toolPhArchiving', hashing: 'toolPhHashing', uploading: 'toolPhUploading',
     verifying: 'toolPhVerifying', mbox: 'toolPhMbox', queued: 'toolPhQueued',
@@ -80,7 +80,7 @@ function ProgressBar({ job, tr }) {
         <span style={{ fontFamily: 'var(--font-mono)' }}>
           {determinate
             ? `${isMsgPhase ? done : human(done)}/${isMsgPhase ? total : human(total)} · ${pct}%${eta ? ` · ${tr('toolEtaLbl')} ${eta}` : ''}`
-            : (job.messages_total ? `${job.messages_total} msg` : '')}
+            : (job.messages_total ? `${job.messages_total} ${job.kind === 'disk' ? tr('toolFiles').toLowerCase() : 'msg'}` : '')}
         </span>
       </div>
       <div style={{ height: 8, background: 'var(--surface-sunken)', borderRadius: 4, overflow: 'hidden', position: 'relative' }}>
@@ -110,6 +110,7 @@ function JobRow({ job, tr, onCancel, cancelling }) {
           ? <Icon name="check" size={13} color="var(--text-muted)" />
           : <Badge color={STATUS_COLOR[job.status] || 'gray'}>{tr(`toolSt_${job.status}`) || job.status}</Badge>}
         <span style={{ fontWeight: 600, fontSize: 13 }}>{job.email}</span>
+        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{tr(job.kind === 'disk' ? 'toolKindDisk' : 'toolKindMail')}</span>
         <span style={{ flex: 1 }} />
         {active && (
           <Button
@@ -132,8 +133,17 @@ function JobRow({ job, tr, onCancel, cancelling }) {
       )}
       {open && (
         <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '4px 14px', fontSize: 12, color: 'var(--text-secondary)' }}>
-          <span className="t-eyebrow">{tr('toolMessages')}</span>
-          <span>{job.messages_done ?? '—'}{job.messages_total ? ` / ${job.messages_total}` : ''} ({job.folders_total ?? '—'} {tr('toolFolders')})</span>
+          {job.kind === 'disk' ? <>
+            <span className="t-eyebrow">{tr('toolFiles')}</span>
+            <span>{job.messages_done ?? '—'}{job.messages_total ? ` / ${job.messages_total}` : ''}</span>
+            {job.skipped > 0 && <>
+              <span className="t-eyebrow">{tr('toolSkipped')}</span>
+              <span style={{ color: 'var(--warning)' }} title={tr('toolSkippedHint')}>{job.skipped} — {tr('toolSkippedHint')}</span>
+            </>}
+          </> : <>
+            <span className="t-eyebrow">{tr('toolMessages')}</span>
+            <span>{job.messages_done ?? '—'}{job.messages_total ? ` / ${job.messages_total}` : ''} ({job.folders_total ?? '—'} {tr('toolFolders')})</span>
+          </>}
           <span className="t-eyebrow">{tr('toolArchive')}</span>
           <span>{human(job.archive_size)}{job.mbox_count ? ` · ${job.mbox_count} mbox` : ''}</span>
           <span className="t-eyebrow">SHA-256</span>
@@ -148,16 +158,17 @@ function JobRow({ job, tr, onCancel, cancelling }) {
   );
 }
 
-function parseBatch(text) {
-  // One mailbox per line: "email:password" or "email password". '#' starts a comment.
+function parseBatch(text, passwordOptional) {
+  // One employee per line: "email", "email:password" or "email password". '#' starts a comment.
+  // Without the Yandex 360 service application every line needs a password.
   const entries = [];
   const errors = [];
   text.split('\n').forEach((raw, i) => {
     const line = raw.split('#')[0].trim();
     if (!line) return;
-    const m = line.match(/^(\S+@\S+\.\S+)[\s:]+(.+)$/);
-    if (!m) { errors.push(i + 1); return; }
-    entries.push({ email: m[1], password: m[2].trim() });
+    const m = line.match(/^([^\s:]+@[^\s:]+\.[^\s:]+)(?:[\s:]+(.+))?$/);
+    if (!m || (!m[2] && !passwordOptional)) { errors.push(i + 1); return; }
+    entries.push({ email: m[1], password: m[2]?.trim() || null });
   });
   return { entries, errors };
 }
@@ -165,6 +176,9 @@ function parseBatch(text) {
 export default function MailboxBackupPanel() {
   const { t: tr } = useLang();
   const [enabled, setEnabled] = useState(null);   // null = loading
+  const [y360, setY360] = useState(false);         // service application configured
+  const [doMail, setDoMail] = useState(true);
+  const [doDisk, setDoDisk] = useState(false);
   const [batchText, setBatchText] = useState('');
   const [jobs, setJobs] = useState([]);
   const [total, setTotal] = useState(0);
@@ -180,7 +194,8 @@ export default function MailboxBackupPanel() {
   const pollRef = useRef(null);
 
   useEffect(() => {
-    api('/tools/status').then(d => setEnabled(!!d?.mailbox_backup)).catch(() => setEnabled(false));
+    api('/tools/status').then(d => { setEnabled(!!d?.mailbox_backup); setY360(!!d?.yandex360); })
+      .catch(() => setEnabled(false));
   }, []);
 
   const loadJobs = useCallback(async () => {
@@ -208,8 +223,9 @@ export default function MailboxBackupPanel() {
     return () => clearInterval(pollRef.current);
   }, [jobs, loadJobs]);
 
-  const parsed = parseBatch(batchText);
-  const canSubmit = parsed.entries.length > 0 && parsed.errors.length === 0;
+  const parsed = parseBatch(batchText, y360);
+  const disk = doDisk && y360;
+  const canSubmit = parsed.entries.length > 0 && parsed.errors.length === 0 && (doMail || disk);
 
   const start = async (e) => {
     e.preventDefault();
@@ -218,7 +234,7 @@ export default function MailboxBackupPanel() {
     try {
       await api('/tools/mailbox-backup', {
         method: 'POST',
-        body: JSON.stringify({ entries: parsed.entries }),
+        body: JSON.stringify({ entries: parsed.entries, mail: doMail, disk }),
       });
       setBatchText('');
       setToast({ message: tr('toolStarted'), type: 'success' });
@@ -285,12 +301,25 @@ export default function MailboxBackupPanel() {
               </div>
             </div>
 
-            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{tr('toolMbHint')}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16, fontSize: 13, color: 'var(--text-secondary)' }}>
+              <span className="t-eyebrow" style={{ marginBottom: 0 }}>{tr('toolWhat')}</span>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                <input type="checkbox" checked={doMail} onChange={e => setDoMail(e.target.checked)} />
+                {tr('toolKindMail')}
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: y360 ? 'pointer' : 'not-allowed', opacity: y360 ? 1 : 0.5 }}>
+                <input type="checkbox" checked={disk} disabled={!y360} onChange={e => setDoDisk(e.target.checked)} />
+                {tr('toolKindDisk')}
+              </label>
+            </div>
+
+            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{tr(y360 ? 'toolMbHint' : 'toolMbHintNoY360')}</div>
             <div>
               <Button type="submit" variant="primary" disabled={busy || !canSubmit} icon="archive">
-                {parsed.entries.length > 1
-                  ? `${tr('toolStartBackup')} (${parsed.entries.length})`
-                  : tr('toolStartBackup')}
+                {(() => {
+                  const n = parsed.entries.length * ((doMail ? 1 : 0) + (disk ? 1 : 0));
+                  return n > 1 ? `${tr('toolStartBackup')} (${n})` : tr('toolStartBackup');
+                })()}
               </Button>
             </div>
           </form>

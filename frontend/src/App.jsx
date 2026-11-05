@@ -410,7 +410,7 @@ export default function App() {
     {
       id: 'toolsGroup', label: lang === 'ru' ? 'Инструменты' : 'Tools',
       items: [
-        { id: 'tools',     label: lang === 'ru' ? 'Бэкап почты'    : 'Mailbox Backup' },
+        { id: 'tools',     label: lang === 'ru' ? 'Бэкап почты и Диска' : 'Mail & Disk Backup' },
         { id: 'inventory', label: lang === 'ru' ? 'Инвентаризация' : 'Inventory' },
         ...(canAccessAdmin(auth.user) ? [{ id: 'purchases', label: lang === 'ru' ? 'Финансы' : 'Finances' }] : []),
       ],
