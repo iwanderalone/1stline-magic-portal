@@ -840,3 +840,47 @@ class HandoverRecord(Base):
     signed_uploaded_by  = Column(String(100), nullable=True)
     created_at          = Column(DateTime(timezone=True), default=utcnow, nullable=False)
     signed_at           = Column(DateTime(timezone=True), nullable=True)
+
+
+class OfficeMapArea(Base):
+    """One floor plan on the Inventory → Map tab (e.g. the main office, the new wing).
+
+    Geometry only: walls, zone outlines and zone captions are drawing, not
+    inventory, so they live here. What sits where is NetBox's business — map
+    items point at NetBox locations/racks and the devices are read live."""
+    __tablename__ = "office_map_areas"
+
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    slug       = Column(String(50), nullable=False, unique=True)
+    name       = Column(String(100), nullable=False)
+    sort       = Column(Integer, nullable=False, default=0)
+    width      = Column(Integer, nullable=False)              # plan units (Miro board units)
+    height     = Column(Integer, nullable=False)
+    walls      = Column(Text, nullable=False, default="[]")  # JSON [[x, y, w, h], ...]
+    labels     = Column(Text, nullable=False, default="[]")  # JSON [{text, x, y}]  (x, y = centre)
+    zones      = Column(Text, nullable=False, default="[]")  # JSON [{x, y, w, h}]  rounded outlines
+    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+
+    items = relationship("OfficeMapItem", back_populates="area", cascade="all, delete-orphan")
+
+
+class OfficeMapItem(Base):
+    """A clickable thing on a plan: a desk, room or rack, normally bound to a NetBox
+    location (and, for a rack, the NetBox rack too). Unbound = drawn on the plan
+    but not matched to NetBox yet."""
+    __tablename__ = "office_map_items"
+
+    id                 = Column(Integer, primary_key=True, autoincrement=True)
+    area_id            = Column(Integer, ForeignKey("office_map_areas.id", ondelete="CASCADE"), nullable=False, index=True)
+    kind               = Column(String(20), nullable=False)        # desk | room | rack
+    label              = Column(String(100), nullable=True)        # shown when unbound; NetBox name wins otherwise
+    netbox_location_id = Column(Integer, nullable=True, unique=True)
+    netbox_rack_id     = Column(Integer, nullable=True)
+    x                  = Column(Float, nullable=False)
+    y                  = Column(Float, nullable=False)
+    w                  = Column(Float, nullable=False)
+    h                  = Column(Float, nullable=False)
+    note               = Column(String(300), nullable=True)
+    updated_at         = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+
+    area = relationship("OfficeMapArea", back_populates="items")

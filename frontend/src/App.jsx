@@ -612,7 +612,7 @@ export default function App() {
 
           {/* Page content */}
           <main style={{ flex: 1, minWidth: 0, padding: isMobile ? '20px 16px 32px' : '28px 36px 48px' }}>
-            <div style={{ width: '100%', maxWidth: FORM_PAGES.includes(page) ? 780 : 1200, margin: '0 auto' }}>
+            <div style={{ width: '100%', maxWidth: FORM_PAGES.includes(page) ? 780 : (page === 'inventory' && (subPath || '').startsWith('map')) ? 1600 : 1200, margin: '0 auto' }}>
               {!canAccessPage(auth.user, page) ? (
                 <EmptyState
                   icon={<Icon name="shield" size={40} />}
