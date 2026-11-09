@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
 import { api } from '../../api';
 import { Button, EmptyState, Select, Toast, PageHeader, Tabs } from '../../components/UI';
 import { Icon } from '../../components/Icons';
@@ -7,7 +7,8 @@ import DeviceList from '../../components/DeviceList';
 import DeviceFormModal from '../../components/DeviceFormModal';
 import DeviceDetailModal from '../../components/DeviceDetailModal';
 import HandoverPanel from './HandoverPanel';
-import OfficeMapPanel from './OfficeMapPanel';
+// The map pulls in Konva (canvas engine) — load it only when the tab opens.
+const OfficeMapPanel = lazy(() => import('./OfficeMapPanel'));
 
 const PAGE_SIZE = 20;
 
@@ -118,7 +119,9 @@ export default function InventoryPanel({ user, subPath, navigate, pendingHandove
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         {header}
-        <OfficeMapPanel user={user} subPath={rest.join('/')} navigate={navigate} />
+        <Suspense fallback={null}>
+          <OfficeMapPanel user={user} subPath={rest.join('/')} navigate={navigate} />
+        </Suspense>
       </div>
     );
   }
