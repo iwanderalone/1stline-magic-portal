@@ -142,3 +142,39 @@ def test_unblocked_user_is_seen_without_waiting_for_the_cache(directory, monkeyp
     monkeypatch.setattr(yandex360, "_load_users", lambda: {
         "gone@example.com": {"id": 12, "email": "gone@example.com", "isEnabled": True}})
     assert yandex360.find_user("gone@example.com")["id"] == 12
+
+
+def test_files_download_in_parallel(monkeypatch):
+    """A folder of small files must not be fetched one at a time."""
+    many = {f"/f{i}.png": bytes([i]) * 10 for i in range(12)}
+    lock, active, peak = threading.Lock(), [0], [0]
+    gate = threading.Event()
+
+    def slow(req: httpx.Request):
+        if req.url.host == "dl.test":
+            with lock:
+                active[0] += 1
+                peak[0] = max(peak[0], active[0])
+                if active[0] >= 3:
+                    gate.set()
+            gate.wait(2)   # hold each download until several are in flight at once
+            with lock:
+                active[0] -= 1
+            return httpx.Response(200, content=many[req.url.path])
+        path = req.url.params["path"]
+        if req.url.path.endswith("/resources/download"):
+            return httpx.Response(200, json={"href": f"https://dl.test{path[5:]}"})
+        items = [_item(p, body=b) for p, b in many.items()]
+        return httpx.Response(200, json={"_embedded": {"items": items, "total": len(items)}})
+
+    real = httpx.Client
+    monkeypatch.setattr(dbs.httpx, "Client", lambda **kw: real(transport=httpx.MockTransport(slow), **kw))
+    monkeypatch.setattr(dbs, "EmployeeToken", StubToken)
+    s3 = FakeS3()
+    monkeypatch.setattr(mbs, "_make_s3_client", lambda: s3)
+
+    prog = mbs.JobProgress()
+    out = dbs.run_pipeline("ivan@example.com", prog, threading.Event())
+
+    assert peak[0] >= 3
+    assert out["skipped"] == 0 and prog.messages_done == 12
