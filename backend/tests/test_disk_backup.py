@@ -85,6 +85,7 @@ def test_disk_pipeline_archives_resumes_and_skips(monkeypatch):
     monkeypatch.setattr(dbs.httpx, "Client", lambda **kw: real(transport=httpx.MockTransport(handler), **kw))
     monkeypatch.setattr(dbs, "EmployeeToken", StubToken)
     monkeypatch.setattr(dbs.time, "sleep", lambda s: None)
+    monkeypatch.setattr(dbs, "RETRY_PASS_PAUSE", 0)
     s3 = FakeS3()
     monkeypatch.setattr(mbs, "_make_s3_client", lambda: s3)
 
@@ -170,6 +171,7 @@ def test_files_download_in_parallel(monkeypatch):
     real = httpx.Client
     monkeypatch.setattr(dbs.httpx, "Client", lambda **kw: real(transport=httpx.MockTransport(slow), **kw))
     monkeypatch.setattr(dbs, "EmployeeToken", StubToken)
+    monkeypatch.setattr(dbs, "RETRY_PASS_PAUSE", 0)
     s3 = FakeS3()
     monkeypatch.setattr(mbs, "_make_s3_client", lambda: s3)
 
@@ -178,3 +180,61 @@ def test_files_download_in_parallel(monkeypatch):
 
     assert peak[0] >= 3
     assert out["skipped"] == 0 and prog.messages_done == 12
+
+
+def _run_with(monkeypatch, handler_fn):
+    real = httpx.Client
+    monkeypatch.setattr(dbs.httpx, "Client", lambda **kw: real(transport=httpx.MockTransport(handler_fn), **kw))
+    monkeypatch.setattr(dbs, "EmployeeToken", StubToken)
+    monkeypatch.setattr(dbs, "RETRY_PASS_PAUSE", 0)
+    monkeypatch.setattr(dbs.time, "sleep", lambda s: None)
+    monkeypatch.setattr(dbs.DiskClient, "_cool_down", lambda self, cancel: None)
+    s3 = FakeS3()
+    monkeypatch.setattr(mbs, "_make_s3_client", lambda: s3)
+    prog = mbs.JobProgress()
+    out = dbs.run_pipeline("ivan@example.com", prog, threading.Event())
+    data = s3.objects[out["s3_url"].split("/", 3)[3]]
+    raw = zstandard.ZstdDecompressor().stream_reader(io.BytesIO(data)).read()
+    with tarfile.open(fileobj=io.BytesIO(raw)) as tar:
+        names = {m.name for m in tar.getmembers()}
+    return out, names
+
+
+def test_throttled_link_requests_are_retried_not_skipped(monkeypatch):
+    """429 on the download-link request must not cost a file."""
+    body = b"payload"
+    calls = {"link": 0}
+
+    def h(req: httpx.Request):
+        if req.url.host == "dl.test":
+            return httpx.Response(200, content=body)
+        if req.url.path.endswith("/resources/download"):
+            calls["link"] += 1
+            if calls["link"] <= 3:
+                return httpx.Response(429, headers={"Retry-After": "1"}, json={"error": "TooManyRequests"})
+            return httpx.Response(200, json={"href": "https://dl.test/x"})
+        items = [_item("/x.bin", body=body)]
+        return httpx.Response(200, json={"_embedded": {"items": items, "total": 1}})
+
+    out, names = _run_with(monkeypatch, h)
+    assert out["skipped"] == 0 and names == {"disk/x.bin"}
+
+
+def test_file_that_keeps_failing_in_parallel_gets_a_second_pass(monkeypatch):
+    """Throttled past every in-pass retry, the file still makes it via the sequential pass."""
+    body = b"payload"
+    calls = {"link": 0}
+
+    def h(req: httpx.Request):
+        if req.url.host == "dl.test":
+            return httpx.Response(200, content=body)
+        if req.url.path.endswith("/resources/download"):
+            calls["link"] += 1
+            if calls["link"] <= dbs.LINK_ATTEMPTS:   # the whole first pass is throttled
+                return httpx.Response(503)
+            return httpx.Response(200, json={"href": "https://dl.test/x"})
+        items = [_item("/x.bin", body=body)]
+        return httpx.Response(200, json={"_embedded": {"items": items, "total": 1}})
+
+    out, names = _run_with(monkeypatch, h)
+    assert out["skipped"] == 0 and names == {"disk/x.bin"}
