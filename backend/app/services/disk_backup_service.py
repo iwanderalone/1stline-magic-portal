@@ -25,6 +25,7 @@ import tarfile
 import tempfile
 import threading
 import time
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from pathlib import Path
 
 import httpx
@@ -39,6 +40,12 @@ FIRST_BYTE_TIMEOUT = 45   # Yandex storage sometimes accepts the connection and 
 RESUMES = 5               # Range resumes per file before it is skipped
 LIST_ATTEMPTS = 4
 PART_SIZE = 128 * 1024 * 1024   # S3 multipart part; 10 000 parts → archives up to ~1.2 TiB
+# Files are fetched in parallel: one at a time, a folder of small files spends
+# almost all its time on the download-link request and the redirect rather than
+# on bytes, and Yandex also caps a single download stream's speed.
+DOWNLOAD_WORKERS = 8
+INFLIGHT_BYTES = 4 * 1024 ** 3  # stop queueing more files while this much is being spooled
+_PROG_LOCK = threading.Lock()
 # Pictures every new Yandex Disk starts with — not worth keeping.
 WELCOME_MD5 = {
     "569a1c98696050439b5b2a1ecfa52d19", "d27d72a3059ad5ebed7a5470459d2670",
@@ -49,6 +56,12 @@ WELCOME_MD5 = {
 
 class FileUnavailable(Exception):
     """One file could not be fetched — skip it, keep the job going."""
+
+
+def _add_bytes(prog: mbs.JobProgress, n: int) -> None:
+    with _PROG_LOCK:   # several download threads update the same counter
+        prog.bytes_done += n
+        prog.touch()
 
 
 class DiskClient:
@@ -111,7 +124,19 @@ class DiskClient:
         return files
 
     def download(self, item: dict, dest: Path, prog: mbs.JobProgress, cancel: threading.Event) -> None:
-        """Fetch one file to dest, resuming with Range after a drop; md5-checked."""
+        """Fetch one file to dest, resuming with Range after a drop; md5-checked.
+        Safe to call from several threads at once. A file that ends up skipped
+        still counts its full size towards progress, so the bar stays honest."""
+        size = int(item.get("size") or 0)
+        counted = [0]
+        try:
+            self._download(item, dest, prog, cancel, counted)
+        except FileUnavailable:
+            _add_bytes(prog, max(0, size - counted[0]))
+            raise
+
+    def _download(self, item: dict, dest: Path, prog: mbs.JobProgress, cancel: threading.Event,
+                  counted: list[int]) -> None:
         path, size = item["rel"], int(item.get("size") or 0)
         r = self._get(f"{DISK_API}/resources/download", params={"path": f"disk:{path}"})
         if r.status_code != 200:
@@ -135,8 +160,8 @@ class DiskClient:
                             out.write(block)
                             md5.update(block)
                             got += len(block)
-                            prog.bytes_done += len(block)
-                            prog.touch()
+                            counted[0] += len(block)
+                            _add_bytes(prog, len(block))
                             mbs._check_cancel(cancel)
                     if got >= size:
                         break
@@ -242,34 +267,69 @@ def run_pipeline(email_addr: str, prog: mbs.JobProgress, cancel: threading.Event
         writer = S3StreamWriter(s3, s.S3_BUCKET, archive_key, storage_class, meta, prog)
         skipped: list[tuple[str, int, str]] = []
         spool = workdir / "spool"
+        spool.mkdir()
+        stop = threading.Event()   # the download threads' own cancel flag: set on cancel *and* on failure
+
+        def fetch(idx: int, item: dict) -> tuple[dict, Path | None, str | None]:
+            dest = spool / str(idx)
+            prog.current_folder = item["rel"]
+            try:
+                disk.download(item, dest, prog, stop)
+                return item, dest, None
+            except FileUnavailable as e:
+                dest.unlink(missing_ok=True)
+                return item, None, str(e)
+            except BaseException:
+                dest.unlink(missing_ok=True)
+                raise
 
         prog.phase = "downloading"
         prog.touch()
+        pool = ThreadPoolExecutor(max_workers=DOWNLOAD_WORKERS, thread_name_prefix="diskbackup")
         try:
             cctx = zstd.ZstdCompressor(level=level, threads=-1)
             with cctx.stream_writer(writer, closefd=False) as compressor:
                 with tarfile.open(fileobj=compressor, mode="w|") as tar:
-                    for item in files:
+                    # Downloads run ahead in the pool; this thread appends whatever
+                    # finished to the tar (order inside the archive doesn't matter).
+                    queue = iter(enumerate(files))
+                    running: dict = {}   # future → size in flight
+                    while True:
+                        if cancel.is_set():
+                            stop.set()
                         mbs._check_cancel(cancel)
-                        prog.current_folder = item["rel"]
-                        before = prog.bytes_done
-                        try:
-                            disk.download(item, spool, prog, cancel)
-                        except FileUnavailable as e:
-                            logger.warning("[diskbackup] %s: skipping %s: %s", email_addr, item["rel"], e)
-                            skipped.append((item["rel"], int(item.get("size") or 0), str(e)))
-                            prog.bytes_done = before + int(item.get("size") or 0)
-                            continue
-                        with spool.open("rb") as fh:
-                            tar.addfile(_tar_info(item, spool.stat().st_size), fh)
-                        prog.messages_done += 1
-                        prog.touch()
+                        inflight = sum(running.values())
+                        while len(running) < DOWNLOAD_WORKERS * 2 and (not running or inflight < INFLIGHT_BYTES):
+                            nxt = next(queue, None)
+                            if nxt is None:
+                                break
+                            size = int(nxt[1].get("size") or 0)
+                            running[pool.submit(fetch, *nxt)] = size
+                            inflight += size
+                        if not running:
+                            break
+                        done, _ = wait(running, timeout=5, return_when=FIRST_COMPLETED)
+                        for fut in done:
+                            running.pop(fut)
+                            item, path, err = fut.result()
+                            if err is not None:
+                                logger.warning("[diskbackup] %s: skipping %s: %s", email_addr, item["rel"], err)
+                                skipped.append((item["rel"], int(item.get("size") or 0), err))
+                                continue
+                            try:
+                                with path.open("rb") as fh:
+                                    tar.addfile(_tar_info(item, path.stat().st_size), fh)
+                            finally:
+                                path.unlink(missing_ok=True)
+                            prog.messages_done += 1
+                            prog.touch()
             writer.finish()
         except BaseException:
+            stop.set()   # the download threads still running give up at their next block
             writer.abort()
             raise
         finally:
-            spool.unlink(missing_ok=True)
+            pool.shutdown(wait=False, cancel_futures=True)
 
         prog.phase = "verifying"
         prog.current_folder = ""
