@@ -22,6 +22,7 @@ class MapItemPatch(BaseModel):
     h: Optional[float] = Field(None, gt=0)
     label: Optional[str] = Field(None, max_length=100)
     note: Optional[str] = Field(None, max_length=300)
+    zone: Optional[str] = Field(None, max_length=100)
 
 
 def _netbox_error(exc: nbs.NetboxError) -> HTTPException:

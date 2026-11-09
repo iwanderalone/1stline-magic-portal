@@ -33,7 +33,7 @@ _occupancy_cache: dict[str, Any] = {"at": 0.0, "key": None, "data": None}
 
 def _item_out(i: OfficeMapItem) -> dict:
     return {
-        "id": i.id, "kind": i.kind, "label": i.label,
+        "id": i.id, "kind": i.kind, "label": i.label, "zone": i.zone,
         "location_id": i.netbox_location_id, "rack_id": i.netbox_rack_id,
         "x": i.x, "y": i.y, "w": i.w, "h": i.h, "note": i.note,
     }
@@ -137,7 +137,7 @@ async def rack_elevation_svg(rack_id: int, face: str) -> bytes:
 # ─── write ───────────────────────────────────────────────────────────
 
 async def update_item(db: AsyncSession, item: OfficeMapItem, fields: dict) -> dict:
-    for k in ("x", "y", "w", "h", "label", "note"):
+    for k in ("x", "y", "w", "h", "label", "note", "zone"):
         if k in fields and fields[k] is not None:
             setattr(item, k, fields[k])
     if "location_id" in fields:
@@ -187,7 +187,7 @@ async def import_map(db: AsyncSession, data: dict) -> dict:
             else:
                 report["unbound"].append(name or o.get("note") or f"{kind} at {o['x']},{o['y']}")
             db.add(OfficeMapItem(
-                area_id=area.id, kind=kind, label=name, note=o.get("note"),
+                area_id=area.id, kind=kind, label=name, note=o.get("note"), zone=o.get("zone"),
                 netbox_location_id=loc_id, netbox_rack_id=rack_by_loc.get(loc_id) if kind == "rack" else None,
                 x=o["x"], y=o["y"], w=o["w"], h=o["h"],
             ))
