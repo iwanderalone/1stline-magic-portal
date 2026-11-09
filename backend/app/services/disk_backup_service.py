@@ -38,6 +38,9 @@ logger = logging.getLogger(__name__)
 
 FIRST_BYTE_TIMEOUT = 45   # Yandex storage sometimes accepts the connection and never sends a byte
 RESUMES = 5               # Range resumes per file before it is skipped
+LINK_ATTEMPTS = 8         # download-link requests per file (429/5xx back off, then retry)
+TRANSIENT = {429, 500, 502, 503, 504}
+RETRY_PASS_PAUSE = 60     # before the one-at-a-time second pass over files that failed in parallel
 LIST_ATTEMPTS = 4
 PART_SIZE = 128 * 1024 * 1024   # S3 multipart part; 10 000 parts → archives up to ~1.2 TiB
 # Files are fetched in parallel: one at a time, a folder of small files spends
@@ -68,6 +71,8 @@ class DiskClient:
     def __init__(self, token: EmployeeToken):
         self.token = token
         self.http = httpx.Client(timeout=httpx.Timeout(60, read=FIRST_BYTE_TIMEOUT))
+        self._cool_lock = threading.Lock()
+        self._cool_until = 0.0   # shared back-off: after a 429 no worker asks again before this
 
     def close(self):
         self.http.close()
@@ -123,25 +128,58 @@ class DiskClient:
             prog.touch()
         return files
 
+    def _throttle(self, resp: httpx.Response | None, attempt: int) -> None:
+        """Yandex said "too many requests" (or had a 5xx): every worker backs off
+        together, honouring Retry-After when it is given."""
+        wait_s = min(60.0, 2.0 * 2 ** attempt)
+        if resp is not None:
+            try:
+                wait_s = max(wait_s, min(120.0, float(resp.headers.get("Retry-After", 0))))
+            except ValueError:
+                pass
+        with self._cool_lock:
+            self._cool_until = max(self._cool_until, time.time() + wait_s)
+
+    def _cool_down(self, cancel: threading.Event) -> None:
+        while (left := self._cool_until - time.time()) > 0:
+            mbs._check_cancel(cancel)
+            time.sleep(min(left, 1.0))
+
+    def _link(self, path: str, cancel: threading.Event) -> str:
+        """Ask for a download link, riding out 429/5xx and network errors."""
+        last = ""
+        for attempt in range(LINK_ATTEMPTS):
+            self._cool_down(cancel)
+            try:
+                r = self._get(f"{DISK_API}/resources/download", params={"path": f"disk:{path}"})
+            except httpx.HTTPError as e:
+                last = str(e)
+                self._throttle(None, attempt)
+                continue
+            if r.status_code == 200:
+                return r.json()["href"]
+            last = f"HTTP {r.status_code} {r.text[:150]}"
+            if r.status_code in TRANSIENT:
+                self._throttle(r, attempt)
+                continue
+            raise FileUnavailable(f"no download link: {last}")
+        raise FileUnavailable(f"no download link after {LINK_ATTEMPTS} tries: {last}")
+
     def download(self, item: dict, dest: Path, prog: mbs.JobProgress, cancel: threading.Event) -> None:
         """Fetch one file to dest, resuming with Range after a drop; md5-checked.
-        Safe to call from several threads at once. A file that ends up skipped
-        still counts its full size towards progress, so the bar stays honest."""
-        size = int(item.get("size") or 0)
+        Safe to call from several threads at once. If it fails, the bytes it
+        added to progress are taken back so a later retry doesn't count twice."""
         counted = [0]
         try:
             self._download(item, dest, prog, cancel, counted)
         except FileUnavailable:
-            _add_bytes(prog, max(0, size - counted[0]))
+            _add_bytes(prog, -counted[0])
             raise
 
     def _download(self, item: dict, dest: Path, prog: mbs.JobProgress, cancel: threading.Event,
                   counted: list[int]) -> None:
         path, size = item["rel"], int(item.get("size") or 0)
-        r = self._get(f"{DISK_API}/resources/download", params={"path": f"disk:{path}"})
-        if r.status_code != 200:
-            raise FileUnavailable(f"no download link: HTTP {r.status_code} {r.text[:150]}")
-        href = r.json()["href"]
+        href = self._link(path, cancel)
         got, drops = 0, 0
         md5 = hashlib.md5()
         with dest.open("wb") as out:
@@ -152,6 +190,10 @@ class DiskClient:
                     if got:
                         headers["Range"] = f"bytes={got}-"
                     with self.http.stream("GET", href, headers=headers, follow_redirects=True) as resp:
+                        if resp.status_code in TRANSIENT or resp.status_code in (401, 403, 410):
+                            # throttled, or the link went stale — back off and fetch a fresh one
+                            self._throttle(resp, drops)
+                            raise httpx.ReadError(f"HTTP {resp.status_code} from the download host")
                         if resp.status_code not in (200, 206):
                             raise FileUnavailable(f"HTTP {resp.status_code} {resp.read()[:150]!r}")
                         if got and resp.status_code != 206:
@@ -171,6 +213,8 @@ class DiskClient:
                     if drops > RESUMES:
                         raise FileUnavailable(f"{drops} drops while downloading, last: {e}") from e
                     time.sleep(min(30, 3 * drops))
+                    self._cool_down(cancel)
+                    href = self._link(path, cancel)
         if item.get("md5") and md5.hexdigest() != item["md5"]:
             raise FileUnavailable("md5 does not match Yandex's")
 
@@ -292,6 +336,17 @@ def run_pipeline(email_addr: str, prog: mbs.JobProgress, cancel: threading.Event
                 with tarfile.open(fileobj=compressor, mode="w|") as tar:
                     # Downloads run ahead in the pool; this thread appends whatever
                     # finished to the tar (order inside the archive doesn't matter).
+                    failed: list[dict] = []
+
+                    def add(item: dict, path: Path) -> None:
+                        try:
+                            with path.open("rb") as fh:
+                                tar.addfile(_tar_info(item, path.stat().st_size), fh)
+                        finally:
+                            path.unlink(missing_ok=True)
+                        prog.messages_done += 1
+                        prog.touch()
+
                     queue = iter(enumerate(files))
                     running: dict = {}   # future → size in flight
                     while True:
@@ -313,16 +368,34 @@ def run_pipeline(email_addr: str, prog: mbs.JobProgress, cancel: threading.Event
                             running.pop(fut)
                             item, path, err = fut.result()
                             if err is not None:
-                                logger.warning("[diskbackup] %s: skipping %s: %s", email_addr, item["rel"], err)
-                                skipped.append((item["rel"], int(item.get("size") or 0), err))
-                                continue
-                            try:
-                                with path.open("rb") as fh:
-                                    tar.addfile(_tar_info(item, path.stat().st_size), fh)
-                            finally:
-                                path.unlink(missing_ok=True)
-                            prog.messages_done += 1
+                                failed.append(item)
+                                logger.info("[diskbackup] %s: %s failed in parallel, will retry: %s",
+                                            email_addr, item["rel"], err)
+                            else:
+                                add(item, path)
+
+                    # Second chance, one file at a time after a pause: what failed under
+                    # parallel load (throttling, a flaky storage host) usually comes
+                    # through alone. Only what fails again is skipped.
+                    if failed:
+                        logger.info("[diskbackup] %s: retrying %d file(s) one at a time",
+                                    email_addr, len(failed))
+                        deadline = time.time() + RETRY_PASS_PAUSE
+                        while time.time() < deadline:
+                            mbs._check_cancel(cancel)
                             prog.touch()
+                            time.sleep(1)
+                    for item in failed:
+                        if cancel.is_set():
+                            stop.set()
+                        mbs._check_cancel(cancel)
+                        item, path, err = fetch(len(files), item)
+                        if err is None:
+                            add(item, path)
+                            continue
+                        logger.warning("[diskbackup] %s: skipping %s: %s", email_addr, item["rel"], err)
+                        skipped.append((item["rel"], int(item.get("size") or 0), err))
+                        _add_bytes(prog, int(item.get("size") or 0))   # keep the bar honest
             writer.finish()
         except BaseException:
             stop.set()   # the download threads still running give up at their next block
