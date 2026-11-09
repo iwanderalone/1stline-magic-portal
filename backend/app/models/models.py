@@ -874,6 +874,7 @@ class OfficeMapItem(Base):
     area_id            = Column(Integer, ForeignKey("office_map_areas.id", ondelete="CASCADE"), nullable=False, index=True)
     kind               = Column(String(20), nullable=False)        # desk | room | rack
     label              = Column(String(100), nullable=True)        # shown when unbound; NetBox name wins otherwise
+    zone               = Column(String(100), nullable=True)        # desk group ("Legal", "MCR") — one card in the Seats view
     netbox_location_id = Column(Integer, nullable=True, unique=True)
     netbox_rack_id     = Column(Integer, nullable=True)
     x                  = Column(Float, nullable=False)

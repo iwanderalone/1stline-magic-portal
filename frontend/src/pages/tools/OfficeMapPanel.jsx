@@ -7,6 +7,7 @@ import { Icon } from '../../components/Icons';
 import { useLang } from '../../components/LangContext';
 import { useTheme } from '../../components/ThemeContext';
 import DeviceDetailModal from '../../components/DeviceDetailModal';
+import OfficeSeatMap, { deskNo, itemTitle as seatTitle, shortName } from './OfficeSeatMap';
 
 // Inventory → Map, drawn with Konva (canvas). Geometry comes from the portal
 // (/tools/office-map); what is at each desk comes live from NetBox
@@ -22,17 +23,10 @@ const PAD = 80;                    // plan units of margin around what is drawn
 const MAX_ZOOM_FACTOR = 7;         // closest zoom, relative to "fit"
 const SNAP = 5;                    // plan units, edit mode
 
-const deskNo = (label) => (label || '').replace(/^desk-0*/i, '');
-const shortName = (full) => {
-  const parts = (full || '').trim().split(/\s+/);
-  return parts.length > 1 ? `${parts[0]} ${parts[parts.length - 1][0]}.` : parts[0] || '';
-};
-const itemTitle = (it) => {
-  if (!it.label) return '?';
-  if (it.kind === 'desk') return deskNo(it.label);
-  if (it.kind === 'rack') return it.label.replace(/^rack-0*/i, 'R');
-  return it.label.replace(/^room-0*/i, 'Room ');
-};
+// On the plan a rack is drawn small, so it gets the short form "R1".
+const itemTitle = (it) => (it.kind === 'rack' && it.label ? it.label.replace(/^rack-0*/i, 'R') : seatTitle(it));
+
+const VIEW_KEY = 'officeMap.view';
 
 function boundsOf(area) {
   const xs = [], ys = [];
@@ -74,6 +68,8 @@ export default function OfficeMapPanel({ user, subPath, navigate }) {
   const [viewing, setViewing] = useState(null);   // device id in DeviceDetailModal
   const [toast, setToast] = useState(null);
   const canvasApi = useRef(null);                 // {focus(items)} from the canvas
+  const [mode, setMode] = useState(() => { try { return localStorage.getItem(VIEW_KEY) || 'seats'; } catch { return 'seats'; } });
+  const goMode = (m) => { setMode(m); setEditing(false); try { localStorage.setItem(VIEW_KEY, m); } catch { /* private mode */ } };
 
   useEffect(() => {
     api('/tools/office-map').then(d => {
@@ -125,7 +121,7 @@ export default function OfficeMapPanel({ user, subPath, navigate }) {
   const onSearchKey = (e) => {
     if (e.key === 'Enter' && matches?.size && area) {
       const hits = area.items.filter(i => matches.has(i.id));
-      canvasApi.current?.focus(hits);
+      if (mode === 'plan') canvasApi.current?.focus(hits);
       if (hits.length === 1) setSelectedId(hits[0].id);
     }
     if (e.key === 'Escape') setQ('');
@@ -168,19 +164,33 @@ export default function OfficeMapPanel({ user, subPath, navigate }) {
         </div>
         {matches && (
           <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-            {tr('mapMatches').replace('{n}', matches.size)}{matches.size ? ` · ${tr('mapEnterToShow')}` : ''}
+            {tr('mapMatches').replace('{n}', matches.size)}{matches.size && mode === 'plan' ? ` · ${tr('mapEnterToShow')}` : ''}
           </span>
         )}
         <div style={{ flex: 1 }} />
         {occError && <span style={{ fontSize: 12, color: 'var(--warning)' }} title={occError}>{tr('mapNetboxDown')}</span>}
-        {canEdit && (
+        <Tabs tabs={[{ id: 'seats', label: tr('mapViewSeats') }, { id: 'plan', label: tr('mapViewPlan') }]} active={mode} onChange={goMode} />
+        {canEdit && mode === 'plan' && (
           <Button size="sm" variant={editing ? 'primary' : 'secondary'} icon="edit" onClick={() => setEditing(e => !e)}>
             {editing ? tr('mapEditDone') : tr('mapEdit')}
           </Button>
         )}
       </div>
 
-      {area.labels.length > 0 && (
+      {mode === 'seats' && (
+        <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <OfficeSeatMap area={area} occ={occ} matches={matches} selectedId={selectedId} onSelect={setSelectedId} />
+            <SeatLegend />
+          </div>
+          {selected && (
+            <DetailPanel docked item={selected} info={occ[selected.location_id]} netboxUrl={map.netbox_url}
+              onClose={() => setSelectedId(null)} onDevice={setViewing} />
+          )}
+        </div>
+      )}
+
+      {mode === 'plan' && area.labels.length > 0 && (
         <div style={{ display: 'flex', gap: 6, overflowX: 'auto', whiteSpace: 'nowrap', marginTop: -2, paddingBottom: 2, scrollbarWidth: 'thin' }}>
           {area.labels.map(l => (
             <button key={l.text} onClick={() => canvasApi.current?.focus(zoneItems(area, l))} style={{
@@ -197,7 +207,7 @@ export default function OfficeMapPanel({ user, subPath, navigate }) {
         </div>
       )}
 
-      <div style={{
+      {mode === 'plan' && <div style={{
         position: 'relative', height: 'calc(100vh - 250px)', minHeight: 520, borderRadius: 'var(--radius)',
         border: '1px solid var(--border)', overflow: 'hidden', background: 'var(--surface)',
       }}>
@@ -219,7 +229,23 @@ export default function OfficeMapPanel({ user, subPath, navigate }) {
             onClose={() => setSelectedId(null)} onDevice={setViewing}
           />
         )}
-      </div>
+      </div>}
+    </div>
+  );
+}
+
+function SeatLegend() {
+  const { t: tr } = useLang();
+  const sw = (bg, border, dash) => (
+    <span style={{ width: 16, height: 11, borderRadius: 3, background: bg, display: 'inline-block', border: `1.5px ${dash ? 'dashed' : 'solid'} ${border}` }} />
+  );
+  const item = (el, text) => <span style={{ display: 'inline-flex', gap: 5, alignItems: 'center' }}>{el}{text}</span>;
+  return (
+    <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 14, fontSize: 11, color: 'var(--text-muted)' }}>
+      {item(sw('var(--surface-elevated)', 'var(--border-strong)'), tr('mapLegendPeople'))}
+      {item(sw('var(--surface-alt)', 'var(--border-strong)'), tr('mapLegendDevices'))}
+      {item(sw('var(--surface)', 'var(--border-strong)'), tr('mapLegendEmpty'))}
+      {item(sw('transparent', 'var(--warning)', true), tr('mapUnbound'))}
     </div>
   );
 }
@@ -492,7 +518,7 @@ function HoverCard({ item, info, x, y, host }) {
   );
 }
 
-function DetailPanel({ item, info, netboxUrl, onClose, onDevice }) {
+function DetailPanel({ item, info, netboxUrl, onClose, onDevice, docked = false }) {
   const { t: tr } = useLang();
   const [face, setFace] = useState('front');
   const [rackImg, setRackImg] = useState(null);
@@ -514,7 +540,10 @@ function DetailPanel({ item, info, netboxUrl, onClose, onDevice }) {
 
   return (
     <div style={{
-      position: 'absolute', top: 12, right: 12, bottom: 12, width: item.rack_id ? 380 : 330, maxWidth: 'calc(100% - 24px)',
+      ...(docked
+        ? { position: 'sticky', top: 16, flexShrink: 0, maxHeight: 'calc(100vh - 32px)' }
+        : { position: 'absolute', top: 12, right: 12, bottom: 12 }),
+      width: item.rack_id ? 380 : 330, maxWidth: docked ? undefined : 'calc(100% - 24px)',
       background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)',
       boxShadow: 'var(--shadow-lg)', padding: 16, display: 'flex', flexDirection: 'column', gap: 14,
       overflowY: 'auto', boxSizing: 'border-box',
