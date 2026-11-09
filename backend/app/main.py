@@ -32,6 +32,7 @@ from app.api import assistant
 from app.api import sso
 from app.api import settings as settings_api
 from app.api import purchases
+from app.api import office_map
 from app.services import keycloak_service
 from app.workers.reminder_worker import check_and_fire_reminders
 from app.workers.shift_notification_scheduler import schedule_pending_notifications
@@ -417,6 +418,7 @@ app.include_router(alerts.router, prefix="/api")
 app.include_router(status_api.router, prefix="/api")
 app.include_router(assistant.router, prefix="/api")
 app.include_router(tools.router, prefix="/api")
+app.include_router(office_map.router, prefix="/api")
 app.include_router(purchases.router, prefix="/api")
 app.include_router(settings_api.router, prefix="/api")
 

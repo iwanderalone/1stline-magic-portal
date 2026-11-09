@@ -7,15 +7,17 @@ import DeviceList from '../../components/DeviceList';
 import DeviceFormModal from '../../components/DeviceFormModal';
 import DeviceDetailModal from '../../components/DeviceDetailModal';
 import HandoverPanel from './HandoverPanel';
+import OfficeMapPanel from './OfficeMapPanel';
 
 const PAGE_SIZE = 20;
 
-// Devices and handovers in one place: #inventory, #inventory/handover[/devices/1,2].
+// Devices, the office map and handovers in one place:
+// #inventory, #inventory/map[/<plan>], #inventory/handover[/devices/1,2].
 export default function InventoryPanel({ user, subPath, navigate, pendingHandovers }) {
   const { lang, t: tr } = useLang();
   const [section, ...rest] = (subPath || '').split('/');
-  const tab = section === 'handover' ? 'handover' : 'devices';
-  const goTab = (id) => navigate(id === 'handover' ? 'inventory/handover' : 'inventory');
+  const tab = section === 'handover' || section === 'map' ? section : 'devices';
+  const goTab = (id) => navigate(id === 'devices' ? 'inventory' : `inventory/${id}`);
   const canEdit = user?.role === 'admin' || user?.role === 'manager';
   const [enabled, setEnabled] = useState(null); // null = loading
   const [q, setQ] = useState('');
@@ -83,7 +85,7 @@ export default function InventoryPanel({ user, subPath, navigate, pendingHandove
   const header = (
     <PageHeader
       title={tr('invTitle')}
-      subtitle={tab === 'handover' ? tr('handoverSubtitle') : tr('invSubtitle')}
+      subtitle={tab === 'handover' ? tr('handoverSubtitle') : tab === 'map' ? tr('mapSubtitle') : tr('invSubtitle')}
       actions={canEdit && enabled && tab === 'devices' && (
         <Button type="button" variant="primary" icon="plus" onClick={() => setEditing('new')}>
           {tr('invNewDevice')}
@@ -93,6 +95,7 @@ export default function InventoryPanel({ user, subPath, navigate, pendingHandove
       <Tabs
         tabs={[
           { id: 'devices', label: tr('invTabDevices') },
+          { id: 'map', label: tr('invTabMap') },
           { id: 'handover', label: pendingHandovers ? `${tr('invTabHandover')} (${pendingHandovers})` : tr('invTabHandover') },
         ]}
         active={tab}
@@ -107,6 +110,15 @@ export default function InventoryPanel({ user, subPath, navigate, pendingHandove
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         {header}
         <div style={{ maxWidth: 780 }}><HandoverPanel subPath={rest.join('/')} /></div>
+      </div>
+    );
+  }
+
+  if (tab === 'map') {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {header}
+        <OfficeMapPanel user={user} subPath={rest.join('/')} navigate={navigate} />
       </div>
     );
   }
