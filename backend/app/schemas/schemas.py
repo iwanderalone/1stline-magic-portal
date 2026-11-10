@@ -852,6 +852,7 @@ class MailboxBackupBatchStart(BaseModel):
     logins: list[str] = Field(..., min_length=1, max_length=50)
     mail: bool = True
     disk: bool = False
+    block_after: bool = False   # block the Yandex 360 account once its backups succeed
 
 
 class MailboxBackupJobResponse(BaseOrmModel):
@@ -873,6 +874,8 @@ class MailboxBackupJobResponse(BaseOrmModel):
     s3_url: Optional[str] = None
     mbox_count: Optional[int] = None
     skipped: Optional[int] = None
+    account_action: Optional[str] = None
+    account_result: Optional[str] = None
     error: Optional[str] = None
     created_at: datetime
     started_at: Optional[datetime] = None

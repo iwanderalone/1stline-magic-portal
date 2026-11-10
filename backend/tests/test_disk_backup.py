@@ -238,3 +238,63 @@ def test_file_that_keeps_failing_in_parallel_gets_a_second_pass(monkeypatch):
 
     out, names = _run_with(monkeypatch, h)
     assert out["skipped"] == 0 and names == {"disk/x.bin"}
+
+
+# ─── account blocking around the backup ──────────────────────────────
+
+def test_set_enabled_patches_directory_and_updates_cache(directory, monkeypatch):
+    calls = []
+
+    def fake_patch(url, **kw):
+        calls.append((url, kw["json"]))
+        return httpx.Response(200, json={})
+    monkeypatch.setattr(yandex360.httpx, "patch", fake_patch)
+    assert yandex360.find_user("gone@example.com", allow_blocked=True)["isEnabled"] is False
+    yandex360.set_enabled(12, True)
+    assert calls == [("https://api360.yandex.net/directory/v1/org/1/users/12", {"isEnabled": True})]
+    assert yandex360.find_user("gone@example.com")["id"] == 12   # cache says active now
+
+
+def test_set_enabled_without_write_scope_says_so(directory, monkeypatch):
+    monkeypatch.setattr(yandex360.httpx, "patch", lambda url, **kw: httpx.Response(403, text="forbidden"))
+    with pytest.raises(yandex360.Yandex360Error, match="write_users"):
+        yandex360.set_enabled(12, False)
+
+
+@pytest.mark.parametrize("action,ok,blocks", [
+    ("block", True, True),      # active account, backup fine → block
+    ("block", False, False),    # backup failed → leave it usable for a retry
+    ("restore", True, True),    # was blocked → back to blocked
+    ("restore", False, True),   # ...even when the backup failed
+])
+def test_account_decision(action, ok, blocks):
+    from app.services import mailbox_backup_service as mbs
+    assert mbs.account_decision(mbs.AccountPlan(uid="1", action=action, ok=ok)) is blocks
+
+
+def test_account_is_settled_only_after_the_last_job(monkeypatch):
+    import asyncio
+    from app.services import mailbox_backup_service as mbs
+    blocked = []
+    monkeypatch.setattr(yandex360, "set_enabled", lambda uid, on: blocked.append((uid, on)))
+
+    class _Db:
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def get(self, *a): return None
+        def add(self, *a): pass
+        async def commit(self): pass
+    monkeypatch.setattr(mbs, "AsyncSessionFactory", _Db)
+    monkeypatch.setattr(mbs, "_ACCOUNTS", {})
+
+    mbs.plan_account("ivan@example.com", "11", "block", [1, 2])
+    asyncio.run(mbs._settle_account(1, "ivan@example.com", True))
+    assert blocked == []                      # the Disk job is still to come
+    asyncio.run(mbs._settle_account(2, "ivan@example.com", True))
+    assert blocked == [("11", False)]
+
+    blocked.clear()
+    mbs.plan_account("ivan@example.com", "11", "block", [3, 4])
+    asyncio.run(mbs._settle_account(3, "ivan@example.com", False))
+    asyncio.run(mbs._settle_account(4, "ivan@example.com", True))
+    assert blocked == [] and mbs._ACCOUNTS == {}

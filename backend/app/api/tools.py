@@ -92,28 +92,49 @@ async def start_mailbox_backup(
     """Start one or more backup jobs — mail, Disk or both per employee, each its
     own job and archive. Jobs run sequentially (one pipeline at a time). The
     Yandex 360 service application signs in as the employee; logins are checked
-    against the directory here, so a typo or a blocked account is refused now
-    rather than failing later in the queue."""
+    against the directory here, so a typo is refused now rather than failing
+    later in the queue. A blocked account is unblocked for the backup and
+    blocked again once its jobs end; `block_after` also blocks an active one
+    after a fully successful backup."""
     if not (mbs.enabled() and y360.enabled()):
         raise HTTPException(status_code=503, detail="Backup is not configured")
     kinds = [k for k, on in (("mail", payload.mail), ("disk", payload.disk)) if on]
     if not kinds:
         raise HTTPException(status_code=400, detail="Choose what to back up: mail, Disk or both")
 
-    emails, problems = [], []
+    people: dict[str, dict] = {}           # email → directory entry; a login and its address are one person
+    problems = []
     for login in dict.fromkeys(x.strip().lower() for x in payload.logins if x.strip()):
         try:
-            emails.append((await asyncio.to_thread(y360.find_user, login))["email"].lower())
+            u = await asyncio.to_thread(y360.find_user, login, True)
+            people.setdefault(u["email"].lower(), u)
         except y360.Yandex360Error as e:
             problems.append(str(e))
     if problems:
         raise HTTPException(status_code=400, detail="; ".join(problems))
-    if not emails:
+    if not people:
         raise HTTPException(status_code=400, detail="Enter at least one login")
-    emails = list(dict.fromkeys(emails))   # a login and its address are the same person
+    emails = list(people)
     busy = [f"{e} ({k})" for e in emails for k in kinds if mbs.is_busy(e, k)]
     if busy:
         raise HTTPException(status_code=409, detail=f"Backup already running/queued for: {', '.join(busy)}")
+
+    # A blocked account can't be read — unblock it now; it is blocked again
+    # when its jobs end (whatever their outcome, see mbs.account_decision).
+    blocked = [e for e in emails if people[e].get("isEnabled") is False]
+    unblocked: list[str] = []
+    try:
+        for e in blocked:
+            await asyncio.to_thread(y360.set_enabled, people[e]["id"], True)
+            unblocked.append(e)
+    except y360.Yandex360Error as exc:
+        for e in unblocked:            # roll back: nothing is queued for them
+            try:
+                await asyncio.to_thread(y360.set_enabled, people[e]["id"], False)
+            except y360.Yandex360Error:
+                logger.exception("[tools] could not re-block %s after a failed batch start", e)
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    action = {e: "restore" if e in blocked else ("block" if payload.block_after else None) for e in emails}
 
     planned = [(email, kind) for email in emails for kind in kinds]
     jobs: list[MailboxBackupJob] = []
@@ -123,14 +144,21 @@ async def start_mailbox_backup(
             kind=kind,
             requested_by=user.display_name or user.username,
             status="queued",
+            account_action=action[email],
         )
         db.add(job)
         jobs.append(job)
     await log_action(db, user, "mailbox_backup_started",
-                     f"Backup ({' + '.join(kinds)}) started for {len(emails)} employee(s): {', '.join(emails)}")
+                     f"Backup ({' + '.join(kinds)}) started for {len(emails)} employee(s): {', '.join(emails)}"
+                     + (f"; unblocked for the backup: {', '.join(blocked)}" if blocked else "")
+                     + ("; block after a successful backup" if payload.block_after else ""))
     await db.commit()
     for job in jobs:
         await db.refresh(job)
+    for email in emails:
+        if action[email]:
+            mbs.plan_account(email, str(people[email]["id"]), action[email],
+                             [j.id for j, (e, _) in zip(jobs, planned) if e == email])
 
     # Fire-and-forget: pipelines run in worker threads, serialized by a global lock (FIFO).
     for job, (email, kind) in zip(jobs, planned):

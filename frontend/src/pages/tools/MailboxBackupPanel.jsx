@@ -99,6 +99,24 @@ function ProgressBar({ job, tr }) {
   );
 }
 
+// What happens / happened to the employee's Yandex 360 account around the backup.
+function AccountLine({ job, tr }) {
+  const r = job.account_result;
+  let text, color = 'var(--text-muted)';
+  if (r === 'blocked') text = tr('toolAccBlocked');
+  else if (r && r.startsWith('block failed')) { text = `${tr('toolAccBlockFailed')}: ${r.replace(/^block failed:\s*/, '')}`; color = 'var(--danger)'; }
+  else if (r) { text = tr('toolAccLeftActive'); color = 'var(--warning)'; }
+  else if (RUNNING.includes(job.status) && job.account_action === 'restore') text = tr('toolAccWillRestore');
+  else if (RUNNING.includes(job.status) && job.account_action === 'block') text = tr('toolAccWillBlock');
+  if (!text) return null;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color }}>
+      <Icon name="shield" size={12} color={color} />
+      <span>{text}</span>
+    </div>
+  );
+}
+
 function JobRow({ job, tr, onCancel, cancelling }) {
   const [open, setOpen] = useState(false);
   const active = RUNNING.includes(job.status);
@@ -128,6 +146,7 @@ function JobRow({ job, tr, onCancel, cancelling }) {
         </span>
       </div>
       {active && <ProgressBar job={job} tr={tr} />}
+      <AccountLine job={job} tr={tr} />
       {job.status === 'failed' && (
         <div style={{ fontSize: 12, color: 'var(--danger)', whiteSpace: 'pre-wrap' }}>{job.error}</div>
       )}
@@ -176,6 +195,13 @@ export default function MailboxBackupPanel() {
   const [enabled, setEnabled] = useState(null);   // null = loading
   const [doMail, setDoMail] = useState(true);
   const [doDisk, setDoDisk] = useState(false);
+  const [blockAfter, setBlockAfter] = useState(() => {
+    try { return localStorage.getItem('mbBlockAfter') !== '0'; } catch { return true; }
+  });
+  const toggleBlock = (on) => {
+    setBlockAfter(on);
+    try { localStorage.setItem('mbBlockAfter', on ? '1' : '0'); } catch { /* per-browser nicety only */ }
+  };
   const [batchText, setBatchText] = useState('');
   const [jobs, setJobs] = useState([]);
   const [total, setTotal] = useState(0);
@@ -229,7 +255,7 @@ export default function MailboxBackupPanel() {
     try {
       await api('/tools/mailbox-backup', {
         method: 'POST',
-        body: JSON.stringify({ logins: parsed.logins, mail: doMail, disk: doDisk }),
+        body: JSON.stringify({ logins: parsed.logins, mail: doMail, disk: doDisk, block_after: blockAfter }),
       });
       setBatchText('');
       setToast({ message: tr('toolStarted'), type: 'success' });
@@ -307,6 +333,14 @@ export default function MailboxBackupPanel() {
                 {tr('toolKindDisk')}
               </label>
             </div>
+
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 6, cursor: 'pointer', fontSize: 13, color: 'var(--text-secondary)' }}>
+              <input type="checkbox" checked={blockAfter} onChange={e => toggleBlock(e.target.checked)} style={{ marginTop: 3 }} />
+              <span>
+                {tr('toolBlockAfter')}
+                <span style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)' }}>{tr('toolBlockAfterHint')}</span>
+              </span>
+            </label>
 
             <div>
               <Button type="submit" variant="primary" disabled={busy || !canSubmit} icon="archive">
