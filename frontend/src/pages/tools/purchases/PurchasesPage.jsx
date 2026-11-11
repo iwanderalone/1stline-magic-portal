@@ -11,6 +11,7 @@ import PaymentsTab from './PaymentsTab';
 import PeopleTab from './PeopleTab';
 import SettingsTab from './SettingsTab';
 import InvoiceIntake from './InvoiceIntake';
+import InvoiceBulk from './InvoiceBulk';
 
 const TABS = ['overview', 'subscriptions', 'payments', 'people', 'settings'];
 
@@ -57,8 +58,9 @@ export default function PurchasesPage({ subPath, navigate }) {
   const { t: tr } = useLang();
   // Deep links: #purchases/<tab> or #purchases/sub/<id>.
   const [first, second] = (subPath || '').split('/');
-  const [tab, setTab] = useState(TABS.includes(first) ? first : first === 'invoice' ? 'payments' : 'overview');
-  const [invoiceOpen, setInvoiceOpen] = useState(first === 'invoice');
+  const [tab, setTab] = useState(TABS.includes(first) ? first : ['invoice', 'invoices'].includes(first) ? 'payments' : 'overview');
+  // false | 'one' (the full form) | 'bulk' (several files, queue)
+  const [invoiceOpen, setInvoiceOpen] = useState(first === 'invoice' ? 'one' : first === 'invoices' ? 'bulk' : false);
   const [openSub, setOpenSub] = useState(first === 'sub' && second ? Number(second) : null);
   const [editing, setEditing] = useState(null); // null | 'new' | subscription
   const [reportOpen, setReportOpen] = useState(false);
@@ -85,8 +87,12 @@ export default function PurchasesPage({ subPath, navigate }) {
   const changed = useCallback(() => setReloadKey(k => k + 1), []);
   const showToast = useCallback((t) => setToast(t), []);
   const go = (t) => { setTab(t); setInvoiceOpen(false); navigate?.(t === 'overview' ? 'purchases' : `purchases/${t}`); };
-  const openInvoice = () => { setInvoiceOpen(true); navigate?.('purchases/invoice'); };
-  useEffect(() => { if (first === 'invoice') setInvoiceOpen(true); }, [first]);
+  const openInvoice = () => { setInvoiceOpen('one'); navigate?.('purchases/invoice'); };
+  const openBulk = () => { setInvoiceOpen('bulk'); navigate?.('purchases/invoices'); };
+  useEffect(() => {
+    if (first === 'invoice') setInvoiceOpen('one');
+    if (first === 'invoices') setInvoiceOpen('bulk');
+  }, [first]);
 
   if (!lookups) return toast ? <Toast {...toast} onClose={() => setToast(null)} /> : null;
 
@@ -123,13 +129,22 @@ export default function PurchasesPage({ subPath, navigate }) {
         actions={<>
           <Tabs tabs={[{ id: 'AED', label: 'AED' }, { id: 'USD', label: 'USD' }]} active={cur} onChange={setCur} />
           <Button variant="secondary" icon="fileText" onClick={() => setReportOpen(true)}>{tr('purReportBtn')}</Button>
+          {!invoiceOpen && <Button variant="secondary" icon="paperclip" onClick={openBulk}>{tr('purAddInvoices')}</Button>}
           {!invoiceOpen && <Button variant="primary" icon="paperclip" onClick={openInvoice}>{tr('purAddInvoice')}</Button>}
         </>}
       >
         <Tabs tabs={TABS.map(id => ({ id, label: tr(`purTab_${id}`) }))} active={invoiceOpen ? null : tab} onChange={go} />
       </PageHeader>
 
-      {invoiceOpen && (
+      {invoiceOpen === 'bulk' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{tr('bulkIntro')}</div>
+          <InvoiceBulk lookups={lookups} navigate={navigate} onToast={showToast}
+            onDone={changed} onCancel={() => go('payments')} />
+        </div>
+      )}
+
+      {invoiceOpen === 'one' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{tr('purInvoiceIntro')}</div>
           <InvoiceIntake lookups={lookups} navigate={navigate} onToast={showToast}
