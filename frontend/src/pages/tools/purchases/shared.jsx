@@ -218,7 +218,26 @@ export function planSplits(lines, total) {
       }
     });
   });
-  return { splits: [...merged.values()], byLine, error: false };
+  // Credits. A plan change is invoiced as "new plan" + "proration credit for
+  // the old one": the credit is not a payment of its own, it makes the charge
+  // smaller. A negative share is folded into the largest charge for the same
+  // subscription (else the largest one on the invoice); credits on lines that
+  // pay no subscription come off the largest charge too, so the parts never
+  // add up to more than the invoice total.
+  const r2 = (n) => Math.round(n * 100) / 100;
+  const all = [...merged.values()];
+  const charges = all.filter(sp => sp.amount > 0);
+  const biggest = (list) => list.reduce((a, b) => (b.amount > a.amount ? b : a), list[0]);
+  for (const credit of all.filter(sp => sp.amount <= 0)) {
+    const target = biggest(charges.filter(sp => sp.subscription_id === credit.subscription_id)) || biggest(charges);
+    if (!target) return { splits: [], byLine, error: true };
+    target.amount = r2(target.amount + credit.amount);
+    target.description = [target.description, credit.description].filter(Boolean).join('; ').slice(0, 500) || null;
+  }
+  const excess = r2(charges.reduce((a, sp) => a + sp.amount, 0) - total);
+  if (excess > 0.05 && charges.length) biggest(charges).amount = r2(biggest(charges).amount - excess);
+  if (charges.some(sp => sp.amount <= 0)) return { splits: [], byLine, error: true };
+  return { splits: charges, byLine, error: false };
 }
 
 // A PDF exported as "all invoices for the year" → one File per invoice (cut on
