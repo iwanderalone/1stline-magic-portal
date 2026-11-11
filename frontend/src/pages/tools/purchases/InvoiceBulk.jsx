@@ -41,10 +41,12 @@ function judge(parsed, subs, meta) {
   return { ready: !why.length, why: [...new Set(why)], splits: rows };
 }
 
-export default function InvoiceBulk({ lookups, navigate, onCancel, onDone, onToast }) {
+export default function InvoiceBulk({ lookups, navigate, onCancel, onDone, onToast, initialFiles }) {
   const { t: tr, lang } = useLang();
   const [subs, setSubs] = useState(null);
-  const [items, setItems] = useState([]);       // { id, file, state, parsed, error, paymentIds, merged }
+  // { id, file, state, parsed, error, paymentIds, merged }
+  const [items, setItems] = useState(() => (initialFiles || []).filter(f => ACCEPT.test(f.name))
+    .map(f => ({ id: Math.random().toString(36).slice(2), file: f, state: 'queued' })));
   const [reviewing, setReviewing] = useState(null);
   const [saving, setSaving] = useState(false);
   const [over, setOver] = useState(false);

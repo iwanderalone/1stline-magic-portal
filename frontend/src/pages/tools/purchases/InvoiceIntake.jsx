@@ -144,7 +144,8 @@ const sameVendor = (supplier, s) => {
 
 // `initial` = { file, parsed } handed over by the bulk queue: the form opens
 // already filled, without reading the file a second time.
-export default function InvoiceIntake({ lookups, navigate, onCancel, onDone, onToast, initial }) {
+// `onMany(files)` = several files were picked at once: the caller switches to the bulk queue.
+export default function InvoiceIntake({ lookups, navigate, onCancel, onDone, onToast, initial, onMany }) {
   const { t: tr, lang } = useLang();
   const L = useLabels();
   const [nb, setNb] = useState(null);           // NetBox lookups
@@ -406,8 +407,12 @@ export default function InvoiceIntake({ lookups, navigate, onCancel, onDone, onT
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           <label className="btn btn-secondary btn-md" style={{ cursor: 'pointer' }}>
             <Icon name="paperclip" size={14} /> {file ? tr('inChangeFile') : tr('inChooseFile')}
-            <input type="file" accept=".pdf,.png,.jpg,.jpeg" style={{ display: 'none' }}
-              onChange={e => { pickFile(e.target.files?.[0] || null); e.target.value = ''; }} />
+            <input type="file" accept=".pdf,.png,.jpg,.jpeg" multiple={!!onMany} style={{ display: 'none' }}
+              onChange={e => {
+                const picked = [...(e.target.files || [])];
+                e.target.value = '';
+                if (picked.length > 1 && onMany) onMany(picked); else pickFile(picked[0] || null);
+              }} />
           </label>
           {file && <span style={{ fontSize: 13, ...MONO, overflow: 'hidden', textOverflow: 'ellipsis' }}>{file.name}</span>}
           <span style={{ flex: 1 }} />

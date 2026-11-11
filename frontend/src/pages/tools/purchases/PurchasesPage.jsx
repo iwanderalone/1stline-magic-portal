@@ -88,7 +88,8 @@ export default function PurchasesPage({ subPath, navigate }) {
   const showToast = useCallback((t) => setToast(t), []);
   const go = (t) => { setTab(t); setInvoiceOpen(false); navigate?.(t === 'overview' ? 'purchases' : `purchases/${t}`); };
   const openInvoice = () => { setInvoiceOpen('one'); navigate?.('purchases/invoice'); };
-  const openBulk = () => { setInvoiceOpen('bulk'); navigate?.('purchases/invoices'); };
+  const [bulkFiles, setBulkFiles] = useState(null);   // files picked in the single form, handed to the queue
+  const openBulk = (files) => { setBulkFiles(Array.isArray(files) ? files : null); setInvoiceOpen('bulk'); navigate?.('purchases/invoices'); };
   useEffect(() => {
     if (first === 'invoice') setInvoiceOpen('one');
     if (first === 'invoices') setInvoiceOpen('bulk');
@@ -129,7 +130,6 @@ export default function PurchasesPage({ subPath, navigate }) {
         actions={<>
           <Tabs tabs={[{ id: 'AED', label: 'AED' }, { id: 'USD', label: 'USD' }]} active={cur} onChange={setCur} />
           <Button variant="secondary" icon="fileText" onClick={() => setReportOpen(true)}>{tr('purReportBtn')}</Button>
-          {!invoiceOpen && <Button variant="secondary" icon="paperclip" onClick={openBulk}>{tr('purAddInvoices')}</Button>}
           {!invoiceOpen && <Button variant="primary" icon="paperclip" onClick={openInvoice}>{tr('purAddInvoice')}</Button>}
         </>}
       >
@@ -139,7 +139,7 @@ export default function PurchasesPage({ subPath, navigate }) {
       {invoiceOpen === 'bulk' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{tr('bulkIntro')}</div>
-          <InvoiceBulk lookups={lookups} navigate={navigate} onToast={showToast}
+          <InvoiceBulk lookups={lookups} navigate={navigate} onToast={showToast} initialFiles={bulkFiles}
             onDone={changed} onCancel={() => go('payments')} />
         </div>
       )}
@@ -147,7 +147,7 @@ export default function PurchasesPage({ subPath, navigate }) {
       {invoiceOpen === 'one' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{tr('purInvoiceIntro')}</div>
-          <InvoiceIntake lookups={lookups} navigate={navigate} onToast={showToast}
+          <InvoiceIntake lookups={lookups} navigate={navigate} onToast={showToast} onMany={openBulk}
             onDone={changed} onCancel={() => go('payments')} />
         </div>
       )}
