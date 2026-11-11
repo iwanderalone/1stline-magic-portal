@@ -169,15 +169,24 @@ def vendor_key(name: Optional[str]) -> tuple[str, ...]:
     return tuple(w for w in _words(name) if len(w) > 1 and w not in _LEGAL_FORMS)
 
 
+# "RealtimeBoard Inc. dba Miro" — the trading name after the marker is a name too.
+_ALIAS = re.compile(r"(?i)\b(?:d/b/a|dba|doing business as|trading as|t/a|aka)\b")
+
+
+def vendor_keys(name: Optional[str]) -> list[tuple[str, ...]]:
+    return [k for k in (vendor_key(part) for part in _ALIAS.split(name or "")) if k]
+
+
 def same_vendor(a: Optional[str], b: Optional[str]) -> bool:
     """Equal once legal forms are dropped, or one name is the leading words of
     the other ('Proxmox' ~ 'Proxmox Server Solutions GmbH'). Word-wise, so
-    'du' never matches 'Dubai Something'."""
-    ka, kb = vendor_key(a), vendor_key(b)
-    if not ka or not kb:
-        return False
-    short, long_ = (ka, kb) if len(ka) <= len(kb) else (kb, ka)
-    return long_[:len(short)] == short
+    'du' never matches 'Dubai Something'. A 'dba' name counts on its own."""
+    for ka in vendor_keys(a):
+        for kb in vendor_keys(b):
+            short, long_ = (ka, kb) if len(ka) <= len(kb) else (kb, ka)
+            if long_[:len(short)] == short:
+                return True
+    return False
 
 
 def _compact(text: Optional[str]) -> str:
@@ -266,6 +275,29 @@ def advance_past(sub: Subscription, period_end: Optional[date]) -> bool:
     return True
 
 
+def billed_in_arrears(sub: Subscription, paid_on: date,
+                      period_end: Optional[date]) -> Optional[tuple[date, date]]:
+    """Hetzner-style invoices are raised on the charge day for the month that
+    just ended ("12/2025" on an invoice of 27 Jan). The charge still belongs to
+    the billing cycle that starts on that day — which is the one the renewal
+    job expects a payment for. Returns that cycle, or None when the invoice is
+    not such a case (its period does not end before the invoice date, or the
+    invoice date is not on the subscription's charge day)."""
+    if not period_end or period_end >= paid_on or not sub.next_renewal:
+        return None
+    cycle = sub.cycle_months or 1
+    start, k = sub.next_renewal, 0
+    while start > paid_on + timedelta(days=5) and k > -240:
+        k -= 1
+        start = add_months(sub.next_renewal, k * cycle)
+    while add_months(sub.next_renewal, (k + 1) * cycle) <= paid_on + timedelta(days=5) and k < 240:
+        k += 1
+        start = add_months(sub.next_renewal, k * cycle)
+    if abs((start - paid_on).days) > 5:
+        return None
+    return start, cycle_end(start, cycle)
+
+
 async def find_expected(db, sub_id: int, *, period_start: Optional[date], period_end: Optional[date],
                         paid_on: date, exclude_id: Optional[int] = None,
                         include_bare: bool = True) -> Optional[PurchasePayment]:
@@ -321,7 +353,12 @@ async def settle_invoice(db, sub: Subscription, *, paid_on: date, amount: float,
     an upgrade, a recalculation): always its own payment, with whatever period
     the invoice prints, and the renewal date is left alone."""
     expected = None
+    arrears_note = None
     if not one_time:
+        cycle_now = billed_in_arrears(sub, paid_on, period_end)
+        if cycle_now:
+            arrears_note = f"Billed in arrears: the invoice covers {period_start or '…'} – {period_end}"
+            period_start, period_end = cycle_now
         if period_start and not period_end:
             period_end = cycle_end(period_start, sub.cycle_months or 1)
         expected = await find_expected(db, sub.id, period_start=period_start, period_end=period_end, paid_on=paid_on)
@@ -343,8 +380,9 @@ async def settle_invoice(db, sub: Subscription, *, paid_on: date, amount: float,
     p.invoice_no = invoice_no
     p.status = "confirmed"
     if expected:
-        p.notes = "\n".join(filter(None, [p.notes, f"Confirmed by invoice ({created_by})"]))
+        p.notes = "\n".join(filter(None, [p.notes, f"Confirmed by invoice ({created_by})", arrears_note]))
     else:
+        p.notes = arrears_note
         if one_time:
             p.notes = "One-time charge on top of the subscription"
         db.add(p)

@@ -761,12 +761,18 @@ async def parse_invoice(file: UploadFile = File(...), db: AsyncSession = Depends
     subs = (await db.execute(select(Subscription).where(Subscription.status == "active"))).unique().scalars().all()
     supplier = parsed.supplier_raw or parsed.supplier
     for item in parsed.items:
-        if item.is_device:
-            continue
-        item.subscription_ids = ps.match_subscriptions(
+        ids = ps.match_subscriptions(
             subs, supplier, " ".join(filter(None, [item.description, item.model])),
             reference=item.reference, period_start=item.period_start, quantity=item.quantity,
         )
+        if item.is_device:
+            # A hosting invoice lists rented hardware ("Dell PowerEdge", "NVMe
+            # SSD") — it reads as equipment but is the subscription. Only a
+            # line with no serial numbers from a supplier we subscribe to.
+            if not ids or item.serials:
+                continue
+            item.is_device, item.device_type = False, None
+        item.subscription_ids = ids
     parsed.logged_payment_ids = [p.id for p in await ps.invoice_already_logged(db, supplier, parsed.invoice_no)]
     await log_action(db, user, "inventory_intake_parsed", f"Invoice read by Gemini: {file.filename}")
     await db.commit()

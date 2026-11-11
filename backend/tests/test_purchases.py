@@ -345,3 +345,32 @@ async def test_one_time_top_up_settles_nothing(fx):
     assert not merged and db.added == [p] and april.status == "unconfirmed"
     assert (p.subscription_id, p.period_start, p.period_end) == (3, date(2026, 4, 16), date(2026, 4, 22))
     assert (sub.next_renewal, sub.reminded_for) == (date(2026, 4, 23), date(2026, 4, 23))
+
+
+def test_trading_name_after_dba_matches():
+    assert ps.same_vendor("RealtimeBoard Inc. dba Miro", "Miro")
+    assert ps.same_vendor("Miro", "RealtimeBoard, Inc. d/b/a Miro")
+    assert not ps.same_vendor("RealtimeBoard Inc. dba Miro", "Mirror Labs")
+
+
+async def test_invoice_billed_in_arrears_settles_the_cycle_it_is_charged_in(fx):
+    fx("")
+    sub = _sub(id=18, vendor="Hetzner", product="Cloud servers", cycle_months=1, currency="EUR", price=426.69,
+               next_renewal=date(2026, 11, 27), reminded_for=None)
+    october = _expected(55, date(2026, 10, 27), date(2026, 11, 26), amount=426.69, currency="EUR")
+    db = _FakeDB([october])
+    # Invoice of 27 Oct for service period 09/2026.
+    p, merged = await ps.settle_invoice(
+        db, sub, paid_on=date(2026, 10, 27), amount=474.98, currency="EUR", amount_aed=1956.92,
+        invoice_no="084001257602", created_by="admin",
+        period_start=date(2026, 9, 1), period_end=date(2026, 9, 30))
+    assert merged and p is october and (p.period_start, p.period_end) == (date(2026, 10, 27), date(2026, 11, 26))
+    assert "2026-09-01" in p.notes and sub.next_renewal == date(2026, 11, 27)
+    # The next one arrives before the job ran: it still takes the new cycle and moves the renewal.
+    p2, merged = await ps.settle_invoice(
+        _FakeDB(), sub, paid_on=date(2026, 11, 27), amount=474.98, currency="EUR", amount_aed=1956.92,
+        invoice_no="084001300000", created_by="admin",
+        period_start=date(2026, 10, 1), period_end=date(2026, 10, 31))
+    assert not merged and p2.period_start == date(2026, 11, 27) and sub.next_renewal == date(2026, 12, 27)
+    # A normal prepaid invoice is not touched.
+    assert ps.billed_in_arrears(sub, date(2026, 12, 27), date(2027, 1, 26)) is None

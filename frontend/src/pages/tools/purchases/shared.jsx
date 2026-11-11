@@ -167,6 +167,18 @@ export function periodCheck(sub, start, end, paidOn, oneTime = null) {
     && !looksProRated(sub, ...flipped) && !periodIssues(sub, ...flipped, paidOn).length;
   if (oneTime ?? (looksProRated(sub, start, end) && !mixUp)) return { ...idle, oneTime: true };
   if (!start && !end) return idle;
+  // Billed in arrears (Hetzner: the invoice of the 27th is for last month).
+  // The server books it to the billing cycle that starts on the charge day —
+  // mirrors purchases_service.billed_in_arrears — so the printed dates are fine.
+  if (end && paidOn && end < paidOn && sub.next_renewal) {
+    const cycle = sub.cycle_months || 1;
+    let best = null;
+    for (let k = -36; k <= 36; k++) {
+      const g = addMonths(sub.next_renewal, k * cycle);
+      if (!best || Math.abs(dayDiff(g, paidOn)) < Math.abs(dayDiff(best, paidOn))) best = g;
+    }
+    if (Math.abs(dayDiff(best, paidOn)) <= 5) return { ...idle, to: renewalAfter(sub, addDays(addMonths(best, cycle), -1)) };
+  }
   const issues = periodIssues(sub, start, end, paidOn);
   let swap = null;
   if (issues.length) {
