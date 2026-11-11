@@ -15,6 +15,7 @@ POST   /purchases/subscriptions/{id}/seats   assign a seat       PATCH / DELETE 
 GET    /purchases/people                     seat holders, grouped per person (+ NetBox leaver check)
 GET    /purchases/payments                   payment log (filters: from, to, subscription_id, status, q)
 POST   /purchases/payments                   add one            PATCH / DELETE /purchases/payments/{id}
+POST   /purchases/payments/link              attach payments to a subscription (merges the expected twin)
 POST   /purchases/payments/{id}/invoice      attach invoice     GET to download
 GET    /purchases/report.xlsx                Excel report for a date range
 """
@@ -39,7 +40,7 @@ from app.models.models import (
     Department, PaymentCard, PurchasePayment, Subscription, SubscriptionSeat, User,
 )
 from app.schemas.schemas import (
-    DepartmentIn, DepartmentOut, PaymentCardIn, PaymentCardOut, PaymentIn, PaymentOut,
+    DepartmentIn, DepartmentOut, PaymentCardIn, PaymentCardOut, PaymentIn, PaymentLinkIn, PaymentOut,
     PaymentPatch, PaymentsPage, SeatHolder, SeatIn, SeatOut, SubscriptionIn,
     SubscriptionOut, SubscriptionPatch,
 )
@@ -458,7 +459,9 @@ async def seat_holders(
 
 # ─── Payments ────────────────────────────────────────────
 
-def _payments_filter(stmt, date_from, date_to, subscription_id, status, q, budget_id):
+def _payments_filter(stmt, date_from, date_to, subscription_id, status, q, budget_id, unlinked=False):
+    if unlinked:
+        stmt = stmt.where(PurchasePayment.subscription_id.is_(None))
     if date_from:
         stmt = stmt.where(PurchasePayment.paid_on >= date_from)
     if date_to:
@@ -484,11 +487,12 @@ async def list_payments(
     status: Optional[str] = None,
     budget_id: Optional[int] = None,
     q: Optional[str] = None,
+    unlinked: bool = False,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
 ):
-    args = (date_from, date_to, subscription_id, status, q, budget_id)
+    args = (date_from, date_to, subscription_id, status, q, budget_id, unlinked)
     total, total_aed = (await db.execute(
         _payments_filter(select(func.count(PurchasePayment.id), func.coalesce(func.sum(PurchasePayment.amount_aed), 0)), *args)
     )).one()
@@ -532,6 +536,27 @@ async def create_payment(body: PaymentIn, db: AsyncSession = Depends(get_db),
     await log_action(db, user, "purchases.payment_create", f"{p.vendor} {p.amount} {p.currency} on {p.paid_on}")
     await db.commit()
     return _pay_out(await _load_payment(db, p.id))
+
+
+@router.post("/payments/link")
+async def link_payments(body: PaymentLinkIn, db: AsyncSession = Depends(get_db),
+                        user: User = Depends(require_admin_or_manager)):
+    """Attach payments (typically invoices logged before the subscription
+    existed) to a subscription. An expected payment the renewal job generated
+    for the same period is dropped in favour of the real one."""
+    sub = await _load_sub(db, body.subscription_id)
+    rows = (await db.execute(
+        select(PurchasePayment).where(PurchasePayment.id.in_(body.payment_ids)).order_by(PurchasePayment.paid_on)
+    )).unique().scalars().all()
+    if len(rows) != len(set(body.payment_ids)):
+        raise HTTPException(status_code=404, detail="Some payments no longer exist")
+    merged = 0
+    for p in rows:
+        merged += await ps.link_payment(db, p, sub)
+    await log_action(db, user, "purchases.payment_link",
+                     f"{len(rows)} payment(s) → {sub.vendor} {sub.product or ''} (#{sub.id}), {merged} expected merged")
+    await db.commit()
+    return {"linked": len(rows), "merged": merged}
 
 
 @router.patch("/payments/{payment_id}", response_model=PaymentOut)

@@ -38,6 +38,9 @@ function PaymentForm({ payment, lookups, subs, onClose, onSaved }) {
   const pickSub = (e) => {
     const id = e.target.value;
     const s = subs.find(x => String(x.id) === id);
+    // An existing payment keeps its own money and description — attaching it
+    // to a subscription must not replace what was actually paid.
+    if (isEdit && !confirming) { setForm(f => ({ ...f, subscription_id: id })); return; }
     setForm(f => ({
       ...f, subscription_id: id,
       ...(s ? {
@@ -150,6 +153,10 @@ export default function PaymentsTab({ lookups, reloadKey, onChanged, onToast, on
   const [to, setTo] = useState(todayISO());
   const [status, setStatus] = useState('');
   const [q, setQ] = useState('');
+  const [unlinked, setUnlinked] = useState(false);
+  const [picked, setPicked] = useState(() => new Set());
+  const [linkTo, setLinkTo] = useState('');
+  const [linking, setLinking] = useState(false);
   const [data, setData] = useState({ items: [], total: 0, total_aed: 0, total_usd: 0 });
   const [subs, setSubs] = useState([]);
   const [editing, setEditing] = useState(null); // null | 'new' | payment
@@ -161,8 +168,9 @@ export default function PaymentsTab({ lookups, reloadKey, onChanged, onToast, on
     if (to) p.set('to', to);
     if (status) p.set('status', status);
     if (q.trim()) p.set('q', q.trim());
+    if (unlinked) p.set('unlinked', 'true');
     return api(`/purchases/payments?${p}`).then(d => d && setData(d)).catch(err => onToast({ message: err.message, type: 'error' }));
-  }, [from, to, status, q, onToast]);
+  }, [from, to, status, q, unlinked, onToast]);
 
   useEffect(() => {
     const t = setTimeout(load, first.current ? 0 : 250);
@@ -170,6 +178,39 @@ export default function PaymentsTab({ lookups, reloadKey, onChanged, onToast, on
     return () => clearTimeout(t);
   }, [load, reloadKey]);
   useEffect(() => { api('/purchases/subscriptions?status=all').then(d => setSubs(d || [])).catch(() => {}); }, [reloadKey]);
+
+  // Selection only makes sense within what is listed.
+  useEffect(() => {
+    setPicked(prev => {
+      const ids = new Set(data.items.map(p => p.id));
+      const next = new Set([...prev].filter(id => ids.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [data.items]);
+  const togglePick = (id) => setPicked(prev => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
+
+  const link = async () => {
+    if (!linkTo || !picked.size || linking) return;
+    setLinking(true);
+    try {
+      const r = await api('/purchases/payments/link', {
+        method: 'POST', body: JSON.stringify({ payment_ids: [...picked], subscription_id: Number(linkTo) }),
+      });
+      onToast({ message: tr('purLinked').replace('{n}', r.linked).replace('{m}', r.merged), type: 'success' });
+      setPicked(new Set());
+      setLinkTo('');
+      load();
+      onChanged();
+    } catch (err) {
+      onToast({ message: err.message, type: 'error' });
+    } finally {
+      setLinking(false);
+    }
+  };
 
   const remove = async (p) => {
     if (!window.confirm(tr('purPaymentDeleteConfirm').replace('{name}', p.vendor).replace('{date}', fmtDate(p.paid_on, lang)))) return;
@@ -211,12 +252,41 @@ export default function PaymentsTab({ lookups, reloadKey, onChanged, onToast, on
           <option value="unconfirmed">{tr('purUnconfirmed')}</option>
           <option value="confirmed">{tr('purConfirmed')}</option>
         </Select>
+        <Select label={tr('purSubscription')} value={unlinked ? 'none' : ''} onChange={e => setUnlinked(e.target.value === 'none')}>
+          <option value="">{tr('purAll')}</option>
+          <option value="none">{tr('purNoSub')}</option>
+        </Select>
         <div style={{ flex: '1 1 200px' }}>
           <Input label={tr('purSearch')} value={q} onChange={e => setQ(e.target.value)} placeholder={tr('purPaymentSearchHint')} />
         </div>
         <Button icon="plus" onClick={() => setEditing('new')}>{tr('purNewPayment')}</Button>
         {onInvoice && <Button variant="primary" icon="paperclip" onClick={onInvoice}>{tr('purAddInvoice')}</Button>}
       </div>
+
+      {unlinked && data.items.length > 0 && (
+        <div style={{
+          display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', padding: '8px 12px', fontSize: 13,
+          border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', background: 'var(--surface-alt)',
+        }}>
+          <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer' }}>
+            <input type="checkbox" checked={picked.size === data.items.length}
+              onChange={e => setPicked(e.target.checked ? new Set(data.items.map(p => p.id)) : new Set())} />
+            {tr('purSelectAll')}
+          </label>
+          <span style={{ color: 'var(--text-muted)' }}>{tr('purLinkSelected').replace('{n}', picked.size)}</span>
+          <span style={{ flex: 1 }} />
+          <select value={linkTo} onChange={e => setLinkTo(e.target.value)} style={{
+            height: 32, padding: '0 8px', maxWidth: 360, border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
+            background: 'var(--surface)', color: 'var(--text)', fontSize: 13, fontFamily: 'inherit',
+          }}>
+            <option value="">{tr('purLinkPick')}</option>
+            {subs.filter(s => s.status === 'active').map(s => (
+              <option key={s.id} value={s.id}>{s.vendor}{s.product ? ` — ${s.product}` : ''}{s.reference ? ` · ${s.reference}` : ''}</option>
+            ))}
+          </select>
+          <Button size="sm" variant="primary" disabled={!linkTo || !picked.size || linking} onClick={link}>{tr('purLinkBtn')}</Button>
+        </div>
+      )}
 
       {data.items.length === 0 ? (
         <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '16px 0' }}>{tr('purNoPayments')}</div>
@@ -235,7 +305,10 @@ export default function PaymentsTab({ lookups, reloadKey, onChanged, onToast, on
             {data.items.map(p => (
               <div key={p.id} style={{ ...bodyRow(COLS, true), background: p.status === 'unconfirmed' ? 'var(--warning-light)' : undefined }}
                 onClick={() => setEditing(p)}>
-                <span style={{ fontSize: 12 }}>{fmtDate(p.paid_on, lang)}</span>
+                <span style={{ fontSize: 12, display: 'flex', gap: 8, alignItems: 'center' }}>
+                  {unlinked && <input type="checkbox" checked={picked.has(p.id)} onClick={e => e.stopPropagation()} onChange={() => togglePick(p.id)} />}
+                  {fmtDate(p.paid_on, lang)}
+                </span>
                 <span style={{ minWidth: 0 }}>
                   <div style={{ fontWeight: 600 }}>{p.vendor}</div>
                   <div style={{ fontSize: 12, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>

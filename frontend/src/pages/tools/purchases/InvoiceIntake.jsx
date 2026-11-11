@@ -132,12 +132,24 @@ function TypePicker({ line, onChange }) {
 }
 
 const serialList = (text) => text.split(/[\n,;]+/).map(s => s.trim()).filter(Boolean);
+const round2 = (n) => Math.round(n * 100) / 100;
+const subLabel = (s) => `${s.vendor}${s.product ? ` — ${s.product}` : ''}${s.reference ? ` · ${s.reference}` : ''}`;
+// Same idea as the server's vendor match, only to order the picker: ours first.
+const vendorWords = (v) => (v || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+const sameVendor = (supplier, s) => {
+  const a = vendorWords(supplier);
+  return !!a && [s.vendor, s.seller].some(v => {
+    const b = vendorWords(v);
+    return b && (`${a} `.startsWith(`${b} `) || `${b} `.startsWith(`${a} `));
+  });
+};
 
 export default function InvoiceIntake({ lookups, navigate, onCancel, onDone, onToast }) {
   const { t: tr } = useLang();
   const L = useLabels();
   const [nb, setNb] = useState(null);           // NetBox lookups
   const [status, setStatus] = useState({ netbox: false, ai: false });
+  const [subs, setSubs] = useState([]);         // active subscriptions a line can pay for
   const [file, setFile] = useState(null);
   const [parsing, setParsing] = useState(false);
   const [parsed, setParsed] = useState(null);   // what the AI said, for notes
@@ -164,6 +176,7 @@ export default function InvoiceIntake({ lookups, navigate, onCancel, onDone, onT
         api('/tools/inventory/manufacturers'), api('/tools/inventory/suppliers'),
       ]).then(([roles, tenants, sites, manufacturers, suppliers]) => setNb({ roles, tenants, sites, manufacturers, suppliers }));
     }).catch(err => onToast({ message: err.message, type: 'error' }));
+    api('/purchases/subscriptions').then(d => setSubs(d || [])).catch(() => {});
   }, [onToast]);
 
   const defaults = (prev) => {
@@ -178,6 +191,7 @@ export default function InvoiceIntake({ lookups, navigate, onCancel, onDone, onT
     key: Math.random().toString(36).slice(2),
     text: '', toNetbox: status.netbox, quantity: 1, price: '',
     deviceType: null, newType: false, manufacturer: '', model: '', serials: '',
+    net: null, subIds: [], periodStart: '', periodEnd: '',
     ...defaults(prev), ...over,
   });
 
@@ -226,6 +240,10 @@ export default function InvoiceIntake({ lookups, navigate, onCancel, onDone, onT
             newType: !it.device_type && !!it.model,
             manufacturer: it.manufacturer || '', model: it.model || '',
             serials: (it.serials || []).join('\n'),
+            // Unit price in the invoice's own currency — what the split is computed from.
+            net: it.unit_price_net ?? null,
+            subIds: it.is_device ? [] : (it.subscription_ids || []),
+            periodStart: it.period_start || '', periodEnd: it.period_end || '',
           });
           prev = l;
           return l;
@@ -248,8 +266,41 @@ export default function InvoiceIntake({ lookups, navigate, onCancel, onDone, onT
     return null;
   };
   const units = netboxLines.reduce((n, l) => n + (Number(l.quantity) || 0), 0);
+
+  // Lines that pay subscriptions take their share of the invoice total (net
+  // prices scaled to the VAT-inclusive total); the rest stays one plain payment.
+  const splitPlan = useMemo(() => {
+    const linked = lines.filter(l => !l.toNetbox && l.subIds.length);
+    if (!linked.length) return { splits: [], byLine: {}, error: null };
+    const total = Number(pay.amount) || 0;
+    const net = (l) => {
+      const unit = l.price !== '' ? Number(l.price) : l.net;
+      return unit == null || Number.isNaN(unit) ? null : unit * (Number(l.quantity) || 1);
+    };
+    const nets = lines.map(net);
+    const sum = nets.reduce((a, n) => a + (n || 0), 0);
+    let share;
+    if (nets.every(n => n != null) && sum > 0) share = (l) => net(l) * (total / sum);
+    else if (lines.length === 1) share = () => total;
+    else return { splits: [], byLine: {}, error: tr('inErrSplit') };
+    const byLine = {};
+    const splits = linked.flatMap(l => {
+      const each = round2(share(l) / l.subIds.length);
+      byLine[l.key] = each;
+      return l.subIds.map(id => ({
+        subscription_id: id, amount: each,
+        period_start: l.periodStart || null, period_end: l.periodEnd || null,
+        description: l.text.trim().slice(0, 500) || null,
+      }));
+    });
+    return { splits, byLine, error: null };
+  }, [lines, pay.amount, tr]);
+  const periodError = lines.some(l => l.periodStart && l.periodEnd && l.periodEnd < l.periodStart);
+  const alreadyLogged = parsed?.logged_payment_ids?.length > 0 && invoiceNo.trim() === (parsed.invoice_no || '');
+
   const ready = nb && file && !parsing && supplier.trim() && invoiceNo.trim() && delivery
     && lines.every(l => !lineError(l)) && !supplierNeedsDecision
+    && !splitPlan.error && !periodError && !alreadyLogged
     && pay.amount !== '' && pay.paid_on
     && (pay.currency === 'AED' || pay.amount_aed !== '' || lookups.meta.fx_to_aed[pay.currency]);
 
@@ -276,6 +327,7 @@ export default function InvoiceIntake({ lookups, navigate, onCancel, onDone, onT
           payment_method: pay.payment_method,
           card_id: pay.payment_method === 'card' && pay.card_id ? Number(pay.card_id) : null,
           description,
+          splits: splitPlan.splits,
         },
       };
       const fd = new FormData();
@@ -303,7 +355,8 @@ export default function InvoiceIntake({ lookups, navigate, onCancel, onDone, onT
       <div style={{ ...section, borderLeft: `3px solid ${result.error ? 'var(--danger)' : 'var(--success)'}`, maxWidth: 900 }}>
         <div style={{ fontSize: 15, fontWeight: 600 }}>
           {result.error ? tr('inPartial') : tr('inDone')}
-          {result.payment_id && <> · {tr('inPaymentLogged')} #{result.payment_id}</>}
+          {result.payment_id && <> · {tr('inPaymentLogged')} {(result.payment_ids?.length ? result.payment_ids : [result.payment_id]).map(i => `#${i}`).join(', ')}</>}
+          {result.confirmed_expected > 0 && <> · {tr('inExpectedConfirmed').replace('{n}', result.confirmed_expected)}</>}
           {result.devices.length > 0 && <> · {tr('inDevicesCreated').replace('{n}', result.devices.length)}</>}
         </div>
         {result.error && <div style={{ fontSize: 13, color: 'var(--danger)' }}>{result.error}</div>}
@@ -368,6 +421,15 @@ export default function InvoiceIntake({ lookups, navigate, onCancel, onDone, onT
           )}
         </div>
         {!status.ai && <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{tr('inNoAi')}</div>}
+        {alreadyLogged && (
+          <div style={{
+            display: 'flex', gap: 8, alignItems: 'center', padding: '10px 12px', fontSize: 13,
+            border: '1px solid var(--warning)', borderRadius: 'var(--radius-sm)', background: 'var(--warning-light)',
+          }}>
+            <Icon name="alertTriangle" size={14} />
+            {tr('inAlreadyLogged').replace('{no}', invoiceNo.trim()).replace('{ids}', parsed.logged_payment_ids.map(i => `#${i}`).join(', '))}
+          </div>
+        )}
 
         <div style={{ opacity: parsing ? 0.5 : 1, pointerEvents: parsing ? 'none' : 'auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div style={cols('minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr)')}>
@@ -471,6 +533,42 @@ export default function InvoiceIntake({ lookups, navigate, onCancel, onDone, onT
                 </label>
               )}
 
+              {!l.toNetbox && subs.length > 0 && (() => {
+                const chosen = l.subIds.map(id => subs.find(s => s.id === id)).filter(Boolean);
+                const free = subs.filter(s => !l.subIds.includes(s.id));
+                const ours = free.filter(s => sameVendor(supplier, s));
+                const rest = free.filter(s => !ours.includes(s));
+                const opt = (s) => <option key={s.id} value={s.id}>{subLabel(s)}</option>;
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {chosen.map(s => (
+                      <div key={s.id} style={{ ...CTL, display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <Icon name="checkCircle" size={14} />
+                        <span style={{ flex: 1, minWidth: 0, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={subLabel(s)}>{subLabel(s)}</span>
+                        {splitPlan.byLine[l.key] != null && <span style={{ ...MONO, fontSize: 12, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{splitPlan.byLine[l.key].toFixed(2)} {pay.currency}</span>}
+                        <button type="button" title={tr('delete')} onClick={() => setLine(l.key, { subIds: l.subIds.filter(x => x !== s.id) })}
+                          style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--text-muted)', display: 'flex' }}>
+                          <Icon name="x" size={14} />
+                        </button>
+                      </div>
+                    ))}
+                    <div style={cols('minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr)')}>
+                      <Sel label={tr('inSubscription')} value=""
+                        onChange={e => e.target.value && setLine(l.key, { subIds: [...l.subIds, Number(e.target.value)] })}>
+                        <option value="">{chosen.length ? tr('inAddSubscription') : tr('inNoSubscription')}</option>
+                        {ours.length > 0 && <optgroup label={supplier.trim()}>{ours.map(opt)}</optgroup>}
+                        {rest.length > 0 && <optgroup label={tr('inOtherSubs')}>{rest.map(opt)}</optgroup>}
+                      </Sel>
+                      {chosen.length > 0 && <>
+                        <Inp label={tr('inPeriodFrom')} type="date" value={l.periodStart} onChange={e => setLine(l.key, { periodStart: e.target.value })} />
+                        <Inp label={tr('inPeriodTo')} type="date" value={l.periodEnd} onChange={e => setLine(l.key, { periodEnd: e.target.value })} />
+                      </>}
+                    </div>
+                    {chosen.length > 0 && <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{tr('inSubscriptionHint')}</div>}
+                  </div>
+                );
+              })()}
+
               {l.toNetbox && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingLeft: 12, borderLeft: '2px solid var(--border)' }}>
                   <TypePicker line={l} onChange={(patch) => setLine(l.key, patch)} />
@@ -508,7 +606,7 @@ export default function InvoiceIntake({ lookups, navigate, onCancel, onDone, onT
         </Button>
         <Button variant="ghost" onClick={onCancel}>{tr('cancel')}</Button>
         <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-          {!file ? tr('inNeedFile') : supplierNeedsDecision ? tr('inNeedSupplier') : ''}
+          {!file ? tr('inNeedFile') : supplierNeedsDecision ? tr('inNeedSupplier') : splitPlan.error || (periodError ? tr('inErrPeriod') : '')}
         </span>
       </div>
 
@@ -516,6 +614,22 @@ export default function InvoiceIntake({ lookups, navigate, onCancel, onDone, onT
         <Overlay title={units ? tr('inConfirmTitle') : tr('inConfirmPaymentTitle')} onClose={() => !busy && setConfirm(false)} maxWidth={560}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, fontSize: 13 }}>
             <div>{tr('inConfirmPayment')}: <b>{pay.amount} {pay.currency}</b> · {supplier} · #{invoiceNo}</div>
+            {splitPlan.splits.length > 0 && (
+              <>
+                <div>{tr('inConfirmSubs')}</div>
+                <ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {splitPlan.splits.map((sp, i) => {
+                    const s = subs.find(x => x.id === sp.subscription_id);
+                    return (
+                      <li key={i}>
+                        <b style={MONO}>{sp.amount.toFixed(2)} {pay.currency}</b> {s ? subLabel(s) : `#${sp.subscription_id}`}
+                        {sp.period_start && <span style={{ color: 'var(--text-muted)' }}> · {sp.period_start}{sp.period_end ? ` – ${sp.period_end}` : ''}</span>}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </>
+            )}
             {units > 0 && (
               <>
                 <div>{tr('inConfirmDevices').replace('{n}', units)}</div>
