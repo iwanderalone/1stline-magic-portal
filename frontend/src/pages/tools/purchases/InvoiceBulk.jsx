@@ -123,7 +123,7 @@ export default function InvoiceBulk({ lookups, navigate, onCancel, onDone, onToa
           paid_on: p.invoice_date, amount: Number(p.total), currency: p.currency || 'AED', amount_aed: null,
           budget_id: null, category: null, payment_method: null, card_id: null,
           description: (p.items || []).map(i => `${i.quantity || 1}× ${i.description || ''}`).join('; ').slice(0, 500) || null,
-          splits: v.splits.map(({ sub, check, ...sp }) => sp),
+          splits: v.splits.map(({ sub, check, ...sp }) => ({ ...sp, one_time: !!check?.oneTime })),
         },
       };
       const fd = new FormData();
@@ -218,6 +218,7 @@ export default function InvoiceBulk({ lookups, navigate, onCancel, onDone, onToa
                     {v?.splits.map((sp, i) => (
                       <div key={i} style={{ minWidth: 0 }}>
                         <span style={MONO}>{sp.amount.toFixed(2)}</span> {sp.sub ? subLabel(sp.sub) : `#${sp.subscription_id}`}
+                        {sp.check?.oneTime && <span style={{ color: 'var(--text-muted)' }}> · {tr('inOneTime')}</span>}
                         {sp.check?.to && <span style={{ color: 'var(--text-muted)' }}> · {tr('inRenewalMoves').replace('{from}', fmtDate(sp.check.from, lang)).replace('{to}', fmtDate(sp.check.to, lang))}</span>}
                       </div>
                     ))}

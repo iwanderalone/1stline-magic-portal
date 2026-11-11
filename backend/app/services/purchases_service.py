@@ -312,16 +312,23 @@ async def settle_invoice(db, sub: Subscription, *, paid_on: date, amount: float,
                          description: Optional[str] = None, supplier: Optional[str] = None,
                          budget_id: Optional[int] = None, card_id: Optional[int] = None,
                          payment_method: Optional[str] = None,
-                         category: Optional[str] = None) -> tuple[PurchasePayment, bool]:
+                         category: Optional[str] = None,
+                         one_time: bool = False) -> tuple[PurchasePayment, bool]:
     """Book an invoice against a subscription. Returns (payment, merged) —
-    merged = an expected payment was confirmed instead of a new one written."""
-    if period_start and not period_end:
-        period_end = cycle_end(period_start, sub.cycle_months or 1)
-    expected = await find_expected(db, sub.id, period_start=period_start, period_end=period_end, paid_on=paid_on)
-    if expected and not period_start:
-        period_start, period_end = expected.period_start, expected.period_end
-    if not period_start:
-        period_start, period_end = assumed_period(sub, paid_on)
+    merged = an expected payment was confirmed instead of a new one written.
+
+    `one_time` = a charge on top of the subscription (seats added mid-cycle,
+    an upgrade, a recalculation): always its own payment, with whatever period
+    the invoice prints, and the renewal date is left alone."""
+    expected = None
+    if not one_time:
+        if period_start and not period_end:
+            period_end = cycle_end(period_start, sub.cycle_months or 1)
+        expected = await find_expected(db, sub.id, period_start=period_start, period_end=period_end, paid_on=paid_on)
+        if expected and not period_start:
+            period_start, period_end = expected.period_start, expected.period_end
+        if not period_start:
+            period_start, period_end = assumed_period(sub, paid_on)
 
     p = expected or PurchasePayment(subscription_id=sub.id, created_by=created_by)
     p.paid_on = paid_on
@@ -338,12 +345,15 @@ async def settle_invoice(db, sub: Subscription, *, paid_on: date, amount: float,
     if expected:
         p.notes = "\n".join(filter(None, [p.notes, f"Confirmed by invoice ({created_by})"]))
     else:
+        if one_time:
+            p.notes = "One-time charge on top of the subscription"
         db.add(p)
 
     # Remember the legal name on the invoice, so the next one matches by it.
     if supplier and not sub.seller and vendor_key(supplier) != vendor_key(sub.vendor):
         sub.seller = supplier[:200]
-    advance_past(sub, period_end)
+    if not one_time:
+        advance_past(sub, period_end)
     return p, bool(expected)
 
 

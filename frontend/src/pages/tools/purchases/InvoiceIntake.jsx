@@ -193,7 +193,7 @@ export default function InvoiceIntake({ lookups, navigate, onCancel, onDone, onT
     key: Math.random().toString(36).slice(2),
     text: '', toNetbox: status.netbox, quantity: 1, price: '',
     deviceType: null, newType: false, manufacturer: '', model: '', serials: '',
-    net: null, subIds: [], periodStart: '', periodEnd: '',
+    net: null, subIds: [], periodStart: '', periodEnd: '', oneTime: null,
     ...defaults(prev), ...over,
   });
 
@@ -290,13 +290,13 @@ export default function InvoiceIntake({ lookups, navigate, onCancel, onDone, onT
   const splitPlan = useMemo(() => {
     const plan = planSplits(lines.map(l => ({
       key: l.key, quantity: l.quantity, unit: l.price !== '' ? Number(l.price) : l.net,
-      subIds: l.toNetbox ? [] : l.subIds, periodStart: l.periodStart, periodEnd: l.periodEnd, text: l.text,
+      subIds: l.toNetbox ? [] : l.subIds, periodStart: l.periodStart, periodEnd: l.periodEnd, text: l.text, oneTime: l.oneTime,
     })), Number(pay.amount) || 0);
     return { ...plan, error: plan.error ? tr('inErrSplit') : null };
   }, [lines, pay.amount, tr]);
   const periodDoubt = splitPlan.splits.some(sp => {
     const s = subs.find(x => x.id === sp.subscription_id);
-    return s && periodCheck(s, sp.period_start, sp.period_end, pay.paid_on).issues.length > 0;
+    return s && periodCheck(s, sp.period_start, sp.period_end, pay.paid_on, sp.one_time).issues.length > 0;
   });
   const periodError = lines.some(l => l.periodStart && l.periodEnd && l.periodEnd < l.periodStart);
   const alreadyLogged = parsed?.logged_payment_ids?.length > 0 && invoiceNo.trim() === (parsed.invoice_no || '');
@@ -330,7 +330,10 @@ export default function InvoiceIntake({ lookups, navigate, onCancel, onDone, onT
           payment_method: pay.payment_method,
           card_id: pay.payment_method === 'card' && pay.card_id ? Number(pay.card_id) : null,
           description,
-          splits: splitPlan.splits,
+          splits: splitPlan.splits.map(sp => ({
+            ...sp,
+            one_time: periodCheck(subs.find(x => x.id === sp.subscription_id), sp.period_start, sp.period_end, pay.paid_on, sp.one_time).oneTime,
+          })),
         },
       };
       const fd = new FormData();
@@ -572,7 +575,8 @@ export default function InvoiceIntake({ lookups, navigate, onCancel, onDone, onT
                       </>}
                     </div>
                     {chosen.map(s => {
-                      const c = periodCheck(s, l.periodStart, l.periodEnd, pay.paid_on);
+                      const c = periodCheck(s, l.periodStart, l.periodEnd, pay.paid_on, l.oneTime);
+                      if (c.oneTime) return null;
                       if (!c.issues.length && !c.to) return null;
                       return (
                         <div key={`chk${s.id}`} style={{ fontSize: 12, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', color: c.issues.length ? 'var(--warning)' : 'var(--text-muted)' }}>
@@ -591,7 +595,19 @@ export default function InvoiceIntake({ lookups, navigate, onCancel, onDone, onT
                         </div>
                       );
                     })}
-                    {chosen.length > 0 && <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{tr('inSubscriptionHint')}</div>}
+                    {chosen.length > 0 && (() => {
+                      const one = chosen.some(s => periodCheck(s, l.periodStart, l.periodEnd, pay.paid_on, l.oneTime).oneTime);
+                      return (
+                        <>
+                          <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, cursor: 'pointer' }}>
+                            <input type="checkbox" checked={one} onChange={e => setLine(l.key, { oneTime: e.target.checked })} />
+                            <span style={{ fontWeight: 600 }}>{tr('inOneTime')}</span>
+                            <span style={{ color: 'var(--text-muted)' }}>{tr('inOneTimeHint')}</span>
+                          </label>
+                          {!one && <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{tr('inSubscriptionHint')}</div>}
+                        </>
+                      );
+                    })()}
                   </div>
                 );
               })()}
@@ -652,7 +668,8 @@ export default function InvoiceIntake({ lookups, navigate, onCancel, onDone, onT
                         <b style={MONO}>{sp.amount.toFixed(2)} {pay.currency}</b> {s ? subLabel(s) : `#${sp.subscription_id}`}
                         {sp.period_start && <span style={{ color: 'var(--text-muted)' }}> · {fmtDate(sp.period_start, lang)}{sp.period_end ? ` – ${fmtDate(sp.period_end, lang)}` : ''}</span>}
                         {(() => {
-                          const c = s && periodCheck(s, sp.period_start, sp.period_end, pay.paid_on);
+                          const c = s && periodCheck(s, sp.period_start, sp.period_end, pay.paid_on, sp.one_time);
+                          if (c?.oneTime) return <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{tr('inOneTime')} {tr('inOneTimeHint')}</div>;
                           if (!c || (!c.issues.length && !c.to)) return null;
                           return (
                             <div style={{ fontSize: 12, color: c.issues.length ? 'var(--warning)' : 'var(--text-muted)' }}>

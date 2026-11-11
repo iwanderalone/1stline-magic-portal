@@ -123,11 +123,7 @@ function periodIssues(sub, start, end, paidOn) {
     if (lead > 100 || lead < -45) issues.push('far');
   }
   const anchor = start || (end ? addDays(end, 1) : null);
-  if (anchor && sub.next_renewal) {
-    let off = Infinity;
-    for (let k = -36; k <= 36; k++) off = Math.min(off, Math.abs(dayDiff(anchor, addMonths(sub.next_renewal, k * cycle))));
-    if (off > 3) issues.push('grid');
-  }
+  if (anchor && sub.next_renewal && gridOff(sub, anchor) > 3) issues.push('grid');
   return issues;
 }
 
@@ -138,19 +134,46 @@ const swapDayMonth = (s) => {
   return Number(d) <= 12 && d !== m ? `${y}-${d}-${m}` : s;
 };
 
-// { issues: ['length'|'far'|'grid'], from, to, swap } for one subscription and
-// the period typed on an invoice line. `to` = the renewal date after saving
-// (null = unchanged); `swap` = the same dates with day and month exchanged,
-// offered only when that reading raises no issue at all.
-export function periodCheck(sub, start, end, paidOn) {
-  if (!sub || (!start && !end)) return { issues: [], from: sub?.next_renewal || null, to: null, swap: null };
+// Days between a date and the nearest renewal date of the subscription.
+function gridOff(sub, d) {
+  if (!d || !sub.next_renewal) return Infinity;
+  const cycle = sub.cycle_months || 1;
+  let off = Infinity;
+  for (let k = -36; k <= 36; k++) off = Math.min(off, Math.abs(dayDiff(d, addMonths(sub.next_renewal, k * cycle))));
+  return off;
+}
+
+// A pro-rated charge: seats added mid-cycle are billed from that day to the
+// end of the running cycle (16–22 Apr on a plan renewing on the 23rd).
+function looksProRated(sub, start, end) {
+  if (!start || !end || !sub.next_renewal) return false;
+  const full = dayDiff(addMonths(start, sub.cycle_months || 1), start);
+  return dayDiff(end, start) + 1 < full - 3 && gridOff(sub, addDays(end, 1)) <= 3 && gridOff(sub, start) > 3;
+}
+
+// { issues: ['length'|'far'|'grid'], from, to, swap, oneTime } for one
+// subscription and the period typed on an invoice line. `to` = the renewal
+// date after saving (null = unchanged); `swap` = the same dates with day and
+// month exchanged, offered only when that reading raises no issue at all.
+// `oneTime` = a one-off charge on top of the subscription (top-up, upgrade,
+// pro-rated seats): it settles no period and moves nothing, so nothing is
+// checked. Pass true/false when a human decided, null to detect pro-rating.
+export function periodCheck(sub, start, end, paidOn, oneTime = null) {
+  const idle = { issues: [], from: sub?.next_renewal || null, to: null, swap: null, oneTime: false };
+  if (!sub) return idle;
+  // Detected only when the dates cannot be a day/month mix-up of a full cycle.
+  const flipped = [swapDayMonth(start), swapDayMonth(end)];
+  const mixUp = (flipped[0] !== start || flipped[1] !== end) && !(flipped[0] && flipped[1] && flipped[1] < flipped[0])
+    && !looksProRated(sub, ...flipped) && !periodIssues(sub, ...flipped, paidOn).length;
+  if (oneTime ?? (looksProRated(sub, start, end) && !mixUp)) return { ...idle, oneTime: true };
+  if (!start && !end) return idle;
   const issues = periodIssues(sub, start, end, paidOn);
   let swap = null;
   if (issues.length) {
     const s = swapDayMonth(start), e = swapDayMonth(end);
     if ((s !== start || e !== end) && !(s && e && e < s) && !periodIssues(sub, s, e, paidOn).length) swap = { start: s || '', end: e || '' };
   }
-  return { issues, from: sub.next_renewal || null, to: renewalAfter(sub, end || (start ? addDays(addMonths(start, sub.cycle_months || 1), -1) : null)), swap };
+  return { ...idle, issues, swap, to: renewalAfter(sub, end || (start ? addDays(addMonths(start, sub.cycle_months || 1), -1) : null)) };
 }
 
 // ─── Invoice → subscription payments ─────────────────────
@@ -158,7 +181,7 @@ export const subLabel = (s) => `${s.vendor}${s.product ? ` — ${s.product}` : '
 
 // Lines that pay subscriptions take their share of the invoice total (net
 // prices scaled to the VAT-inclusive total), split evenly between the line's
-// subscriptions. lines: [{ key, quantity, unit, subIds, periodStart, periodEnd, text }]
+// subscriptions. lines: [{ key, quantity, unit, subIds, periodStart, periodEnd, text, oneTime }]
 // — `unit` is the net unit price or null; a line with no subIds is not split.
 // error = the shares cannot be worked out (a price is missing).
 export function planSplits(lines, total) {
@@ -180,7 +203,7 @@ export function planSplits(lines, total) {
     byLine[l.key] = each;
     const text = `${Number(l.quantity) > 1 ? `${l.quantity}× ` : ''}${(l.text || '').trim()}`.trim();
     l.subIds.forEach(id => {
-      const key = `${id}|${l.periodStart || ''}|${l.periodEnd || ''}`;
+      const key = `${id}|${l.periodStart || ''}|${l.periodEnd || ''}|${l.oneTime ?? ''}`;
       const sp = merged.get(key);
       if (sp) {
         sp.amount = Math.round((sp.amount + each) * 100) / 100;
@@ -189,6 +212,7 @@ export function planSplits(lines, total) {
         merged.set(key, {
           subscription_id: id, amount: each,
           period_start: l.periodStart || null, period_end: l.periodEnd || null,
+          one_time: l.oneTime ?? null,          // null = let periodCheck decide
           description: text.slice(0, 500) || null,
         });
       }
