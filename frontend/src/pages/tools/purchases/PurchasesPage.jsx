@@ -10,7 +10,6 @@ import SubscriptionForm from './SubscriptionForm';
 import PaymentsTab from './PaymentsTab';
 import PeopleTab from './PeopleTab';
 import SettingsTab from './SettingsTab';
-import InvoiceIntake from './InvoiceIntake';
 import InvoiceBulk from './InvoiceBulk';
 
 const TABS = ['overview', 'subscriptions', 'payments', 'people', 'settings'];
@@ -59,8 +58,8 @@ export default function PurchasesPage({ subPath, navigate }) {
   // Deep links: #purchases/<tab> or #purchases/sub/<id>.
   const [first, second] = (subPath || '').split('/');
   const [tab, setTab] = useState(TABS.includes(first) ? first : ['invoice', 'invoices'].includes(first) ? 'payments' : 'overview');
-  // false | 'one' (the full form) | 'bulk' (several files, queue)
-  const [invoiceOpen, setInvoiceOpen] = useState(first === 'invoice' ? 'one' : first === 'invoices' ? 'bulk' : false);
+  // One screen for invoices: drop one file or a batch (#purchases/invoice).
+  const [invoiceOpen, setInvoiceOpen] = useState(['invoice', 'invoices'].includes(first));
   const [openSub, setOpenSub] = useState(first === 'sub' && second ? Number(second) : null);
   const [editing, setEditing] = useState(null); // null | 'new' | subscription
   const [reportOpen, setReportOpen] = useState(false);
@@ -87,13 +86,8 @@ export default function PurchasesPage({ subPath, navigate }) {
   const changed = useCallback(() => setReloadKey(k => k + 1), []);
   const showToast = useCallback((t) => setToast(t), []);
   const go = (t) => { setTab(t); setInvoiceOpen(false); navigate?.(t === 'overview' ? 'purchases' : `purchases/${t}`); };
-  const openInvoice = () => { setInvoiceOpen('one'); navigate?.('purchases/invoice'); };
-  const [bulkFiles, setBulkFiles] = useState(null);   // files picked in the single form, handed to the queue
-  const openBulk = (files) => { setBulkFiles(Array.isArray(files) ? files : null); setInvoiceOpen('bulk'); navigate?.('purchases/invoices'); };
-  useEffect(() => {
-    if (first === 'invoice') setInvoiceOpen('one');
-    if (first === 'invoices') setInvoiceOpen('bulk');
-  }, [first]);
+  const openInvoice = () => { setInvoiceOpen(true); navigate?.('purchases/invoice'); };
+  useEffect(() => { if (['invoice', 'invoices'].includes(first)) setInvoiceOpen(true); }, [first]);
 
   if (!lookups) return toast ? <Toast {...toast} onClose={() => setToast(null)} /> : null;
 
@@ -136,25 +130,16 @@ export default function PurchasesPage({ subPath, navigate }) {
         <Tabs tabs={TABS.map(id => ({ id, label: tr(`purTab_${id}`) }))} active={invoiceOpen ? null : tab} onChange={go} />
       </PageHeader>
 
-      {invoiceOpen === 'bulk' && (
+      {invoiceOpen && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{tr('bulkIntro')}</div>
-          <InvoiceBulk lookups={lookups} navigate={navigate} onToast={showToast} initialFiles={bulkFiles}
-            onDone={changed} onCancel={() => go('payments')} />
-        </div>
-      )}
-
-      {invoiceOpen === 'one' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{tr('purInvoiceIntro')}</div>
-          <InvoiceIntake lookups={lookups} navigate={navigate} onToast={showToast} onMany={openBulk}
+          <InvoiceBulk lookups={lookups} navigate={navigate} onToast={showToast}
             onDone={changed} onCancel={() => go('payments')} />
         </div>
       )}
 
       {!invoiceOpen && tab === 'overview' && <OverviewTab reloadKey={reloadKey} netboxEnabled={netboxEnabled} onOpenSub={setOpenSub} onGo={go} />}
       {!invoiceOpen && tab === 'subscriptions' && <SubscriptionsTab lookups={lookups} reloadKey={reloadKey} onOpen={setOpenSub} onNew={() => setEditing('new')} />}
-      {!invoiceOpen && tab === 'payments' && <PaymentsTab lookups={lookups} reloadKey={reloadKey} onChanged={changed} onToast={showToast} onInvoice={openInvoice} />}
+      {!invoiceOpen && tab === 'payments' && <PaymentsTab lookups={lookups} reloadKey={reloadKey} onChanged={changed} onToast={showToast} />}
       {!invoiceOpen && tab === 'people' && <PeopleTab reloadKey={reloadKey} onOpenSub={setOpenSub} onToast={showToast} />}
       {!invoiceOpen && tab === 'settings' && <SettingsTab lookups={lookups} onChanged={() => { loadLookups(); changed(); }} onToast={showToast} />}
     </CurrencyContext.Provider>
