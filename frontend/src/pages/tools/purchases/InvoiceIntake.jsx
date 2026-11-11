@@ -3,7 +3,7 @@ import { api } from '../../../api';
 import { Badge, Button, Overlay } from '../../../components/UI';
 import { Icon } from '../../../components/Icons';
 import { useLang } from '../../../components/LangContext';
-import { fmtDate, periodCheck, todayISO, useLabels } from './shared';
+import { fmtDate, periodCheck, planSplits, subLabel, todayISO, useLabels } from './shared';
 
 // "Add by invoice": one invoice in → a payment in Finances, and NetBox devices
 // for the lines marked as equipment (asset tags come from NetBox's own
@@ -37,7 +37,7 @@ const Sel = ({ label, value, onChange, children, disabled }) => (
 );
 const Inp = ({ label, hint, ...props }) => <Field label={label} hint={hint}><input style={CTL} {...props} /></Field>;
 
-function Spinner() {
+export function Spinner() {
   return <span style={{
     width: 14, height: 14, borderRadius: '50%', border: '2px solid var(--border)', borderTopColor: 'var(--accent)',
     display: 'inline-block', animation: 'spin 0.8s linear infinite',
@@ -132,8 +132,6 @@ function TypePicker({ line, onChange }) {
 }
 
 const serialList = (text) => text.split(/[\n,;]+/).map(s => s.trim()).filter(Boolean);
-const round2 = (n) => Math.round(n * 100) / 100;
-const subLabel = (s) => `${s.vendor}${s.product ? ` — ${s.product}` : ''}${s.reference ? ` · ${s.reference}` : ''}`;
 // Same idea as the server's vendor match, only to order the picker: ours first.
 const vendorWords = (v) => (v || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 const sameVendor = (supplier, s) => {
@@ -144,7 +142,9 @@ const sameVendor = (supplier, s) => {
   });
 };
 
-export default function InvoiceIntake({ lookups, navigate, onCancel, onDone, onToast }) {
+// `initial` = { file, parsed } handed over by the bulk queue: the form opens
+// already filled, without reading the file a second time.
+export default function InvoiceIntake({ lookups, navigate, onCancel, onDone, onToast, initial }) {
   const { t: tr, lang } = useLang();
   const L = useLabels();
   const [nb, setNb] = useState(null);           // NetBox lookups
@@ -215,7 +215,16 @@ export default function InvoiceIntake({ lookups, navigate, onCancel, onDone, onT
     try {
       const fd = new FormData();
       fd.append('file', f);
-      const r = await api('/tools/inventory/intake/parse', { method: 'POST', body: fd });
+      applyParsed(await api('/tools/inventory/intake/parse', { method: 'POST', body: fd }));
+    } catch (err) {
+      onToast({ message: `${tr('inReadFailed')}: ${err.message}`, type: 'error' });
+    } finally {
+      setParsing(false);
+    }
+  };
+
+  const applyParsed = (r) => {
+    {
       setParsed(r);
       setSupplier(r.supplier || r.supplier_raw || '');
       setAddSupplier(false);
@@ -250,14 +259,16 @@ export default function InvoiceIntake({ lookups, navigate, onCancel, onDone, onT
           return l;
         }));
       }
-    } catch (err) {
-      onToast({ message: `${tr('inReadFailed')}: ${err.message}`, type: 'error' });
-    } finally {
-      setParsing(false);
     }
   };
 
-  useEffect(() => { if (nb && lines.length === 0) setLines([blankLine(null)]); }, [nb]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!nb || lines.length) return;
+    setLines([blankLine(null)]);
+    if (initial?.file) {
+      if (initial.parsed) { setFile(initial.file); applyParsed(initial.parsed); } else pickFile(initial.file);
+    }
+  }, [nb]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const lineError = (l) => {
     if (!l.toNetbox) return null;
@@ -271,30 +282,11 @@ export default function InvoiceIntake({ lookups, navigate, onCancel, onDone, onT
   // Lines that pay subscriptions take their share of the invoice total (net
   // prices scaled to the VAT-inclusive total); the rest stays one plain payment.
   const splitPlan = useMemo(() => {
-    const linked = lines.filter(l => !l.toNetbox && l.subIds.length);
-    if (!linked.length) return { splits: [], byLine: {}, error: null };
-    const total = Number(pay.amount) || 0;
-    const net = (l) => {
-      const unit = l.price !== '' ? Number(l.price) : l.net;
-      return unit == null || Number.isNaN(unit) ? null : unit * (Number(l.quantity) || 1);
-    };
-    const nets = lines.map(net);
-    const sum = nets.reduce((a, n) => a + (n || 0), 0);
-    let share;
-    if (nets.every(n => n != null) && sum > 0) share = (l) => net(l) * (total / sum);
-    else if (lines.length === 1) share = () => total;
-    else return { splits: [], byLine: {}, error: tr('inErrSplit') };
-    const byLine = {};
-    const splits = linked.flatMap(l => {
-      const each = round2(share(l) / l.subIds.length);
-      byLine[l.key] = each;
-      return l.subIds.map(id => ({
-        subscription_id: id, amount: each,
-        period_start: l.periodStart || null, period_end: l.periodEnd || null,
-        description: l.text.trim().slice(0, 500) || null,
-      }));
-    });
-    return { splits, byLine, error: null };
+    const plan = planSplits(lines.map(l => ({
+      key: l.key, quantity: l.quantity, unit: l.price !== '' ? Number(l.price) : l.net,
+      subIds: l.toNetbox ? [] : l.subIds, periodStart: l.periodStart, periodEnd: l.periodEnd, text: l.text,
+    })), Number(pay.amount) || 0);
+    return { ...plan, error: plan.error ? tr('inErrSplit') : null };
   }, [lines, pay.amount, tr]);
   const periodDoubt = splitPlan.splits.some(sp => {
     const s = subs.find(x => x.id === sp.subscription_id);

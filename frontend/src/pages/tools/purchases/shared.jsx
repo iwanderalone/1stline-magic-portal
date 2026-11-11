@@ -152,3 +152,34 @@ export function periodCheck(sub, start, end, paidOn) {
   }
   return { issues, from: sub.next_renewal || null, to: renewalAfter(sub, end || (start ? addDays(addMonths(start, sub.cycle_months || 1), -1) : null)), swap };
 }
+
+// ─── Invoice → subscription payments ─────────────────────
+export const subLabel = (s) => `${s.vendor}${s.product ? ` — ${s.product}` : ''}${s.reference ? ` · ${s.reference}` : ''}`;
+
+// Lines that pay subscriptions take their share of the invoice total (net
+// prices scaled to the VAT-inclusive total), split evenly between the line's
+// subscriptions. lines: [{ key, quantity, unit, subIds, periodStart, periodEnd, text }]
+// — `unit` is the net unit price or null; a line with no subIds is not split.
+// error = the shares cannot be worked out (a price is missing).
+export function planSplits(lines, total) {
+  const linked = lines.filter(l => l.subIds.length);
+  if (!linked.length) return { splits: [], byLine: {}, error: false };
+  const net = (l) => (l.unit == null || Number.isNaN(l.unit) ? null : l.unit * (Number(l.quantity) || 1));
+  const nets = lines.map(net);
+  const sum = nets.reduce((a, n) => a + (n || 0), 0);
+  let share;
+  if (nets.every(n => n != null) && sum > 0) share = (l) => net(l) * (total / sum);
+  else if (lines.length === 1) share = () => total;
+  else return { splits: [], byLine: {}, error: true };
+  const byLine = {};
+  const splits = linked.flatMap(l => {
+    const each = Math.round((share(l) / l.subIds.length) * 100) / 100;
+    byLine[l.key] = each;
+    return l.subIds.map(id => ({
+      subscription_id: id, amount: each,
+      period_start: l.periodStart || null, period_end: l.periodEnd || null,
+      description: (l.text || '').trim().slice(0, 500) || null,
+    }));
+  });
+  return { splits, byLine, error: false };
+}
