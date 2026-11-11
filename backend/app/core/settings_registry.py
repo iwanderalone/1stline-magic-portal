@@ -69,7 +69,7 @@ SETTINGS_REGISTRY = [
     {"key": "S3_PREFIX", "category": "Mailbox Backup", "label": "S3 key prefix (mail)", "type": "str"},
     {"key": "S3_DISK_PREFIX", "category": "Mailbox Backup", "label": "S3 key prefix (Disk)", "type": "str"},
     {"key": "YANDEX_ORG_ID", "category": "Mailbox Backup", "label": "Yandex 360 organisation ID", "type": "str"},
-    {"key": "YANDEX_DIRECTORY_TOKEN", "category": "Mailbox Backup", "label": "Yandex 360 token with directory:read_users", "type": "str", "is_secret": True},
+    {"key": "YANDEX_DIRECTORY_TOKEN", "category": "Mailbox Backup", "label": "Yandex 360 directory token (directory:read_users + directory:write_users)", "type": "str", "is_secret": True},
     {"key": "YANDEX_CLIENT_ID", "category": "Mailbox Backup", "label": "Service application ClientID", "type": "str"},
     {"key": "YANDEX_CLIENT_SECRET", "category": "Mailbox Backup", "label": "Service application Client secret", "type": "str", "is_secret": True},
     {"key": "S3_REGION", "category": "Mailbox Backup", "label": "S3 region", "type": "str"},

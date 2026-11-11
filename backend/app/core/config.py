@@ -145,7 +145,7 @@ class Settings(BaseSettings):
     S3_DISK_PREFIX: str = "Backups/Yandex Disks"
     # Yandex 360 service application — back up mail and Disk without passwords
     YANDEX_ORG_ID: str = ""
-    YANDEX_DIRECTORY_TOKEN: str = ""      # OAuth token with directory:read_users (email → uid)
+    YANDEX_DIRECTORY_TOKEN: str = ""      # OAuth token: directory:read_users (email → uid) + directory:write_users (block/unblock)
     YANDEX_CLIENT_ID: str = ""            # the service application (cloud_api:disk.read, mail:imap_ro)
     YANDEX_CLIENT_SECRET: str = ""
     MAILBOX_BACKUP_IMAP_HOST: str = "imap.yandex.ru"
