@@ -844,7 +844,7 @@ async def run_intake(
                 db, split_subs[sp.subscription_id],
                 paid_on=pay.paid_on, amount=amount, currency=pay.currency, amount_aed=aed,
                 invoice_no=req.invoice_no, created_by=user.username,
-                period_start=sp.period_start, period_end=sp.period_end,
+                period_start=sp.period_start, period_end=sp.period_end, one_time=bool(sp.one_time),
                 description=sp.description, supplier=supplier,
                 budget_id=pay.budget_id, card_id=pay.card_id, payment_method=pay.payment_method,
             )

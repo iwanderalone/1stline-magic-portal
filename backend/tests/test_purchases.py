@@ -331,3 +331,17 @@ def test_pdf_with_several_invoices_is_cut_by_invoice_number():
     # One invoice over two pages, or nothing recognisable: left whole.
     assert invoice_page_groups([page.format("290135"), page.format("290135")]) == [("290135", [0, 1])]
     assert invoice_page_groups(["scan without text", ""]) == [(None, [0, 1])]
+
+
+async def test_one_time_top_up_settles_nothing(fx):
+    fx("")
+    sub = _sub(id=3, vendor="Adobe", product="Creative Cloud", cycle_months=1, currency="AED", price=8800,
+               next_renewal=date(2026, 4, 23), reminded_for=date(2026, 4, 23))
+    april = _expected(40, date(2026, 3, 23), date(2026, 4, 22))
+    db = _FakeDB([april])
+    p, merged = await ps.settle_invoice(
+        db, sub, paid_on=date(2026, 4, 16), amount=61.6, currency="AED", amount_aed=61.6, invoice_no="3429353872",
+        created_by="admin", period_start=date(2026, 4, 16), period_end=date(2026, 4, 22), one_time=True)
+    assert not merged and db.added == [p] and april.status == "unconfirmed"
+    assert (p.subscription_id, p.period_start, p.period_end) == (3, date(2026, 4, 16), date(2026, 4, 22))
+    assert (sub.next_renewal, sub.reminded_for) == (date(2026, 4, 23), date(2026, 4, 23))

@@ -1400,6 +1400,9 @@ class IntakeSplit(BaseModel):
     amount: float = Field(..., ge=0)            # in the invoice currency, VAT included
     period_start: Optional[date] = None
     period_end: Optional[date] = None
+    # A charge on top of the subscription (added seats, upgrade, pro-rated
+    # days): logged against it, but settles no period and moves no renewal.
+    one_time: Optional[bool] = False
     description: Optional[str] = Field(None, max_length=500)
 
     @model_validator(mode="after")
