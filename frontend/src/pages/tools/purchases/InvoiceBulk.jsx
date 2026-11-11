@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../../api';
-import { Badge, Button, EmptyState } from '../../../components/UI';
+import { Badge, Button } from '../../../components/UI';
 import { Icon } from '../../../components/Icons';
 import { useLang } from '../../../components/LangContext';
 import InvoiceIntake, { Spinner } from './InvoiceIntake';
@@ -10,6 +10,47 @@ const COLS = 'minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 2fr) 150px';
 const READERS = 2;                       // invoices read by the model at once
 const ACCEPT = /\.(pdf|png|jpe?g)$/i;
 const MONO = { fontFamily: 'var(--font-mono)' };
+
+// The queue survives a reload: files and what was read from them are kept in
+// this browser's IndexedDB until each invoice is saved or removed from the list.
+const QUEUE_DB = 'portal-invoice-queue';
+const openQueue = () => new Promise((resolve, reject) => {
+  const req = indexedDB.open(QUEUE_DB, 1);
+  req.onupgradeneeded = () => req.result.createObjectStore('items', { keyPath: 'id' });
+  req.onsuccess = () => resolve(req.result);
+  req.onerror = () => reject(req.error);
+});
+async function loadQueue() {
+  try {
+    const db = await openQueue();
+    const rows = await new Promise((resolve, reject) => {
+      const req = db.transaction('items').objectStore('items').getAll();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => reject(req.error);
+    });
+    db.close();
+    return rows.sort((a, b) => a.n - b.n).map(r => ({
+      id: r.id, state: r.state, parsed: r.parsed, error: r.error,
+      file: new File([r.blob], r.name, { type: r.type }),
+    }));
+  } catch {
+    return [];              // private window, storage blocked — the queue just lives in memory
+  }
+}
+async function saveQueue(items) {
+  // In-flight states are stored as the step to redo after a reload.
+  const still = { reading: 'queued', direct: 'queued', saving: 'read' };
+  try {
+    const db = await openQueue();
+    const store = db.transaction('items', 'readwrite').objectStore('items');
+    store.clear();
+    items.filter(it => it.state !== 'saved').forEach((it, n) => store.put({
+      id: it.id, n, state: still[it.state] || it.state, parsed: it.parsed || null, error: it.error || null,
+      blob: it.file, name: it.file.name, type: it.file.type,
+    }));
+    db.close();
+  } catch { /* see loadQueue */ }
+}
 
 /**
  * What saving an invoice without opening it would do, and whether that is
@@ -56,6 +97,16 @@ export default function InvoiceBulk({ lookups, navigate, onCancel, onDone, onToa
 
   const loadSubs = useCallback(() => api('/purchases/subscriptions').then(d => setSubs(d || [])).catch(() => setSubs([])), []);
   useEffect(() => { loadSubs(); }, [loadSubs]);
+
+  const [restored, setRestored] = useState(false);
+  useEffect(() => {
+    loadQueue().then(rows => {
+      if (!alive.current) return;
+      if (rows.length) setItems(list => [...rows, ...list]);
+      setRestored(true);
+    });
+  }, []);
+  useEffect(() => { if (restored) saveQueue(items); }, [items, restored]);
 
   const patch = (id, p) => setItems(list => list.map(it => (it.id === id ? { ...it, ...p } : it)));
 
@@ -195,7 +246,7 @@ export default function InvoiceBulk({ lookups, navigate, onCancel, onDone, onToa
       </label>
 
       {items.length === 0 && cutting > 0 ? <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, color: 'var(--text-secondary)' }}><Spinner /> {tr('bulkStillReading')}</div>
-        : items.length === 0 ? <EmptyState icon="fileText" title={tr('bulkEmpty')} subtitle={tr('bulkEmptySub')} /> : (
+        : items.length === 0 ? null : (
         <>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
             <Button variant="primary" icon="check" disabled={!ready.length || saving || reading} onClick={saveReady}>
