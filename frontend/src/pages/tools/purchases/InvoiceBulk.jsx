@@ -41,7 +41,7 @@ function judge(parsed, subs, meta) {
   return { ready: !why.length, why: [...new Set(why)], splits: rows };
 }
 
-export default function InvoiceBulk({ lookups, navigate, onCancel, onDone, onToast, initialFiles }) {
+export default function InvoiceBulk({ lookups, navigate, onCancel, onDone, onToast }) {
   const { t: tr, lang } = useLang();
   const [subs, setSubs] = useState(null);
   // { id, file, state, parsed, error, paymentIds, merged }
@@ -82,13 +82,22 @@ export default function InvoiceBulk({ lookups, navigate, onCancel, onDone, onToa
     const pieces = (await Promise.all(good.map(f => splitInvoiceFile(api, f)))).flat();
     if (!alive.current) return;
     setCutting(n => n - 1);
-    setItems(list => {
-      const have = new Set(list.map(it => `${it.file.name}:${it.file.size}`));
-      return [...list, ...pieces.filter(f => !have.has(`${f.name}:${f.size}`))
-        .map(f => ({ id: Math.random().toString(36).slice(2), file: f, state: 'queued' }))];
-    });
+    const have = new Set(items.map(it => `${it.file.name}:${it.file.size}`));
+    const fresh = pieces.filter(f => !have.has(`${f.name}:${f.size}`))
+      .map(f => ({ id: Math.random().toString(36).slice(2), file: f, state: 'queued' }));
+    // A single invoice on an empty list goes straight to the full form
+    // ('direct' = the form reads it itself; queued only if the user comes back).
+    if (!items.length && fresh.length === 1) {
+      fresh[0].state = 'direct';
+      setReviewing(fresh[0].id);
+    }
+    setItems(list => [...list, ...fresh]);
   };
-  useEffect(() => { if (initialFiles?.length) addFiles(initialFiles); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const backToList = () => {
+    setItems(list => list.map(it => (it.state === 'direct' ? { ...it, state: 'queued' } : it)));
+    setReviewing(null);
+    loadSubs();
+  };
 
   const verdicts = useMemo(() => {
     const out = {};
@@ -147,11 +156,11 @@ export default function InvoiceBulk({ lookups, navigate, onCancel, onDone, onToa
     const it = items.find(x => x.id === reviewing);
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <div><Button size="sm" variant="ghost" icon="chevronLeft" onClick={() => { setReviewing(null); loadSubs(); }}>{tr('bulkBack')}</Button></div>
+        <div><Button size="sm" variant="ghost" icon="chevronLeft" onClick={backToList}>{tr(items.length > 1 ? 'bulkBack' : 'bulkBackDrop')}</Button></div>
         <InvoiceIntake key={it.id} lookups={lookups} navigate={navigate} onToast={onToast}
           initial={{ file: it.file, parsed: it.parsed }}
           onDone={() => { patch(it.id, { state: 'saved', paymentIds: [], merged: 0 }); onDone?.(); }}
-          onCancel={() => { setReviewing(null); loadSubs(); }} />
+          onCancel={items.length > 1 ? backToList : onCancel} />
       </div>
     );
   }
@@ -169,6 +178,7 @@ export default function InvoiceBulk({ lookups, navigate, onCancel, onDone, onToa
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{tr('bulkIntro')}</div>
       <label
         onDragOver={e => { e.preventDefault(); setOver(true); }} onDragLeave={() => setOver(false)}
         onDrop={e => { e.preventDefault(); setOver(false); addFiles(e.dataTransfer.files); }}
