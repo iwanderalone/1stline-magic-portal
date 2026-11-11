@@ -8,7 +8,7 @@ from datetime import timedelta
 
 from app.core.deps import get_current_user
 from app.models.models import (
-    EmailLog, HandoverRecord, Notification, TimeOffRequest, TimeOffStatus, User, UserRole, ZammadTicket, utcnow,
+    EmailLog, HandoverRecord, Notification, PurchasePayment, TimeOffRequest, TimeOffStatus, User, UserRole, ZammadTicket, utcnow,
 )
 from app.schemas.schemas import NotificationResponse
 
@@ -59,7 +59,8 @@ async def nav_counts(
     mail: Inbox count (not solved, within the page's 500-email window), `old`
     if any of them is older than 24h. tickets: the board's open bucket (new /
     open / in progress), `old` if any is older than 14 days. timeoff/handover:
-    items waiting on an admin or manager — absent for everyone else.
+    items waiting on an admin or manager (purchases = expected payments not yet
+    settled by an invoice) — absent for everyone else.
     """
     from app.api.tickets import state_bucket
 
@@ -98,6 +99,10 @@ async def nav_counts(
         )).scalar()
         out["handover"] = (await db.execute(
             select(func.count()).select_from(HandoverRecord).where(HandoverRecord.status == "pending")
+        )).scalar()
+        # Expected payments the renewal job logged that no invoice has settled yet.
+        out["purchases"] = (await db.execute(
+            select(func.count()).select_from(PurchasePayment).where(PurchasePayment.status == "unconfirmed")
         )).scalar()
     return out
 

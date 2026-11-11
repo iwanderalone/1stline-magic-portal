@@ -3,7 +3,7 @@ import { api } from '../../../api';
 import { Badge, Button, Overlay } from '../../../components/UI';
 import { Icon } from '../../../components/Icons';
 import { useLang } from '../../../components/LangContext';
-import { todayISO, useLabels } from './shared';
+import { fmtDate, periodCheck, todayISO, useLabels } from './shared';
 
 // "Add by invoice": one invoice in → a payment in Finances, and NetBox devices
 // for the lines marked as equipment (asset tags come from NetBox's own
@@ -145,7 +145,7 @@ const sameVendor = (supplier, s) => {
 };
 
 export default function InvoiceIntake({ lookups, navigate, onCancel, onDone, onToast }) {
-  const { t: tr } = useLang();
+  const { t: tr, lang } = useLang();
   const L = useLabels();
   const [nb, setNb] = useState(null);           // NetBox lookups
   const [status, setStatus] = useState({ netbox: false, ai: false });
@@ -164,6 +164,7 @@ export default function InvoiceIntake({ lookups, navigate, onCancel, onDone, onT
     budget_id: itDept?.id || '', payment_method: 'card', card_id: '', category: '',
   });
   const [confirm, setConfirm] = useState(false);
+  const [datesOk, setDatesOk] = useState(false);   // ticked in the confirm dialog when a period looks off
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
 
@@ -295,6 +296,10 @@ export default function InvoiceIntake({ lookups, navigate, onCancel, onDone, onT
     });
     return { splits, byLine, error: null };
   }, [lines, pay.amount, tr]);
+  const periodDoubt = splitPlan.splits.some(sp => {
+    const s = subs.find(x => x.id === sp.subscription_id);
+    return s && periodCheck(s, sp.period_start, sp.period_end, pay.paid_on).issues.length > 0;
+  });
   const periodError = lines.some(l => l.periodStart && l.periodEnd && l.periodEnd < l.periodStart);
   const alreadyLogged = parsed?.logged_payment_ids?.length > 0 && invoiceNo.trim() === (parsed.invoice_no || '');
 
@@ -564,6 +569,26 @@ export default function InvoiceIntake({ lookups, navigate, onCancel, onDone, onT
                         <Inp label={tr('inPeriodTo')} type="date" value={l.periodEnd} onChange={e => setLine(l.key, { periodEnd: e.target.value })} />
                       </>}
                     </div>
+                    {chosen.map(s => {
+                      const c = periodCheck(s, l.periodStart, l.periodEnd, pay.paid_on);
+                      if (!c.issues.length && !c.to) return null;
+                      return (
+                        <div key={`chk${s.id}`} style={{ fontSize: 12, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', color: c.issues.length ? 'var(--warning)' : 'var(--text-muted)' }}>
+                          {c.issues.length > 0 && <Icon name="alertTriangle" size={14} />}
+                          <span>
+                            {chosen.length > 1 && <b>{s.reference || s.product || s.vendor}: </b>}
+                            {c.issues.map(i => tr(`inPeriod_${i}`)).join(' ')}
+                            {c.issues.length > 0 && ' '}
+                            {c.to ? tr('inRenewalMoves').replace('{from}', fmtDate(c.from, lang)).replace('{to}', fmtDate(c.to, lang)) : tr('inRenewalStays').replace('{from}', fmtDate(c.from, lang))}
+                          </span>
+                          {c.swap && (
+                            <Button size="sm" variant="ghost" onClick={() => setLine(l.key, { periodStart: c.swap.start, periodEnd: c.swap.end })}>
+                              {tr('inPeriodSwap').replace('{from}', fmtDate(c.swap.start, lang))}
+                            </Button>
+                          )}
+                        </div>
+                      );
+                    })}
                     {chosen.length > 0 && <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{tr('inSubscriptionHint')}</div>}
                   </div>
                 );
@@ -601,7 +626,7 @@ export default function InvoiceIntake({ lookups, navigate, onCancel, onDone, onT
       </div>
 
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-        <Button variant="primary" icon="check" disabled={!ready || busy} onClick={() => setConfirm(true)}>
+        <Button variant="primary" icon="check" disabled={!ready || busy} onClick={() => { setDatesOk(false); setConfirm(true); }}>
           {units ? tr('inSubmitDevices').replace('{n}', units) : tr('inSubmitPayment')}
         </Button>
         <Button variant="ghost" onClick={onCancel}>{tr('cancel')}</Button>
@@ -623,7 +648,17 @@ export default function InvoiceIntake({ lookups, navigate, onCancel, onDone, onT
                     return (
                       <li key={i}>
                         <b style={MONO}>{sp.amount.toFixed(2)} {pay.currency}</b> {s ? subLabel(s) : `#${sp.subscription_id}`}
-                        {sp.period_start && <span style={{ color: 'var(--text-muted)' }}> · {sp.period_start}{sp.period_end ? ` – ${sp.period_end}` : ''}</span>}
+                        {sp.period_start && <span style={{ color: 'var(--text-muted)' }}> · {fmtDate(sp.period_start, lang)}{sp.period_end ? ` – ${fmtDate(sp.period_end, lang)}` : ''}</span>}
+                        {(() => {
+                          const c = s && periodCheck(s, sp.period_start, sp.period_end, pay.paid_on);
+                          if (!c || (!c.issues.length && !c.to)) return null;
+                          return (
+                            <div style={{ fontSize: 12, color: c.issues.length ? 'var(--warning)' : 'var(--text-muted)' }}>
+                              {c.issues.map(i => tr(`inPeriod_${i}`)).join(' ')}{c.issues.length > 0 && ' '}
+                              {c.to ? tr('inRenewalMoves').replace('{from}', fmtDate(c.from, lang)).replace('{to}', fmtDate(c.to, lang)) : tr('inRenewalStays').replace('{from}', fmtDate(c.from, lang))}
+                            </div>
+                          );
+                        })()}
                       </li>
                     );
                   })}
@@ -650,9 +685,15 @@ export default function InvoiceIntake({ lookups, navigate, onCancel, onDone, onT
                 <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{tr('inConfirmNoUndo')}</div>
               </>
             )}
+            {periodDoubt && (
+              <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer' }}>
+                <input type="checkbox" checked={datesOk} onChange={e => setDatesOk(e.target.checked)} />
+                <span>{tr('inDatesChecked')}</span>
+              </label>
+            )}
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <Button onClick={() => setConfirm(false)} disabled={busy}>{tr('cancel')}</Button>
-              <Button variant="primary" icon="check" onClick={submit} disabled={busy}>{busy ? tr('inCreating') : tr('inCreate')}</Button>
+              <Button variant="primary" icon="check" onClick={submit} disabled={busy || (periodDoubt && !datesOk)}>{busy ? tr('inCreating') : tr('inCreate')}</Button>
             </div>
           </div>
         </Overlay>
