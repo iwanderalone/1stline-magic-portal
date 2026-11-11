@@ -172,14 +172,45 @@ export function planSplits(lines, total) {
   else if (lines.length === 1) share = () => total;
   else return { splits: [], byLine: {}, error: true };
   const byLine = {};
-  const splits = linked.flatMap(l => {
+  // Several lines for the same subscription and period (Adobe: Creative Cloud,
+  // Acrobat, Premiere on one plan) are one payment, not one per line.
+  const merged = new Map();
+  linked.forEach(l => {
     const each = Math.round((share(l) / l.subIds.length) * 100) / 100;
     byLine[l.key] = each;
-    return l.subIds.map(id => ({
-      subscription_id: id, amount: each,
-      period_start: l.periodStart || null, period_end: l.periodEnd || null,
-      description: (l.text || '').trim().slice(0, 500) || null,
-    }));
+    const text = `${Number(l.quantity) > 1 ? `${l.quantity}× ` : ''}${(l.text || '').trim()}`.trim();
+    l.subIds.forEach(id => {
+      const key = `${id}|${l.periodStart || ''}|${l.periodEnd || ''}`;
+      const sp = merged.get(key);
+      if (sp) {
+        sp.amount = Math.round((sp.amount + each) * 100) / 100;
+        sp.description = [sp.description, text].filter(Boolean).join('; ').slice(0, 500) || null;
+      } else {
+        merged.set(key, {
+          subscription_id: id, amount: each,
+          period_start: l.periodStart || null, period_end: l.periodEnd || null,
+          description: text.slice(0, 500) || null,
+        });
+      }
+    });
   });
-  return { splits, byLine, error: false };
+  return { splits: [...merged.values()], byLine, error: false };
+}
+
+// A PDF exported as "all invoices for the year" → one File per invoice (cut on
+// the server by invoice number). A single invoice comes back as [file].
+export async function splitInvoiceFile(api, file) {
+  if (!/\.pdf$/i.test(file.name)) return [file];
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
+    const { parts } = await api('/tools/inventory/intake/split', { method: 'POST', body: fd });
+    if (!parts?.length) return [file];
+    return parts.map(p => {
+      const bytes = Uint8Array.from(atob(p.data), c => c.charCodeAt(0));
+      return new File([bytes], p.name, { type: 'application/pdf' });
+    });
+  } catch {
+    return [file];          // the reader will say what is wrong with it
+  }
 }

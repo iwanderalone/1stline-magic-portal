@@ -3,7 +3,7 @@ import { api } from '../../../api';
 import { Badge, Button, Overlay } from '../../../components/UI';
 import { Icon } from '../../../components/Icons';
 import { useLang } from '../../../components/LangContext';
-import { fmtDate, periodCheck, planSplits, subLabel, todayISO, useLabels } from './shared';
+import { fmtDate, periodCheck, planSplits, splitInvoiceFile, subLabel, todayISO, useLabels } from './shared';
 
 // "Add by invoice": one invoice in → a payment in Finances, and NetBox devices
 // for the lines marked as equipment (asset tags come from NetBox's own
@@ -214,6 +214,11 @@ export default function InvoiceIntake({ lookups, navigate, onCancel, onDone, onT
     if (!f || !status.ai) return;
     setParsing(true);
     try {
+      // A PDF with several invoices inside goes to the batch queue, cut up.
+      if (onMany) {
+        const pieces = await splitInvoiceFile(api, f);
+        if (pieces.length > 1) { onMany(pieces); return; }
+      }
       const fd = new FormData();
       fd.append('file', f);
       applyParsed(await api('/tools/inventory/intake/parse', { method: 'POST', body: fd }));

@@ -4,7 +4,7 @@ import { Badge, Button, EmptyState } from '../../../components/UI';
 import { Icon } from '../../../components/Icons';
 import { useLang } from '../../../components/LangContext';
 import InvoiceIntake, { Spinner } from './InvoiceIntake';
-import { VendorPrice, bodyRow, fmtDate, headRow, periodCheck, planSplits, subLabel, tableBox } from './shared';
+import { VendorPrice, bodyRow, fmtDate, headRow, periodCheck, planSplits, splitInvoiceFile, subLabel, tableBox } from './shared';
 
 const COLS = 'minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 2fr) 150px';
 const READERS = 2;                       // invoices read by the model at once
@@ -45,8 +45,8 @@ export default function InvoiceBulk({ lookups, navigate, onCancel, onDone, onToa
   const { t: tr, lang } = useLang();
   const [subs, setSubs] = useState(null);
   // { id, file, state, parsed, error, paymentIds, merged }
-  const [items, setItems] = useState(() => (initialFiles || []).filter(f => ACCEPT.test(f.name))
-    .map(f => ({ id: Math.random().toString(36).slice(2), file: f, state: 'queued' })));
+  const [items, setItems] = useState([]);
+  const [cutting, setCutting] = useState(0);    // files being checked for several invoices inside
   const [reviewing, setReviewing] = useState(null);
   const [saving, setSaving] = useState(false);
   const [over, setOver] = useState(false);
@@ -74,15 +74,21 @@ export default function InvoiceBulk({ lookups, navigate, onCancel, onDone, onToa
     });
   }, [items]);
 
-  const addFiles = (files) => {
+  const addFiles = async (files) => {
     const good = [...files].filter(f => ACCEPT.test(f.name));
     if (good.length < files.length) onToast({ message: tr('bulkBadType'), type: 'error' });
+    setCutting(n => n + 1);
+    // One PDF may hold a year of invoices — each becomes its own row.
+    const pieces = (await Promise.all(good.map(f => splitInvoiceFile(api, f)))).flat();
+    if (!alive.current) return;
+    setCutting(n => n - 1);
     setItems(list => {
       const have = new Set(list.map(it => `${it.file.name}:${it.file.size}`));
-      return [...list, ...good.filter(f => !have.has(`${f.name}:${f.size}`))
+      return [...list, ...pieces.filter(f => !have.has(`${f.name}:${f.size}`))
         .map(f => ({ id: Math.random().toString(36).slice(2), file: f, state: 'queued' }))];
     });
   };
+  useEffect(() => { if (initialFiles?.length) addFiles(initialFiles); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const verdicts = useMemo(() => {
     const out = {};
@@ -100,12 +106,14 @@ export default function InvoiceBulk({ lookups, navigate, onCancel, onDone, onToa
   }, [items, subs, lookups.meta]);
 
   const ready = items.filter(it => verdicts[it.id]?.ready);
-  const reading = items.some(it => it.state === 'queued' || it.state === 'reading');
+  const reading = cutting > 0 || items.some(it => it.state === 'queued' || it.state === 'reading');
 
   const saveReady = async () => {
     setSaving(true);
     let saved = 0;
-    for (const it of ready) {
+    // Oldest first, so each one meets the payments and dates the earlier ones left.
+    const queue = [...ready].sort((x, y) => String(x.parsed.invoice_date).localeCompare(String(y.parsed.invoice_date)));
+    for (const it of queue) {
       const p = it.parsed, v = verdicts[it.id];
       patch(it.id, { state: 'saving' });
       const payload = {
@@ -176,7 +184,8 @@ export default function InvoiceBulk({ lookups, navigate, onCancel, onDone, onToa
           onChange={e => { addFiles(e.target.files); e.target.value = ''; }} />
       </label>
 
-      {items.length === 0 ? <EmptyState icon="fileText" title={tr('bulkEmpty')} subtitle={tr('bulkEmptySub')} /> : (
+      {items.length === 0 && cutting > 0 ? <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, color: 'var(--text-secondary)' }}><Spinner /> {tr('bulkStillReading')}</div>
+        : items.length === 0 ? <EmptyState icon="fileText" title={tr('bulkEmpty')} subtitle={tr('bulkEmptySub')} /> : (
         <>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
             <Button variant="primary" icon="check" disabled={!ready.length || saving || reading} onClick={saveReady}>
