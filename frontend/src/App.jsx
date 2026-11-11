@@ -190,6 +190,7 @@ function navCountFor(id, counts) {
   if (id === 'mail' && c.mail?.count) return { n: c.mail.count, tone: c.mail.old ? 'danger' : 'muted' };
   if (id === 'tickets' && c.tickets?.count) return { n: c.tickets.count, tone: c.tickets.old ? 'danger' : 'muted' };
   if (id === 'timeoff' && c.timeoff) return { n: c.timeoff, tone: 'warning' };
+  if (id === 'purchases' && c.purchases) return { n: c.purchases, tone: 'warning' };
   if (id === 'inventory' && c.handover) return { n: c.handover, tone: 'warning' };
   return null;
 }

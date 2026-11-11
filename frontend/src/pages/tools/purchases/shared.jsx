@@ -83,3 +83,72 @@ export const textarea = {
   background: 'var(--surface-alt)', color: 'var(--text)', outline: 'none', width: '100%', resize: 'vertical', fontFamily: 'inherit',
 };
 export const grid2 = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 };
+
+// ─── Invoice period sanity ───────────────────────────────
+// The period on an invoice is read by a model and then moves the renewal
+// date, so a misread date (03/02 taken as 2 March) has to be visible before
+// saving. Mirrors purchases_service.advance_past / add_months.
+const toDate = (s) => new Date(`${s}T00:00:00Z`);
+const toISO = (d) => d.toISOString().slice(0, 10);
+const dayDiff = (a, b) => Math.round((toDate(a) - toDate(b)) / 864e5);
+const addDays = (s, n) => toISO(new Date(toDate(s).getTime() + n * 864e5));
+export function addMonths(s, n) {
+  const [y, m, d] = s.split('-').map(Number);
+  const idx = m - 1 + n;
+  const year = y + Math.floor(idx / 12), month = ((idx % 12) + 12) % 12;
+  const last = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  return toISO(new Date(Date.UTC(year, month, Math.min(d, last))));
+}
+
+// Where next_renewal lands once this period is paid (null = stays).
+export function renewalAfter(sub, end) {
+  if (!end) return null;
+  const after = addDays(end, 1);
+  if (!sub.next_renewal) return after;
+  if (dayDiff(sub.next_renewal, end) > -3) return null;
+  let nxt = sub.next_renewal;
+  for (let i = 0; i < 120 && dayDiff(nxt, end) <= -3; i++) nxt = addMonths(nxt, sub.cycle_months || 1);
+  return Math.abs(dayDiff(nxt, after)) <= 3 ? nxt : after;
+}
+
+function periodIssues(sub, start, end, paidOn) {
+  const cycle = sub.cycle_months || 1;
+  const issues = [];
+  if (start && end) {
+    const expected = addDays(addMonths(start, cycle), -1);
+    if (Math.abs(dayDiff(end, expected)) > Math.max(3, cycle)) issues.push('length');
+  }
+  if (start && paidOn) {
+    const lead = dayDiff(start, paidOn);
+    if (lead > 100 || lead < -45) issues.push('far');
+  }
+  const anchor = start || (end ? addDays(end, 1) : null);
+  if (anchor && sub.next_renewal) {
+    let off = Infinity;
+    for (let k = -36; k <= 36; k++) off = Math.min(off, Math.abs(dayDiff(anchor, addMonths(sub.next_renewal, k * cycle))));
+    if (off > 3) issues.push('grid');
+  }
+  return issues;
+}
+
+// 2026-03-02 → 2026-02-03 when that is a different, valid date.
+const swapDayMonth = (s) => {
+  if (!s) return s;
+  const [y, m, d] = s.split('-');
+  return Number(d) <= 12 && d !== m ? `${y}-${d}-${m}` : s;
+};
+
+// { issues: ['length'|'far'|'grid'], from, to, swap } for one subscription and
+// the period typed on an invoice line. `to` = the renewal date after saving
+// (null = unchanged); `swap` = the same dates with day and month exchanged,
+// offered only when that reading raises no issue at all.
+export function periodCheck(sub, start, end, paidOn) {
+  if (!sub || (!start && !end)) return { issues: [], from: sub?.next_renewal || null, to: null, swap: null };
+  const issues = periodIssues(sub, start, end, paidOn);
+  let swap = null;
+  if (issues.length) {
+    const s = swapDayMonth(start), e = swapDayMonth(end);
+    if ((s !== start || e !== end) && !(s && e && e < s) && !periodIssues(sub, s, e, paidOn).length) swap = { start: s || '', end: e || '' };
+  }
+  return { issues, from: sub.next_renewal || null, to: renewalAfter(sub, end || (start ? addDays(addMonths(start, sub.cycle_months || 1), -1) : null)), swap };
+}
