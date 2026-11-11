@@ -725,6 +725,25 @@ async def intake_status(_: User = Depends(require_admin_or_manager)):
     return {"netbox": nbs.enabled(), "ai": intake.ai_enabled()}
 
 
+@router.post("/inventory/intake/split",
+             summary="Cut a PDF that holds several invoices into one PDF per invoice",
+             description="`parts` is empty when the file is a single invoice (or not a PDF) — use it as is.")
+async def split_invoice_file(file: UploadFile = File(...), _: User = Depends(require_admin_or_manager)):
+    import base64
+    ext, content = await _read_document(file)
+    if ext != "pdf":
+        return {"parts": []}
+    parts = await asyncio.to_thread(intake.split_invoices, content)
+    if len(parts) < 2:
+        return {"parts": []}
+    stem = (file.filename or "invoice").rsplit(".", 1)[0][:80]
+    return {"parts": [
+        {"name": f"{stem} - {number or i + 1}.pdf".replace("/", "-"), "invoice_no": number,
+         "data": base64.b64encode(data).decode()}
+        for i, (number, data) in enumerate(parts)
+    ]}
+
+
 @router.post("/inventory/intake/parse", response_model=ParsedInvoice,
              summary="Read an invoice with the configured AI model",
              description="Suggestions only — nothing is written. The supplier is matched to NetBox's "

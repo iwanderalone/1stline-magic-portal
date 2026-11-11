@@ -30,6 +30,55 @@ INVOICE_TYPES = {"pdf": "application/pdf", "png": "image/png", "jpg": "image/jpe
 INVOICE_MAX_BYTES = 15 * 1024 * 1024
 
 
+# ─── Several invoices in one PDF ─────────────────────────
+# Vendor portals export "all invoices for the year" as one file (Adobe: 18
+# one-page invoices). Read as one document it is nonsense, so it is cut into
+# one PDF per invoice before anything else looks at it.
+_INVOICE_NO = re.compile(
+    r"(?i)\b(?:invoice|inv\.?|сч[её]т(?:-фактура)?)[ \t\-]*(?:number|num\.?|no\.?|n°|№|#)[ \t]*[:#]?[ \t]*"
+    r"([A-Z0-9][A-Z0-9\-/]{3,})")
+
+
+def invoice_page_groups(texts: list[str]) -> list[tuple[Optional[str], list[int]]]:
+    """[(invoice number, page indexes)] — more than one entry only when the
+    pages carry at least two different invoice numbers. A page without a
+    number (a continuation sheet) stays with the invoice before it."""
+    numbers = [(m.group(1) if (m := _INVOICE_NO.search(t or "")) else None) for t in texts]
+    if len({n for n in numbers if n}) < 2:
+        return [(next((n for n in numbers if n), None), list(range(len(texts))))]
+    groups: list[tuple[Optional[str], list[int]]] = []
+    for i, n in enumerate(numbers):
+        if groups and (n is None or n == groups[-1][0]):
+            groups[-1][1].append(i)
+        else:
+            groups.append((n, [i]))
+    return groups
+
+
+def split_invoices(content: bytes) -> list[tuple[Optional[str], bytes]]:
+    """A PDF holding several invoices → [(invoice number, that invoice's own
+    PDF)]. One entry (number, original bytes) when it is a single invoice."""
+    import io
+    import pypdfium2 as pdfium
+    try:
+        src = pdfium.PdfDocument(content)
+        texts = [src[i].get_textpage().get_text_range() for i in range(len(src))]
+    except Exception as exc:  # not a readable PDF — let the reader report it
+        logger.info("[intake] split: cannot open PDF (%s)", exc)
+        return [(None, content)]
+    groups = invoice_page_groups(texts)
+    if len(groups) < 2:
+        return [(groups[0][0], content)]
+    parts = []
+    for number, pages in groups:
+        out = pdfium.PdfDocument.new()
+        out.import_pages(src, pages)
+        buf = io.BytesIO()
+        out.save(buf)
+        parts.append((number, buf.getvalue()))
+    return parts
+
+
 class IntakeError(Exception):
     def __init__(self, message: str, status_code: int = 502):
         super().__init__(message)

@@ -290,12 +290,44 @@ async def test_linking_a_logged_invoice_drops_the_expected_twin(fx):
     db = _FakeDB([twin])
     invoice = SimpleNamespace(id=83, subscription_id=None, vendor="LucidLink Corp.", status="confirmed",
                               paid_on=date(2026, 11, 3), period_start=None, period_end=None,
-                              budget_id=None, card_id=None, payment_method="card")
+                              budget_id=None, card_id=None, payment_method="card",
+                              invoice_no="BD29A3F6-0032", invoice_file="83-x.pdf")
     assert await ps.link_payment(db, invoice, sub) is True
     assert db.deleted == [twin]
     assert (invoice.subscription_id, invoice.vendor, invoice.period_start) == (1, "LucidLink", date(2026, 11, 3))
     # an old invoice with nothing expected around it just gets attached
     old = SimpleNamespace(id=73, subscription_id=None, vendor="LucidLink Corp.", status="confirmed",
                           paid_on=date(2026, 1, 3), period_start=None, period_end=None,
-                          budget_id=None, card_id=None, payment_method="card")
+                          budget_id=None, card_id=None, payment_method="card",
+                          invoice_no="BD29A3F6-0022", invoice_file="73-x.pdf")
     assert await ps.link_payment(_FakeDB(), old, sub) is False and sub.next_renewal == date(2026, 12, 3)
+
+
+async def test_invoice_takes_over_an_invoiceless_payment_for_the_same_period(fx):
+    fx("")
+    sub = _sub(id=3, vendor="Adobe", product="Creative Cloud", cycle_months=1, currency="AED", price=8800,
+               next_renewal=date(2026, 11, 23), reminded_for=None)
+    march = _expected(27, date(2026, 3, 23), date(2026, 4, 22), status="confirmed", created_by="import",
+                      amount=8243.0, currency="AED", amount_aed=8243.0)
+    db = _FakeDB([march])
+    # A pro-rated top-up inside March's period is its own payment…
+    top_up, merged = await ps.settle_invoice(
+        db, sub, paid_on=date(2026, 4, 3), amount=209, currency="AED", amount_aed=209, invoice_no="3416428227",
+        created_by="admin", period_start=date(2026, 4, 3), period_end=date(2026, 4, 22))
+    assert not merged and top_up is not march and db.added == [top_up]
+    # …the month's own invoice lands on the imported row.
+    p, merged = await ps.settle_invoice(
+        db, sub, paid_on=date(2026, 3, 23), amount=8243, currency="AED", amount_aed=8243, invoice_no="3405512706",
+        created_by="admin", period_start=date(2026, 3, 23), period_end=date(2026, 4, 22))
+    assert merged and p is march and p.invoice_no == "3405512706"
+    assert sub.next_renewal == date(2026, 11, 23)       # an old period moves nothing
+
+
+def test_pdf_with_several_invoices_is_cut_by_invoice_number():
+    from app.services.intake_service import invoice_page_groups
+    page = "INVOICE\nInvoice Information\nInvoice Number {}\nInvoice Date 23-FEB-2026\nPage 1 of 1"
+    assert invoice_page_groups([page.format("3375489370"), page.format("3345474220"), "continued, no header"]) == [
+        ("3375489370", [0]), ("3345474220", [1, 2])]
+    # One invoice over two pages, or nothing recognisable: left whole.
+    assert invoice_page_groups([page.format("290135"), page.format("290135")]) == [("290135", [0, 1])]
+    assert invoice_page_groups(["scan without text", ""]) == [(None, [0, 1])]

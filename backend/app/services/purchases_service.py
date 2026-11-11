@@ -267,24 +267,43 @@ def advance_past(sub: Subscription, period_end: Optional[date]) -> bool:
 
 
 async def find_expected(db, sub_id: int, *, period_start: Optional[date], period_end: Optional[date],
-                        paid_on: date, exclude_id: Optional[int] = None) -> Optional[PurchasePayment]:
-    """The job-generated `unconfirmed` payment an invoice is the real version of:
-    the one whose period overlaps the invoice's (closest start wins), or — with
-    no period on the invoice — the one whose period contains the invoice date."""
+                        paid_on: date, exclude_id: Optional[int] = None,
+                        include_bare: bool = True) -> Optional[PurchasePayment]:
+    """The payment an invoice is the real version of.
+
+    First the job-generated `unconfirmed` one: whose period overlaps the
+    invoice's (closest start wins), or — with no period on the invoice — whose
+    period contains the invoice date.
+
+    Failing that (`include_bare`), a confirmed payment that has no invoice at
+    all — typed in by hand or imported from the old tracker — for the same
+    period. Stricter here: the start (or, with no period, the payment date)
+    must be within 3 days, so a pro-rated top-up invoice inside a month never
+    swallows that month's main payment."""
     rows = (await db.execute(
         select(PurchasePayment).where(
             PurchasePayment.subscription_id == sub_id,
-            PurchasePayment.status == "unconfirmed",
-            PurchasePayment.period_start.is_not(None),
+            or_(PurchasePayment.status == "unconfirmed",
+                and_(PurchasePayment.invoice_file.is_(None), PurchasePayment.invoice_no.is_(None))),
         )
     )).unique().scalars().all()
     rows = [r for r in rows if r.id != exclude_id]
+    pending = [r for r in rows if r.status == "unconfirmed" and r.period_start]
     if period_start:
         end = period_end or period_start
-        hits = [r for r in rows if r.period_start <= end and (r.period_end or r.period_start) >= period_start]
-        return min(hits, key=lambda r: abs((r.period_start - period_start).days)) if hits else None
-    hits = [r for r in rows if r.period_start <= paid_on <= (r.period_end or r.period_start)]
-    return hits[0] if hits else None
+        hits = [r for r in pending if r.period_start <= end and (r.period_end or r.period_start) >= period_start]
+    else:
+        hits = [r for r in pending if r.period_start <= paid_on <= (r.period_end or r.period_start)]
+    if hits:
+        return min(hits, key=lambda r: abs((r.period_start - (period_start or paid_on)).days))
+    if not include_bare:
+        return None
+    bare = [r for r in rows if r.status != "unconfirmed" and not r.invoice_file and not r.invoice_no]
+    anchor = period_start or paid_on
+    near = [(abs(((r.period_start if period_start else None) or r.paid_on) - anchor).days, r) for r in bare
+            if (r.period_start if period_start else r.paid_on)]
+    near = [(d, r) for d, r in near if d <= 3]
+    return min(near, key=lambda x: x[0])[1] if near else None
 
 
 async def settle_invoice(db, sub: Subscription, *, paid_on: date, amount: float, currency: str,
@@ -363,8 +382,10 @@ async def link_payment(db, p: PurchasePayment, sub: Subscription) -> bool:
         sub.seller = printed[:200]
     if p.status != "confirmed":
         return False
+    # Only a payment that carries an invoice may replace an invoice-less one.
     twin = await find_expected(db, sub.id, period_start=p.period_start, period_end=p.period_end,
-                               paid_on=p.paid_on, exclude_id=p.id)
+                               paid_on=p.paid_on, exclude_id=p.id,
+                               include_bare=bool(p.invoice_file or p.invoice_no))
     if twin:
         if not p.period_start:
             p.period_start, p.period_end = twin.period_start, twin.period_end
