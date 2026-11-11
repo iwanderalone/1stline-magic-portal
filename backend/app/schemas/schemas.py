@@ -852,6 +852,7 @@ class MailboxBackupBatchStart(BaseModel):
     logins: list[str] = Field(..., min_length=1, max_length=50)
     mail: bool = True
     disk: bool = False
+    block_after: bool = False   # block the Yandex 360 account once its backups succeed
 
 
 class MailboxBackupJobResponse(BaseOrmModel):
@@ -873,6 +874,8 @@ class MailboxBackupJobResponse(BaseOrmModel):
     s3_url: Optional[str] = None
     mbox_count: Optional[int] = None
     skipped: Optional[int] = None
+    account_action: Optional[str] = None
+    account_result: Optional[str] = None
     error: Optional[str] = None
     created_at: datetime
     started_at: Optional[datetime] = None
@@ -1298,6 +1301,11 @@ class PaymentOut(BaseOrmModel):
         return v or []
 
 
+class PaymentLinkIn(BaseModel):
+    payment_ids: list[int] = Field(..., min_length=1, max_length=500)
+    subscription_id: int
+
+
 class PaymentsPage(BaseModel):
     items: list[PaymentOut]
     total: int
@@ -1386,6 +1394,21 @@ class IntakeItem(BaseModel):
         return self
 
 
+class IntakeSplit(BaseModel):
+    """Part of the invoice total that pays one subscription for one period."""
+    subscription_id: int
+    amount: float = Field(..., ge=0)            # in the invoice currency, VAT included
+    period_start: Optional[date] = None
+    period_end: Optional[date] = None
+    description: Optional[str] = Field(None, max_length=500)
+
+    @model_validator(mode="after")
+    def _period(self):
+        if self.period_start and self.period_end and self.period_end < self.period_start:
+            raise ValueError("Period ends before it starts")
+        return self
+
+
 class IntakePayment(BaseModel):
     paid_on: date
     amount: float = Field(..., ge=0)            # invoice total, VAT included
@@ -1396,11 +1419,20 @@ class IntakePayment(BaseModel):
     payment_method: Optional[_PayMethod] = None
     card_id: Optional[int] = None
     description: Optional[str] = Field(None, max_length=500)
+    # Lines that pay subscriptions. Whatever part of `amount` they do not
+    # cover is logged as one payment without a subscription.
+    splits: list[IntakeSplit] = Field(default_factory=list, max_length=40)
 
     @field_validator("currency")
     @classmethod
     def _cur(cls, v):
         return _currency(v)
+
+    @model_validator(mode="after")
+    def _splits_fit(self):
+        if sum(s.amount for s in self.splits) > self.amount + 0.05:
+            raise ValueError("Subscription amounts add up to more than the invoice total")
+        return self
 
 
 class IntakeRequest(BaseModel):
@@ -1437,6 +1469,8 @@ class IntakeResult(BaseModel):
     devices: list[IntakeDevice] = []
     invoice_url: Optional[str] = None
     payment_id: Optional[int] = None
+    payment_ids: list[int] = []   # one per subscription paid, plus the unlinked rest
+    confirmed_expected: int = 0   # expected (unconfirmed) payments this invoice turned into real ones
     supplier: str
     warnings: list[str] = []
     error: Optional[str] = None   # set when NetBox failed part-way; `devices` lists what exists
@@ -1451,6 +1485,10 @@ class ParsedInvoiceItem(BaseModel):
     unit_price_net: Optional[float] = None
     serials: list[str] = []
     device_type: Optional[NetboxLookupItem] = None   # best NetBox match, if any
+    period_start: Optional[date] = None              # service period printed for the line
+    period_end: Optional[date] = None
+    reference: Optional[str] = None                  # licence key / account no. printed for the line
+    subscription_ids: list[int] = []                 # subscriptions this line pays for, when confident
 
 
 class ParsedInvoice(BaseModel):
@@ -1462,3 +1500,4 @@ class ParsedInvoice(BaseModel):
     total: Optional[float] = None
     vat: Optional[float] = None
     items: list[ParsedInvoiceItem] = []
+    logged_payment_ids: list[int] = []               # this invoice number is already in the payment log

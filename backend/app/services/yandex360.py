@@ -68,8 +68,10 @@ def _load_users() -> dict[str, dict]:
             page += 1
 
 
-def find_user(email: str) -> dict:
-    """The directory entry for a login or an address (primary or alias)."""
+def find_user(email: str, allow_blocked: bool = False) -> dict:
+    """The directory entry for a login or an address (primary or alias).
+    A blocked account is refused unless `allow_blocked` — the backup unblocks
+    it itself (see set_enabled)."""
     def _lookup(force: bool) -> dict | None:
         with _users_lock:
             org = _cfg("YANDEX_ORG_ID")
@@ -84,9 +86,28 @@ def find_user(email: str) -> dict:
         user = _lookup(force=True)
     if not user:
         raise Yandex360Error(f"{email} is not an employee of the Yandex 360 organisation")
-    if user.get("isEnabled") is False:
+    if user.get("isEnabled") is False and not allow_blocked:
         raise Yandex360Error(f"{email} is blocked in Yandex 360 — unblock it for the backup, block it again after")
     return user
+
+
+def set_enabled(uid: int | str, enabled: bool) -> None:
+    """Block (False) or unblock (True) an employee. Needs the directory token
+    to carry directory:write_users. Blocking keeps the mail and Disk; it only
+    stops the employee from signing in."""
+    org = _cfg("YANDEX_ORG_ID")
+    r = httpx.patch(f"{API_360}/directory/v1/org/{org}/users/{uid}", timeout=30,
+                    headers={"Authorization": f"OAuth {_cfg('YANDEX_DIRECTORY_TOKEN')}"},
+                    json={"isEnabled": enabled})
+    if r.status_code != 200:
+        hint = " (does the directory token have directory:write_users?)" if r.status_code in (401, 403) else ""
+        raise Yandex360Error(f"Yandex 360: could not {'unblock' if enabled else 'block'} user {uid}: "
+                             f"HTTP {r.status_code} {r.text[:200]}{hint}")
+    # The cached listing would otherwise still say the old state for up to _USERS_TTL.
+    with _users_lock:
+        for u in _users_cache["by_email"].values():
+            if str(u.get("id")) == str(uid):
+                u["isEnabled"] = enabled
 
 
 class EmployeeToken:

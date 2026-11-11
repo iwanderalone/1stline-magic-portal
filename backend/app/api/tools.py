@@ -92,28 +92,49 @@ async def start_mailbox_backup(
     """Start one or more backup jobs — mail, Disk or both per employee, each its
     own job and archive. Jobs run sequentially (one pipeline at a time). The
     Yandex 360 service application signs in as the employee; logins are checked
-    against the directory here, so a typo or a blocked account is refused now
-    rather than failing later in the queue."""
+    against the directory here, so a typo is refused now rather than failing
+    later in the queue. A blocked account is unblocked for the backup and
+    blocked again once its jobs end; `block_after` also blocks an active one
+    after a fully successful backup."""
     if not (mbs.enabled() and y360.enabled()):
         raise HTTPException(status_code=503, detail="Backup is not configured")
     kinds = [k for k, on in (("mail", payload.mail), ("disk", payload.disk)) if on]
     if not kinds:
         raise HTTPException(status_code=400, detail="Choose what to back up: mail, Disk or both")
 
-    emails, problems = [], []
+    people: dict[str, dict] = {}           # email → directory entry; a login and its address are one person
+    problems = []
     for login in dict.fromkeys(x.strip().lower() for x in payload.logins if x.strip()):
         try:
-            emails.append((await asyncio.to_thread(y360.find_user, login))["email"].lower())
+            u = await asyncio.to_thread(y360.find_user, login, True)
+            people.setdefault(u["email"].lower(), u)
         except y360.Yandex360Error as e:
             problems.append(str(e))
     if problems:
         raise HTTPException(status_code=400, detail="; ".join(problems))
-    if not emails:
+    if not people:
         raise HTTPException(status_code=400, detail="Enter at least one login")
-    emails = list(dict.fromkeys(emails))   # a login and its address are the same person
+    emails = list(people)
     busy = [f"{e} ({k})" for e in emails for k in kinds if mbs.is_busy(e, k)]
     if busy:
         raise HTTPException(status_code=409, detail=f"Backup already running/queued for: {', '.join(busy)}")
+
+    # A blocked account can't be read — unblock it now; it is blocked again
+    # when its jobs end (whatever their outcome, see mbs.account_decision).
+    blocked = [e for e in emails if people[e].get("isEnabled") is False]
+    unblocked: list[str] = []
+    try:
+        for e in blocked:
+            await asyncio.to_thread(y360.set_enabled, people[e]["id"], True)
+            unblocked.append(e)
+    except y360.Yandex360Error as exc:
+        for e in unblocked:            # roll back: nothing is queued for them
+            try:
+                await asyncio.to_thread(y360.set_enabled, people[e]["id"], False)
+            except y360.Yandex360Error:
+                logger.exception("[tools] could not re-block %s after a failed batch start", e)
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    action = {e: "restore" if e in blocked else ("block" if payload.block_after else None) for e in emails}
 
     planned = [(email, kind) for email in emails for kind in kinds]
     jobs: list[MailboxBackupJob] = []
@@ -123,14 +144,21 @@ async def start_mailbox_backup(
             kind=kind,
             requested_by=user.display_name or user.username,
             status="queued",
+            account_action=action[email],
         )
         db.add(job)
         jobs.append(job)
     await log_action(db, user, "mailbox_backup_started",
-                     f"Backup ({' + '.join(kinds)}) started for {len(emails)} employee(s): {', '.join(emails)}")
+                     f"Backup ({' + '.join(kinds)}) started for {len(emails)} employee(s): {', '.join(emails)}"
+                     + (f"; unblocked for the backup: {', '.join(blocked)}" if blocked else "")
+                     + ("; block after a successful backup" if payload.block_after else ""))
     await db.commit()
     for job in jobs:
         await db.refresh(job)
+    for email in emails:
+        if action[email]:
+            mbs.plan_account(email, str(people[email]["id"]), action[email],
+                             [j.id for j, (e, _) in zip(jobs, planned) if e == email])
 
     # Fire-and-forget: pipelines run in worker threads, serialized by a global lock (FIFO).
     for job, (email, kind) in zip(jobs, planned):
@@ -708,6 +736,19 @@ async def parse_invoice(file: UploadFile = File(...), db: AsyncSession = Depends
         parsed = await intake.parse_invoice(content, intake.INVOICE_TYPES[ext])
     except intake.IntakeError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc))
+    # Money side: which subscriptions the lines pay, and whether this invoice
+    # number is in the log already. Suggestions — the form shows and edits them.
+    from app.models.models import Subscription
+    subs = (await db.execute(select(Subscription).where(Subscription.status == "active"))).unique().scalars().all()
+    supplier = parsed.supplier_raw or parsed.supplier
+    for item in parsed.items:
+        if item.is_device:
+            continue
+        item.subscription_ids = ps.match_subscriptions(
+            subs, supplier, " ".join(filter(None, [item.description, item.model])),
+            reference=item.reference, period_start=item.period_start, quantity=item.quantity,
+        )
+    parsed.logged_payment_ids = [p.id for p in await ps.invoice_already_logged(db, supplier, parsed.invoice_no)]
     await log_action(db, user, "inventory_intake_parsed", f"Invoice read by Gemini: {file.filename}")
     await db.commit()
     return parsed
@@ -741,6 +782,18 @@ async def run_intake(
             await get_or_404(db, PaymentCard, pay.card_id)
         if pay.amount_aed is None and ps.to_aed(pay.amount, pay.currency) is None:
             raise HTTPException(status_code=422, detail=f"No exchange rate for {pay.currency} — enter the AED amount")
+        logged = await ps.invoice_already_logged(db, req.supplier, req.invoice_no)
+        if logged:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Invoice #{req.invoice_no} from {logged[0].vendor} is already in the payment log "
+                       f"(payment #{logged[0].id}, {logged[0].paid_on}) — delete that one first to re-enter it",
+            )
+        from app.models.models import Subscription
+        split_subs = {}
+        for sp in pay.splits:
+            if sp.subscription_id not in split_subs:
+                split_subs[sp.subscription_id] = await get_or_404(db, Subscription, sp.subscription_id)
 
     devices, attachment, supplier, warnings, error = [], {}, req.supplier.strip(), [], None
     if req.items:
@@ -750,34 +803,69 @@ async def run_intake(
             # Failed before any device existed (supplier, type or upload step).
             raise HTTPException(status_code=exc.status_code, detail=str(exc))
 
-    payment_id = None
+    payment_ids: list[int] = []
+    confirmed_expected = 0
     if pay and not error:
         from app.api.purchases import _INVOICE_DIR
         import uuid as _uuid
-        tags = ", ".join(d.asset_tag or f"#{d.id}" for d in devices)
-        p = PurchasePayment(
-            paid_on=pay.paid_on,
-            vendor=supplier,
-            description=(pay.description or "; ".join(sorted({d.label for d in devices})))[:500] or None,
-            category=pay.category or ("hardware" if devices else "other"),
-            budget_id=pay.budget_id,
-            payment_method=pay.payment_method or "card",
-            card_id=pay.card_id if (pay.payment_method or "card") == "card" else None,
-            amount=pay.amount,
-            currency=pay.currency,
-            amount_aed=pay.amount_aed if pay.amount_aed is not None else ps.to_aed(pay.amount, pay.currency),
-            invoice_no=req.invoice_no,
-            netbox_device_ids=json.dumps([d.id for d in devices]) if devices else None,
-            status="confirmed",
-            notes=f"Intake: {len(devices)} device(s) — asset tags {tags}" if devices else None,
-            created_by=user.username,
-        )
-        db.add(p)
+        method = pay.payment_method or "card"
+        total_aed = pay.amount_aed if pay.amount_aed is not None else ps.to_aed(pay.amount, pay.currency)
+        rate = total_aed / pay.amount if pay.amount else 0
+        booked: list[PurchasePayment] = []
+        left, left_aed = pay.amount, total_aed
+
+        # Lines that pay a subscription settle its period (confirming the
+        # expected payment when the job already generated one).
+        for i, sp in enumerate(pay.splits):
+            amount = sp.amount
+            if i == len(pay.splits) - 1 and abs(left - amount) <= 0.05:
+                amount = round(left, 2)          # rounding crumbs stay with the last line
+            aed = round(left_aed, 2) if amount == round(left, 2) else round(amount * rate, 2)
+            p, merged = await ps.settle_invoice(
+                db, split_subs[sp.subscription_id],
+                paid_on=pay.paid_on, amount=amount, currency=pay.currency, amount_aed=aed,
+                invoice_no=req.invoice_no, created_by=user.username,
+                period_start=sp.period_start, period_end=sp.period_end,
+                description=sp.description, supplier=supplier,
+                budget_id=pay.budget_id, card_id=pay.card_id, payment_method=pay.payment_method,
+            )
+            confirmed_expected += merged
+            booked.append(p)
+            left, left_aed = left - amount, left_aed - aed
+
+        # The rest of the invoice (or all of it) is a payment of its own.
+        if left > 0.05 or not booked:
+            tags = ", ".join(d.asset_tag or f"#{d.id}" for d in devices)
+            p = PurchasePayment(
+                paid_on=pay.paid_on,
+                vendor=supplier,
+                description=(pay.description or "; ".join(sorted({d.label for d in devices})))[:500] or None,
+                category=pay.category or ("hardware" if devices else "other"),
+                budget_id=pay.budget_id,
+                payment_method=method,
+                card_id=pay.card_id if method == "card" else None,
+                amount=round(max(left, 0), 2),
+                currency=pay.currency,
+                amount_aed=round(max(left_aed, 0), 2),
+                invoice_no=req.invoice_no,
+                netbox_device_ids=json.dumps([d.id for d in devices]) if devices else None,
+                status="confirmed",
+                notes=f"Intake: {len(devices)} device(s) — asset tags {tags}" if devices else None,
+                created_by=user.username,
+            )
+            db.add(p)
+            booked.append(p)
+
         await db.flush()
         _INVOICE_DIR.mkdir(parents=True, exist_ok=True)
-        p.invoice_file = f"{p.id}-{_uuid.uuid4().hex[:12]}.{ext}"
-        (_INVOICE_DIR / p.invoice_file).write_bytes(content)
-        payment_id = p.id
+        for p in booked:
+            # One copy per payment: deleting or re-attaching on one row must
+            # never take the invoice away from the others.
+            if p.invoice_file:
+                (_INVOICE_DIR / p.invoice_file).unlink(missing_ok=True)
+            p.invoice_file = f"{p.id}-{_uuid.uuid4().hex[:12]}.{ext}"
+            (_INVOICE_DIR / p.invoice_file).write_bytes(content)
+        payment_ids = [p.id for p in booked]
     elif pay and error:
         warnings.append("Payment not logged because the intake stopped part-way — add it in Purchases "
                         "once the devices are complete")
@@ -786,7 +874,8 @@ async def run_intake(
         db, user, "inventory_intake",
         f"Intake {supplier} #{req.invoice_no}: {len(devices)} device(s) "
         f"[{', '.join(str(d.id) for d in devices)}]"
-        + (f", payment #{payment_id}" if payment_id else "")
+        + (f", payment(s) {', '.join(f'#{i}' for i in payment_ids)}" if payment_ids else "")
+        + (f", {confirmed_expected} expected confirmed" if confirmed_expected else "")
         + (f"; ERROR: {error}" if error else ""),
     )
     await db.commit()
@@ -795,7 +884,9 @@ async def run_intake(
     return IntakeResult(
         devices=devices,
         invoice_url=attachment.get("file"),
-        payment_id=payment_id,
+        payment_id=payment_ids[0] if payment_ids else None,
+        payment_ids=payment_ids,
+        confirmed_expected=confirmed_expected,
         supplier=supplier,
         warnings=warnings,
         error=error,

@@ -52,6 +52,10 @@ Extract the fields below. Rules:
   description ("S/N:", "SN", "Serial No", "IMEI"), on lines under the item, and in a separate serial-number table or
   appendix — map each to its item. Do not put serial numbers into model. Part/model numbers (e.g. ZGM-00062,
   MLY33ZS/A, 21FJ0007AD) are NOT serial numbers.
+- period_start / period_end: the service or billing period printed for the line (or once for the whole invoice),
+  as YYYY-MM-DD. European suppliers print dates day first (03/02/2026 is 3 February). null when no period is printed.
+- reference: a licence or subscription key, contract, account or phone number printed for the line
+  (e.g. pve2c-90748b1429), copied exactly. Never the invoice number. null when absent.
 - total: the grand total INCLUDING VAT. vat: the VAT amount.
 - invoice_date as YYYY-MM-DD. currency as a 3-letter ISO code."""
 
@@ -76,6 +80,9 @@ _PARSE_SCHEMA = {
                     "quantity": {"type": "INTEGER", "nullable": True},
                     "unit_price_net": {"type": "NUMBER", "nullable": True},
                     "serials": {"type": "ARRAY", "items": {"type": "STRING"}},
+                    "period_start": {"type": "STRING", "nullable": True},
+                    "period_end": {"type": "STRING", "nullable": True},
+                    "reference": {"type": "STRING", "nullable": True},
                 },
             },
         },
@@ -214,7 +221,12 @@ async def parse_invoice(content: bytes, mime: str) -> ParsedInvoice:
             quantity=max(1, min(int(raw.get("quantity") or 1), 50)),
             unit_price_net=_num(raw.get("unit_price_net")),
             serials=_clean_serials(raw.get("serials"), raw.get("model"), raw.get("description")),
+            period_start=_date(raw.get("period_start")),
+            period_end=_date(raw.get("period_end")),
+            reference=(str(raw.get("reference") or "").strip() or None),
         )
+        if item.period_start and item.period_end and item.period_end < item.period_start:
+            item.period_start = item.period_end = None   # misread dates are worse than none
         if nbs.enabled() and item.is_device:
             try:
                 item.device_type = await _match_device_type(item.manufacturer, item.model, item.description)

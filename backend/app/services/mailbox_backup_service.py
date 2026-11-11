@@ -116,6 +116,67 @@ def request_cancel(job_id: int) -> bool:
     return True
 
 
+# ─── Yandex 360 account: unblocked for the backup, blocked after ─────
+
+@dataclass
+class AccountPlan:
+    uid: str
+    action: str                 # "block" | "restore" (see MailboxBackupJob.account_action)
+    jobs: set[int] = field(default_factory=set)
+    ok: bool = True             # every finished job so far succeeded
+
+
+_ACCOUNTS: dict[str, AccountPlan] = {}   # email → plan; settled when its last job ends
+
+
+def plan_account(email: str, uid: str, action: str, job_ids: list[int]) -> None:
+    """Register what to do with the account once all of `job_ids` end. A second
+    batch for the same person while the first is still running joins it."""
+    plan = _ACCOUNTS.get(email)
+    if plan is None:
+        _ACCOUNTS[email] = AccountPlan(uid=uid, action=action, jobs=set(job_ids))
+        return
+    plan.jobs |= set(job_ids)
+    if action == "restore":
+        plan.action = "restore"
+
+
+def account_decision(plan: AccountPlan) -> bool:
+    """Block the account? A previously blocked one always goes back to blocked;
+    an active one only after a fully successful backup."""
+    return plan.action == "restore" or (plan.action == "block" and plan.ok)
+
+
+async def _settle_account(job_id: int, email: str, ok: bool) -> None:
+    plan = _ACCOUNTS.get(email)
+    if plan is None or job_id not in plan.jobs:
+        return
+    plan.jobs.discard(job_id)
+    plan.ok = plan.ok and ok
+    if plan.jobs:
+        return                  # another job for this person is still queued/running
+    _ACCOUNTS.pop(email, None)
+    from app.models.models import ActivityLog
+    from app.services import yandex360
+    if account_decision(plan):
+        try:
+            await asyncio.to_thread(yandex360.set_enabled, plan.uid, False)
+            result = "blocked"
+        except Exception as e:  # noqa: BLE001
+            logger.exception("[mbbackup] could not block %s", email)
+            result = f"block failed: {e}"[:300]
+    else:
+        result = "left active — the backup did not succeed"
+    async with AsyncSessionFactory() as db:
+        job = await db.get(MailboxBackupJob, job_id)
+        if job:
+            job.account_result = result
+        db.add(ActivityLog(username="system", action="y360_account_blocked" if result == "blocked"
+                           else "y360_account_block", details=f"{email}: {result}"))
+        await db.commit()
+    logger.info("[mbbackup] account %s after backup: %s", email, result)
+
+
 def _check_cancel(cancel: threading.Event):
     if cancel.is_set():
         raise BackupCancelled()
@@ -712,6 +773,7 @@ async def run_backup_job(job_id: int, email_addr: str, kind: str = "mail") -> No
     prog = JOBS.setdefault(job_id, JobProgress())
     cancel = _CANCELS.setdefault(job_id, threading.Event())
     _RUNNING.add(busy_key)
+    ok = False
     try:
         # Serialize pipelines: batch submissions queue up and run one at a time.
         async with _GLOBAL_LOCK:
@@ -757,11 +819,18 @@ async def run_backup_job(job_id: int, email_addr: str, kind: str = "mail") -> No
             for k, v in result.items():
                 setattr(job, k, v)
             await db.commit()
+        ok = status == "success"
         logger.info("[mbbackup] job %s for %s finished: %s", job_id, email_addr, status)
     finally:
         _RUNNING.discard(busy_key)
         JOBS.pop(job_id, None)
         _CANCELS.pop(job_id, None)
+        # Every exit (success, failure, cancel — also while still queued) counts,
+        # so a person's account is never left unblocked by a job that never ran.
+        try:
+            await _settle_account(job_id, email_addr.lower(), ok)
+        except Exception:  # noqa: BLE001
+            logger.exception("[mbbackup] account handling for %s failed", email_addr)
 
 
 async def fail_stale_jobs() -> None:
@@ -772,10 +841,31 @@ async def fail_stale_jobs() -> None:
             select(MailboxBackupJob).where(MailboxBackupJob.status.in_(("queued", "running")))
         )
         stale = res.scalars().all()
+        restore: dict[str, MailboxBackupJob] = {}
         for job in stale:
             job.status = "failed"
             job.error = "interrupted by a backend restart"
             job.finished_at = utcnow()
+            if job.account_action == "restore":
+                restore[job.email.lower()] = job
+            elif job.account_action == "block":
+                job.account_result = "left active — the backup did not succeed"
         if stale:
             await db.commit()
             logger.warning("[mbbackup] marked %d stale job(s) as failed", len(stale))
+    # The restart lost the in-memory plans: accounts the backup had unblocked
+    # go back to blocked, as they would have after a failed run.
+    for email, job in restore.items():
+        from app.services import yandex360
+        try:
+            uid = (await asyncio.to_thread(yandex360.find_user, email, True))["id"]
+            await asyncio.to_thread(yandex360.set_enabled, uid, False)
+            result = "blocked"
+        except Exception as e:  # noqa: BLE001
+            logger.exception("[mbbackup] could not re-block %s after restart", email)
+            result = f"block failed: {e}"[:300]
+        async with AsyncSessionFactory() as db:
+            row = await db.get(MailboxBackupJob, job.id)
+            if row:
+                row.account_result = result
+                await db.commit()

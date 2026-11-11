@@ -673,6 +673,11 @@ class MailboxBackupJob(Base):
     s3_url         = Column(String(1000), nullable=True)
     mbox_count     = Column(Integer, nullable=True)
     skipped        = Column(Integer, nullable=True)   # disk: files Yandex could not serve (list in S3)
+    # Yandex 360 account handling once all of this employee's jobs in the batch end:
+    # "block" = block only if every job succeeded; "restore" = it was blocked before
+    # the backup unblocked it — block again whatever happens. account_result says what was done.
+    account_action = Column(String(10), nullable=True)
+    account_result = Column(String(300), nullable=True)
     error          = Column(Text, nullable=True)
     created_at     = Column(DateTime(timezone=True), default=utcnow, nullable=False)
     started_at     = Column(DateTime(timezone=True), nullable=True)
