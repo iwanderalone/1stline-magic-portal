@@ -355,7 +355,8 @@ async def renew_subscription(sub_id: int, db: AsyncSession = Depends(get_db),
     sub = await _load_sub(db, sub_id)
     if not sub.next_renewal:
         raise HTTPException(status_code=400, detail="Set a renewal date first")
-    payment = ps.payment_from_subscription(sub, sub.next_renewal, status="confirmed", created_by=user.username)
+    payment = ps.payment_from_subscription(sub, sub.next_renewal, status="confirmed", created_by=user.username,
+                                           charge=await ps.last_invoiced_charge(db, sub))
     db.add(payment)
     sub.next_renewal = ps.add_months(sub.next_renewal, sub.cycle_months or 1)
     sub.reminded_for = None

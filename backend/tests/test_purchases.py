@@ -79,6 +79,27 @@ def test_generated_payment_covers_one_cycle(fx):
     assert p.amount_aed == 2346 and p.status == "unconfirmed"
 
 
+def test_expected_charge_follows_the_last_full_invoice_not_the_typed_price(fx):
+    fx("EUR=4.12")
+    sub = _sub(vendor="Asana", price=300, currency="AED")
+    pay = lambda start, end, amount, **kw: SimpleNamespace(**{**dict(
+        status="confirmed", invoice_file="x.pdf", invoice_no="INV", period_start=start, period_end=end,
+        amount=amount, currency="EUR", paid_on=start, notes=None, description="Starter"), **kw})
+    rows = [
+        pay(date(2026, 9, 12), date(2026, 10, 11), 120.0),
+        pay(date(2026, 10, 12), date(2026, 11, 11), 134.9),
+        pay(date(2026, 10, 20), date(2026, 11, 11), 40.0),                        # proration: part of a cycle
+        pay(date(2026, 10, 25), date(2026, 11, 24), 20.0, description="Starter; proration credit"),
+        pay(date(2026, 11, 1), date(2026, 11, 30), 50.0, notes="One-time charge on top of the subscription"),
+        pay(date(2026, 11, 12), date(2026, 12, 11), 999.0, status="unconfirmed", invoice_file=None, invoice_no=None),
+    ]
+    assert ps.charge_from_invoices(sub, rows) == (134.9, "EUR")
+    assert ps.charge_from_invoices(sub, []) == (300, "AED")
+    p = ps.payment_from_subscription(sub, date(2026, 11, 12), status="unconfirmed", created_by="system",
+                                     charge=(134.9, "EUR"))
+    assert (p.amount, p.currency, p.amount_aed) == (134.9, "EUR", 555.79)
+
+
 def test_card_last4_rejects_anything_but_four_digits():
     from app.schemas.schemas import PaymentCardIn
     assert PaymentCardIn(label="Corp Visa", last4="4821").last4 == "4821"

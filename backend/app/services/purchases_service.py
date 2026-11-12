@@ -126,9 +126,43 @@ def owner_ids(sub: Subscription) -> list[str]:
     return out
 
 
+def charge_from_invoices(sub: Subscription, payments) -> tuple[float, str]:
+    """What the next period will most likely cost: the latest invoiced payment
+    that covers a whole cycle (not a proration, credit or one-time top-up),
+    in the currency the vendor bills in. Without one — the subscription's own
+    price. Usage-billed vendors (Zoom, Hetzner, LucidLink) drift every month,
+    so a typed-in price goes stale; the last invoice rarely does."""
+    cycle = sub.cycle_months or 1
+    full = [
+        p for p in payments
+        if p.status == "confirmed" and (p.invoice_file or p.invoice_no)
+        and p.period_start and p.period_end and (p.amount or 0) > 0
+        and not (p.notes or "").startswith("One-time")
+        # a proration credit folded into the charge makes it smaller than the plan costs
+        and "credit" not in (p.description or "").casefold()
+        and p.period_end >= cycle_end(p.period_start, cycle) - timedelta(days=3)
+    ]
+    if not full:
+        return sub.price or 0, sub.currency
+    last = max(full, key=lambda p: (p.period_start, p.paid_on))
+    return last.amount, last.currency
+
+
+async def last_invoiced_charge(db, sub: Subscription) -> tuple[float, str]:
+    rows = (await db.execute(
+        select(PurchasePayment).where(
+            PurchasePayment.subscription_id == sub.id,
+            PurchasePayment.status == "confirmed",
+        )
+    )).unique().scalars().all()
+    return charge_from_invoices(sub, rows)
+
+
 def payment_from_subscription(sub: Subscription, period_start: date, *,
-                              status: str, created_by: str) -> PurchasePayment:
-    expected_aed = to_aed(sub.price or 0, sub.currency)
+                              status: str, created_by: str,
+                              charge: Optional[tuple[float, str]] = None) -> PurchasePayment:
+    amount, currency = charge or (sub.price or 0, sub.currency)
+    expected_aed = to_aed(amount, currency)
     return PurchasePayment(
         subscription_id=sub.id,
         paid_on=period_start,
@@ -138,8 +172,8 @@ def payment_from_subscription(sub: Subscription, period_start: date, *,
         budget_id=sub.budget_id,
         payment_method=sub.payment_method,
         card_id=sub.card_id,
-        amount=sub.price or 0,
-        currency=sub.currency,
+        amount=amount,
+        currency=currency,
         # Unknown currency → 0 AED, flagged by the unconfirmed status; the
         # confirmer types in the real number from the statement anyway.
         amount_aed=expected_aed if expected_aed is not None else 0,
@@ -497,7 +531,8 @@ async def run_renewals(today: Optional[date] = None) -> dict:
                     )
                 )).first()
                 if not exists:
-                    db.add(payment_from_subscription(sub, sub.next_renewal, status="unconfirmed", created_by="system"))
+                    db.add(payment_from_subscription(sub, sub.next_renewal, status="unconfirmed", created_by="system",
+                                                     charge=await last_invoiced_charge(db, sub)))
                     generated += 1
                 sub.next_renewal = add_months(sub.next_renewal, sub.cycle_months or 1)
                 periods += 1
