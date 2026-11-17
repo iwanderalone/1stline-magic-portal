@@ -370,7 +370,8 @@ export default function OverviewTab({ reloadKey, onOpenSub, onGo }) {
       </div>
 
       <Card header={tr('purSpendByMonth')} padding="14px 18px">
-        <SpendChart months={s.spend_by_month} onPick={(m) => onGo('payments', { from: m, to: monthEnd(m) })} />
+        {/* Months before the log starts are not "zero spend" — leave them out (keep at least six). */}
+        <SpendChart months={s.spend_by_month.slice(Math.min(Math.max(s.spend_by_month.findIndex(m => m.aed > 0), 0), 6))} onPick={(m) => onGo('payments', { from: m, to: monthEnd(m) })} />
       </Card>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', alignItems: 'start', gap: 16 }}>
