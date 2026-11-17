@@ -2,7 +2,9 @@
 seats, and the payment log. Admin/manager only: it is finance data.
 
 GET    /purchases/meta                       categories, methods, currencies, FX table
-GET    /purchases/summary                    dashboard tiles + upcoming renewals
+GET    /purchases/summary                    overview: this month, next 30 days, attention, spend, breakdown
+GET    /purchases/categories                 categories         POST / PATCH /{key}
+GET    /purchases/vendors                    vendors with stats POST / PATCH /{id} / POST /{id}/merge
 GET    /purchases/departments                budgets            POST / PATCH /{id}
 GET    /purchases/cards                      payment cards      POST / PATCH /{id}
 GET    /purchases/subscriptions              catalog (filters: status, q, budget_id, category)
@@ -37,12 +39,12 @@ from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.deps import get_or_404, require_admin_or_manager
 from app.models.models import (
-    Department, PaymentCard, PurchasePayment, Subscription, SubscriptionSeat, User,
+    Department, PaymentCard, PurchaseCategory, PurchasePayment, Subscription, SubscriptionSeat, User, Vendor,
 )
 from app.schemas.schemas import (
     DepartmentIn, DepartmentOut, PaymentCardIn, PaymentCardOut, PaymentIn, PaymentLinkIn, PaymentOut,
-    PaymentPatch, PaymentsPage, SeatHolder, SeatIn, SeatOut, SubscriptionIn,
-    SubscriptionOut, SubscriptionPatch,
+    PaymentPatch, PaymentsPage, PurchaseCategoryIn, PurchaseCategoryOut, SeatHolder, SeatIn, SeatOut,
+    SubscriptionIn, SubscriptionOut, SubscriptionPatch, VendorIn, VendorMergeIn, VendorOut,
 )
 from app.services import netbox_service as nbs
 from app.services import purchases_service as ps
@@ -69,7 +71,7 @@ def _sub_out(sub: Subscription, names: dict[str, str], today: Optional[date] = N
     price_aed = ps.to_aed(sub.price or 0, sub.currency)
     monthly = ps.monthly_aed(sub)
     return SubscriptionOut(
-        id=sub.id, vendor=sub.vendor, product=sub.product, category=sub.category,
+        id=sub.id, vendor=sub.vendor, vendor_id=sub.vendor_id, product=sub.product, category=sub.category,
         seller=sub.seller,
         owners=[{"id": i, "display_name": names[i]} for i in ps.owner_ids(sub) if i in names],
         budget=sub.budget, account_email=sub.account_email, billing_url=sub.billing_url,
@@ -93,7 +95,10 @@ def _pay_out(p: PurchasePayment) -> PaymentOut:
     return out
 
 
-async def _check_refs(db: AsyncSession, budget_id: Optional[int], card_id: Optional[int]):
+async def _check_refs(db: AsyncSession, budget_id: Optional[int], card_id: Optional[int],
+                      category: Optional[str] = None):
+    if category is not None and not await ps.is_category(db, category):
+        raise HTTPException(status_code=422, detail=f"Unknown category '{category}'")
     if budget_id is not None:
         await get_or_404(db, Department, budget_id)
     if card_id is not None:
@@ -124,9 +129,9 @@ async def _load_payment(db: AsyncSession, payment_id: int) -> PurchasePayment:
 # ─── Meta & summary ──────────────────────────────────────
 
 @router.get("/meta")
-async def meta():
+async def meta(db: AsyncSession = Depends(get_db)):
     return {
-        "categories": ps.CATEGORIES,
+        "categories": [PurchaseCategoryOut.model_validate(c).model_dump() for c in await ps.categories(db)],
         "payment_methods": ps.PAYMENT_METHODS,
         "currencies": sorted(set(ps.CURRENCIES) | set(ps.fx_table())),
         "fx_to_aed": ps.fx_table(),
@@ -135,70 +140,271 @@ async def meta():
     }
 
 
+def _money(aed: float) -> dict:
+    return {"aed": round(aed, 2), "usd": ps.aed_to_usd(aed)}
+
+
 @router.get("/summary")
 async def summary(db: AsyncSession = Depends(get_db)):
+    """Everything the overview shows, in the order it shows it."""
     today = date.today()
     subs = (await db.execute(select(Subscription).where(Subscription.status == "active"))).unique().scalars().all()
+    vendors = {v.id: v for v in (await db.execute(select(Vendor))).scalars().all()}
     names = await _user_names(db)
 
+    # Run-rate, broken down category → vendor.
     run_rate = 0.0
-    by_budget: dict[str, float] = defaultdict(float)
-    by_category: dict[str, float] = defaultdict(float)
+    tree: dict[str, dict] = {}
     unknown_fx = []
-    seats_total = seats_used = 0
-    over_assigned = []
     for s in subs:
         m = ps.monthly_aed(s)
         if m is None:
             unknown_fx.append(s.vendor)
             continue
         run_rate += m
-        by_budget[s.budget.name if s.budget else "—"] += m
-        by_category[s.category] += m
-        if s.seats_total:
-            seats_total += s.seats_total
-            seats_used += min(len(s.seats), s.seats_total)
-            if len(s.seats) > s.seats_total:
-                over_assigned.append(s.vendor)
+        c = tree.setdefault(s.category, {"key": s.category, "aed": 0.0, "vendors": {}})
+        c["aed"] += m
+        vk = s.vendor_id or f"name:{s.vendor}"
+        v = c["vendors"].setdefault(vk, {"id": s.vendor_id, "name": s.vendor, "aed": 0.0, "count": 0})
+        v["aed"] += m
+        v["count"] += 1
+    by_category = []
+    for c in sorted(tree.values(), key=lambda c: -c["aed"]):
+        by_category.append({
+            "key": c["key"], **_money(c["aed"]), "share": round(c["aed"] / run_rate, 4) if run_rate else 0,
+            "vendors": [{"id": v["id"], "name": v["name"], "count": v["count"], **_money(v["aed"])}
+                        for v in sorted(c["vendors"].values(), key=lambda v: -v["aed"])],
+        })
 
+    # This month: what has gone out vs the run-rate.
+    month_start = today.replace(day=1)
+    paid, pending = (await db.execute(
+        select(
+            func.coalesce(func.sum(PurchasePayment.amount_aed).filter(PurchasePayment.status == "confirmed"), 0),
+            func.coalesce(func.sum(PurchasePayment.amount_aed).filter(PurchasePayment.status == "unconfirmed"), 0),
+        ).where(PurchasePayment.paid_on >= month_start, PurchasePayment.paid_on <= today)
+    )).one()
+
+    # Next 30 days, one row per date + vendor ("1 Dec · Etisalat ×4").
     horizon = today + timedelta(days=30)
-    upcoming = sorted(
-        (s for s in subs if s.next_renewal and today <= s.next_renewal <= horizon),
-        key=lambda s: s.next_renewal,
-    )
-    lapsed = [s for s in subs if ps.is_lapsed(s, today)]
+    groups: dict[tuple, dict] = {}
+    for s in sorted((s for s in subs if s.next_renewal and today <= s.next_renewal <= horizon),
+                    key=lambda s: (s.next_renewal, s.vendor)):
+        g = groups.setdefault((s.next_renewal, s.vendor_id or s.vendor), {
+            "date": s.next_renewal.isoformat(), "days": (s.next_renewal - today).days,
+            "vendor": s.vendor, "vendor_id": s.vendor_id, "category": s.category,
+            "sub_ids": [], "products": [], "aed": 0.0, "unknown_fx": False,
+        })
+        g["sub_ids"].append(s.id)
+        if s.product:
+            g["products"].append(s.product)
+        aed = ps.to_aed(s.price or 0, s.currency)
+        if aed is None:
+            g["unknown_fx"] = True
+        else:
+            g["aed"] += aed
+    upcoming = [{**{k: v for k, v in g.items() if k != "aed"}, **_money(g["aed"])} for g in groups.values()]
+    upcoming_aed = sum(g["aed"] for g in groups.values())
 
-    # 12-month spend history from the payment log (confirmed + unconfirmed).
-    start = ps.add_months(today.replace(day=1), -11)
+    # Attention: invoices missing for the current period, prices that went up.
+    pays_by_sub: dict[int, list] = defaultdict(list)
+    for p in (await db.execute(
+        select(PurchasePayment).where(PurchasePayment.subscription_id.in_([s.id for s in subs]),
+                                      PurchasePayment.status == "confirmed")
+    )).unique().scalars().all():
+        pays_by_sub[p.subscription_id].append(p)
+    no_invoice, price_up = [], []
+    for s in subs:
+        if not s.auto_renew or not (s.price or 0):
+            continue
+        invoiced = [p for p in pays_by_sub[s.id] if (p.invoice_file or p.invoice_no) and p.period_end]
+        covered = max((p.period_end for p in invoiced), default=None)
+        if covered is None or covered < today - timedelta(days=7):
+            no_invoice.append({"id": s.id, "vendor": s.vendor, "product": s.product,
+                               "covered_until": covered.isoformat() if covered else None})
+        full = ps.full_cycle_invoices(s, pays_by_sub[s.id])
+        if len(full) >= 2 and full[-1].currency == full[-2].currency and full[-2].amount:
+            change = full[-1].amount / full[-2].amount - 1
+            if change > 0.10:
+                price_up.append({"id": s.id, "vendor": s.vendor, "product": s.product,
+                                 "from": full[-2].amount, "to": full[-1].amount, "currency": full[-1].currency,
+                                 "pct": round(change * 100)})
+    unconfirmed, unconfirmed_aed = (await db.execute(
+        select(func.count(PurchasePayment.id), func.coalesce(func.sum(PurchasePayment.amount_aed), 0))
+        .where(PurchasePayment.status == "unconfirmed")
+    )).one()
+
+    # 12 months of spend from the payment log, split by category.
+    start = ps.add_months(month_start, -11)
     rows = (await db.execute(
-        select(func.date_trunc("month", PurchasePayment.paid_on).label("m"), func.sum(PurchasePayment.amount_aed))
+        select(func.date_trunc("month", PurchasePayment.paid_on).label("m"), PurchasePayment.category,
+               func.sum(PurchasePayment.amount_aed))
         .where(PurchasePayment.paid_on >= start)
-        .group_by("m").order_by("m")
+        .group_by("m", PurchasePayment.category)
     )).all()
-    spent = {r[0].date().replace(day=1): float(r[1] or 0) for r in rows}
-    months = [ps.add_months(start, i) for i in range(12)]
-    unconfirmed = (await db.execute(
-        select(func.count(PurchasePayment.id)).where(PurchasePayment.status == "unconfirmed")
-    )).scalar() or 0
-
-    def rank(d: dict) -> list[dict]:
-        return [{"name": k, "monthly_aed": round(v, 2), "monthly_usd": ps.aed_to_usd(v)}
-                for k, v in sorted(d.items(), key=lambda kv: -kv[1])]
+    spent: dict[date, dict[str, float]] = defaultdict(dict)
+    for m, cat, aed in rows:
+        spent[m.date().replace(day=1)][cat] = float(aed or 0)
+    spend = []
+    for i in range(12):
+        m = ps.add_months(start, i)
+        cats = spent.get(m, {})
+        total = sum(cats.values())
+        spend.append({"month": m.isoformat(), **_money(total), "partial": m == month_start,
+                      "by_category": {k: round(v, 2) for k, v in cats.items()}})
 
     return {
         "active_count": len(subs),
         "monthly_aed": round(run_rate, 2), "monthly_usd": ps.aed_to_usd(run_rate),
         "yearly_aed": round(run_rate * 12, 2), "yearly_usd": ps.aed_to_usd(run_rate * 12),
-        "by_budget": rank(by_budget),
-        "by_category": rank(by_category),
-        "seats_total": seats_total, "seats_used": seats_used, "over_assigned": over_assigned,
+        "month": {"start": month_start.isoformat(), "paid": _money(float(paid)), "pending": _money(float(pending)),
+                  "expected": _money(run_rate)},
+        "upcoming": upcoming,
+        "upcoming_total": _money(upcoming_aed),
+        "attention": {
+            "unconfirmed": unconfirmed, "unconfirmed_total": _money(float(unconfirmed_aed)),
+            "no_invoice": no_invoice, "price_up": price_up,
+            "lapsed": [_sub_out(s, names, today).model_dump(mode="json") for s in subs if ps.is_lapsed(s, today)],
+            "unknown_fx": unknown_fx,
+        },
+        "by_category": by_category,
+        "spend_by_month": spend,
         "unconfirmed_payments": unconfirmed,
-        "unknown_fx": unknown_fx,
-        "upcoming": [_sub_out(s, names, today) for s in upcoming],
-        "lapsed": [_sub_out(s, names, today) for s in lapsed],
-        "spend_by_month": [{"month": m.isoformat(), "aed": round(spent.get(m, 0), 2),
-                            "usd": ps.aed_to_usd(spent.get(m, 0))} for m in months],
     }
+
+
+# ─── Categories & vendors ────────────────────────────────
+
+def _slug(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", name.casefold()).strip("_")[:30]
+
+
+@router.get("/categories", response_model=list[PurchaseCategoryOut])
+async def list_categories(db: AsyncSession = Depends(get_db)):
+    return await ps.categories(db)
+
+
+@router.post("/categories", response_model=PurchaseCategoryOut, status_code=201)
+async def create_category(body: PurchaseCategoryIn, db: AsyncSession = Depends(get_db),
+                          user: User = Depends(require_admin_or_manager)):
+    existing = await ps.categories(db)
+    if any(c.name.casefold() == body.name.strip().casefold() for c in existing):
+        raise HTTPException(status_code=409, detail="A category with this name already exists")
+    key = _slug(body.name) or "category"
+    taken = {c.key for c in existing}
+    base, n = key, 2
+    while key in taken:
+        key = f"{base[:27]}_{n}"
+        n += 1
+    cat = PurchaseCategory(key=key, name=body.name.strip(), name_ru=(body.name_ru or "").strip() or None,
+                           sort=body.sort if body.sort is not None else max((c.sort for c in existing), default=0) + 10,
+                           is_active=body.is_active)
+    db.add(cat)
+    await log_action(db, user, "purchases.category_create", cat.name)
+    await db.commit()
+    return cat
+
+
+@router.patch("/categories/{key}", response_model=PurchaseCategoryOut)
+async def update_category(key: str, body: PurchaseCategoryIn, db: AsyncSession = Depends(get_db),
+                          user: User = Depends(require_admin_or_manager)):
+    cat = await get_or_404(db, PurchaseCategory, key)
+    if not body.is_active and key in (ps.HARDWARE, ps.OTHER):
+        raise HTTPException(status_code=400, detail="This category is used as a fallback and stays active")
+    cat.name, cat.name_ru, cat.is_active = body.name.strip(), (body.name_ru or "").strip() or None, body.is_active
+    if body.sort is not None:
+        cat.sort = body.sort
+    await log_action(db, user, "purchases.category_update", cat.name)
+    await db.commit()
+    return cat
+
+
+async def _vendor_out(db: AsyncSession, vendors: list[Vendor]) -> list[VendorOut]:
+    ids = [v.id for v in vendors]
+    subs = (await db.execute(select(Subscription).where(Subscription.vendor_id.in_(ids)))).unique().scalars().all()
+    pays = (await db.execute(
+        select(PurchasePayment.vendor_id, func.count(PurchasePayment.id), func.max(PurchasePayment.paid_on))
+        .where(PurchasePayment.vendor_id.in_(ids)).group_by(PurchasePayment.vendor_id)
+    )).all()
+    pay_stats = {vid: (n, last) for vid, n, last in pays}
+    out = []
+    for v in vendors:
+        active = [s for s in subs if s.vendor_id == v.id and s.status == "active"]
+        monthly = sum(ps.monthly_aed(s) or 0 for s in active)
+        n, last = pay_stats.get(v.id, (0, None))
+        out.append(VendorOut(
+            id=v.id, name=v.name, aliases=ps.vendor_aliases(v), category=v.category, website=v.website,
+            notes=v.notes, is_active=v.is_active, subscriptions=len(active), payments=n,
+            monthly_aed=round(monthly, 2), monthly_usd=ps.aed_to_usd(monthly), last_paid_on=last,
+        ))
+    return out
+
+
+@router.get("/vendors", response_model=list[VendorOut])
+async def list_vendors(db: AsyncSession = Depends(get_db)):
+    vendors = (await db.execute(select(Vendor).order_by(func.lower(Vendor.name)))).scalars().all()
+    return await _vendor_out(db, list(vendors))
+
+
+async def _vendor_from_body(db: AsyncSession, v: Vendor, body: VendorIn):
+    name = body.name.strip()
+    clash = (await db.execute(
+        select(Vendor.id).where(func.lower(Vendor.name) == name.casefold(), Vendor.id != (v.id or 0))
+    )).first()
+    if clash:
+        raise HTTPException(status_code=409, detail="A vendor with this name already exists")
+    if body.category is not None and not await ps.is_category(db, body.category):
+        raise HTTPException(status_code=422, detail=f"Unknown category '{body.category}'")
+    v.name = name
+    v.aliases = json.dumps(sorted({a.strip() for a in body.aliases if a.strip() and a.strip() != name}),
+                           ensure_ascii=False) or None
+    v.category, v.website, v.notes, v.is_active = body.category, body.website or None, body.notes or None, body.is_active
+
+
+@router.post("/vendors", response_model=VendorOut, status_code=201)
+async def create_vendor(body: VendorIn, db: AsyncSession = Depends(get_db),
+                        user: User = Depends(require_admin_or_manager)):
+    v = Vendor()
+    await _vendor_from_body(db, v, body)
+    db.add(v)
+    await log_action(db, user, "purchases.vendor_create", v.name)
+    await db.commit()
+    return (await _vendor_out(db, [v]))[0]
+
+
+@router.patch("/vendors/{vendor_id}", response_model=VendorOut)
+async def update_vendor(vendor_id: int, body: VendorIn, db: AsyncSession = Depends(get_db),
+                        user: User = Depends(require_admin_or_manager)):
+    v = await get_or_404(db, Vendor, vendor_id)
+    old = v.name
+    await _vendor_from_body(db, v, body)
+    if v.name != old:
+        # The display name lives on every row too — keep them saying the same thing.
+        for model in (Subscription, PurchasePayment):
+            await db.execute(model.__table__.update().where(model.vendor_id == v.id).values(vendor=v.name))
+    await log_action(db, user, "purchases.vendor_update", v.name if v.name == old else f"{old} → {v.name}")
+    await db.commit()
+    return (await _vendor_out(db, [v]))[0]
+
+
+@router.post("/vendors/{vendor_id}/merge", response_model=VendorOut)
+async def merge_vendor(vendor_id: int, body: VendorMergeIn, db: AsyncSession = Depends(get_db),
+                       user: User = Depends(require_admin_or_manager)):
+    """Two rows for one company ('micro speed computers' and 'Micro Speed
+    Computers LLC'): everything moves to `into_id`, the name becomes an alias."""
+    if vendor_id == body.into_id:
+        raise HTTPException(status_code=400, detail="Pick another vendor to merge into")
+    src = await get_or_404(db, Vendor, vendor_id)
+    dst = await get_or_404(db, Vendor, body.into_id)
+    for model in (Subscription, PurchasePayment):
+        await db.execute(model.__table__.update().where(model.vendor_id == src.id)
+                         .values(vendor_id=dst.id, vendor=dst.name))
+    dst.aliases = json.dumps(sorted({*ps.vendor_aliases(dst), src.name, *ps.vendor_aliases(src)} - {dst.name}),
+                             ensure_ascii=False)
+    await db.delete(src)
+    await log_action(db, user, "purchases.vendor_merge", f"{src.name} → {dst.name}")
+    await db.commit()
+    return (await _vendor_out(db, [dst]))[0]
 
 
 # ─── Departments (budgets) & cards ───────────────────────
@@ -268,9 +474,12 @@ async def list_subscriptions(
     q: Optional[str] = None,
     budget_id: Optional[int] = None,
     category: Optional[str] = None,
+    vendor_id: Optional[int] = None,
     db: AsyncSession = Depends(get_db),
 ):
     stmt = select(Subscription)
+    if vendor_id:
+        stmt = stmt.where(Subscription.vendor_id == vendor_id)
     if status and status != "all":
         stmt = stmt.where(Subscription.status == status)
     if budget_id:
@@ -284,7 +493,7 @@ async def list_subscriptions(
             Subscription.account_email.ilike(like), Subscription.reference.ilike(like),
             Subscription.notes.ilike(like), Subscription.seller.ilike(like),
         ))
-    stmt = stmt.order_by(Subscription.next_renewal.asc().nulls_last(), Subscription.vendor)
+    stmt = stmt.order_by(Subscription.next_renewal.asc().nulls_last(), Subscription.vendor, Subscription.reference)
     subs = (await db.execute(stmt)).unique().scalars().all()
     names = await _user_names(db)
     return [_sub_out(s, names) for s in subs]
@@ -293,11 +502,12 @@ async def list_subscriptions(
 @router.post("/subscriptions", response_model=SubscriptionOut, status_code=201)
 async def create_subscription(body: SubscriptionIn, db: AsyncSession = Depends(get_db),
                               user: User = Depends(require_admin_or_manager)):
-    await _check_refs(db, body.budget_id, body.card_id)
+    await _check_refs(db, body.budget_id, body.card_id, body.category)
     data = body.model_dump()
     data["owner_user_ids"] = json.dumps([str(u) for u in body.owner_user_ids])
     sub = Subscription(**data)
     db.add(sub)
+    await ps.resolve_vendors(db)
     await log_action(db, user, "purchases.subscription_create", f"{sub.vendor} {sub.product or ''}".strip())
     await db.commit()
     sub = await _load_sub(db, sub.id)
@@ -322,7 +532,7 @@ async def update_subscription(sub_id: int, body: SubscriptionPatch, db: AsyncSes
                               user: User = Depends(require_admin_or_manager)):
     sub = await _load_sub(db, sub_id)
     data = body.model_dump(exclude_unset=True)
-    await _check_refs(db, data.get("budget_id"), data.get("card_id"))
+    await _check_refs(db, data.get("budget_id"), data.get("card_id"), data.get("category"))
     if "owner_user_ids" in data:
         data["owner_user_ids"] = json.dumps([str(u) for u in (data["owner_user_ids"] or [])])
     if data.get("next_renewal") and data["next_renewal"] != sub.next_renewal:
@@ -331,6 +541,7 @@ async def update_subscription(sub_id: int, body: SubscriptionPatch, db: AsyncSes
         data["cancelled_on"] = date.today()
     for k, v in data.items():
         setattr(sub, k, v)
+    await ps.resolve_vendors(db)
     await log_action(db, user, "purchases.subscription_update",
                      f"{sub.vendor}: {', '.join(sorted(data))}")
     await db.commit()
@@ -460,7 +671,12 @@ async def seat_holders(
 
 # ─── Payments ────────────────────────────────────────────
 
-def _payments_filter(stmt, date_from, date_to, subscription_id, status, q, budget_id, unlinked=False):
+def _payments_filter(stmt, date_from, date_to, subscription_id, status, q, budget_id, unlinked=False,
+                     vendor_id=None, category=None):
+    if vendor_id:
+        stmt = stmt.where(PurchasePayment.vendor_id == vendor_id)
+    if category:
+        stmt = stmt.where(PurchasePayment.category == category)
     if unlinked:
         stmt = stmt.where(PurchasePayment.subscription_id.is_(None))
     if date_from:
@@ -489,11 +705,13 @@ async def list_payments(
     budget_id: Optional[int] = None,
     q: Optional[str] = None,
     unlinked: bool = False,
+    vendor_id: Optional[int] = None,
+    category: Optional[str] = None,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
 ):
-    args = (date_from, date_to, subscription_id, status, q, budget_id, unlinked)
+    args = (date_from, date_to, subscription_id, status, q, budget_id, unlinked, vendor_id, category)
     total, total_aed = (await db.execute(
         _payments_filter(select(func.count(PurchasePayment.id), func.coalesce(func.sum(PurchasePayment.amount_aed), 0)), *args)
     )).one()
@@ -517,7 +735,7 @@ def _apply_payment_defaults(p: PurchasePayment, sub: Optional[Subscription], sen
             p.description = sub.product
     if not p.vendor:
         raise HTTPException(status_code=422, detail="Vendor is required for a payment without a subscription")
-    p.category = p.category or "other"
+    p.category = p.category or ps.OTHER
     p.payment_method = p.payment_method or "card"
     if p.amount_aed is None or ("amount_aed" not in sent and sent & {"amount", "currency"}):
         aed = ps.to_aed(p.amount, p.currency)
@@ -529,11 +747,12 @@ def _apply_payment_defaults(p: PurchasePayment, sub: Optional[Subscription], sen
 @router.post("/payments", response_model=PaymentOut, status_code=201)
 async def create_payment(body: PaymentIn, db: AsyncSession = Depends(get_db),
                          user: User = Depends(require_admin_or_manager)):
-    await _check_refs(db, body.budget_id, body.card_id)
+    await _check_refs(db, body.budget_id, body.card_id, body.category)
     sub = await _load_sub(db, body.subscription_id) if body.subscription_id else None
     p = PurchasePayment(**body.model_dump(), created_by=user.username)
     _apply_payment_defaults(p, sub, body.model_fields_set)
     db.add(p)
+    await ps.resolve_vendors(db)
     await log_action(db, user, "purchases.payment_create", f"{p.vendor} {p.amount} {p.currency} on {p.paid_on}")
     await db.commit()
     return _pay_out(await _load_payment(db, p.id))
@@ -554,6 +773,7 @@ async def link_payments(body: PaymentLinkIn, db: AsyncSession = Depends(get_db),
     merged = 0
     for p in rows:
         merged += await ps.link_payment(db, p, sub)
+    await ps.resolve_vendors(db)
     await log_action(db, user, "purchases.payment_link",
                      f"{len(rows)} payment(s) → {sub.vendor} {sub.product or ''} (#{sub.id}), {merged} expected merged")
     await db.commit()
@@ -565,11 +785,12 @@ async def update_payment(payment_id: int, body: PaymentPatch, db: AsyncSession =
                          user: User = Depends(require_admin_or_manager)):
     p = await _load_payment(db, payment_id)
     data = body.model_dump(exclude_unset=True)
-    await _check_refs(db, data.get("budget_id"), data.get("card_id"))
+    await _check_refs(db, data.get("budget_id"), data.get("card_id"), data.get("category"))
     for k, v in data.items():
         setattr(p, k, v)
     sub = await _load_sub(db, p.subscription_id) if p.subscription_id else None
     _apply_payment_defaults(p, sub, set(data))
+    await ps.resolve_vendors(db)
     await log_action(db, user, "purchases.payment_update", f"#{p.id} {p.vendor}: {', '.join(sorted(data))}")
     await db.commit()
     return _pay_out(await _load_payment(db, payment_id))
@@ -650,7 +871,8 @@ async def report(
         except nbs.NetboxError as exc:
             logger.warning("[purchases] report: NetBox leaver check skipped: %s", exc)
 
-    content = build_report(subs, payments, await _user_names(db), date_from, date_to, leavers)
+    content = build_report(subs, payments, await _user_names(db), date_from, date_to, leavers,
+                           {c.key: c.name for c in await ps.categories(db)})
     filename = f"it-purchases_{date_from}_{date_to}.xlsx"
     return Response(
         content=content,

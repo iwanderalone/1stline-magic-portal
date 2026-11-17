@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { api } from '../../../api';
-import { Badge, Button, Input, Overlay } from '../../../components/UI';
+import { useCallback, useEffect, useState } from 'react';
+import { api, apiBlob } from '../../../api';
+import { Badge, Button, Overlay } from '../../../components/UI';
 import { useLang } from '../../../components/LangContext';
-import { Money, RenewalBadge, SeatsMeter, VendorPrice, fmtDate, useLabels } from './shared';
+import { Money, RenewalBadge, VendorPrice, fmtDate, useLabels } from './shared';
 
 function Field({ label, children }) {
   return (
@@ -13,64 +13,10 @@ function Field({ label, children }) {
   );
 }
 
-// Type a name → NetBox contacts; pick one or fall back to a free-text person
-// (contractors who are not in NetBox).
-function SeatPicker({ onPick, onCancel, netboxEnabled }) {
-  const { t: tr } = useLang();
-  const [q, setQ] = useState('');
-  const [results, setResults] = useState([]);
-  const [login, setLogin] = useState('');
-  const timer = useRef(null);
-
-  useEffect(() => {
-    if (!netboxEnabled || q.trim().length < 2) { setResults([]); return; }
-    clearTimeout(timer.current);
-    timer.current = setTimeout(() => {
-      api(`/tools/inventory/contacts?q=${encodeURIComponent(q.trim())}&page_size=8`)
-        .then(d => setResults(d?.items || [])).catch(() => setResults([]));
-    }, 250);
-    return () => clearTimeout(timer.current);
-  }, [q, netboxEnabled]);
-
-  return (
-    <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: 12, display: 'flex', flexDirection: 'column', gap: 10, background: 'var(--surface-alt)' }}>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-        <Input label={tr('purSeatPerson')} value={q} onChange={e => setQ(e.target.value)} autoFocus
-          placeholder={netboxEnabled ? tr('purSeatSearchHint') : tr('purSeatNameHint')} />
-        <Input label={tr('purSeatLogin')} value={login} onChange={e => setLogin(e.target.value)} placeholder={tr('purSeatLoginHint')} />
-      </div>
-      {results.map(c => (
-        <button key={c.id} type="button" onClick={() => onPick({
-          netbox_contact_id: c.id, person_name: c.name, person_email: c.email || null,
-          person_department: c.description || null, login: login || null,
-        })} style={{
-          display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', textAlign: 'left',
-          padding: '7px 10px', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)',
-          background: 'var(--surface)', cursor: 'pointer', fontFamily: 'inherit', color: 'var(--text)', fontSize: 13,
-        }}>
-          <span><b>{c.name}</b> <span style={{ color: 'var(--text-muted)' }}>{c.email}</span></span>
-          <span style={{ display: 'flex', gap: 6 }}>
-            {c.description && <Badge color="gray">{c.description}</Badge>}
-            {c.offboarded && <Badge color="red">{tr('purLeaver')}</Badge>}
-          </span>
-        </button>
-      ))}
-      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-        <Button type="button" variant="ghost" size="sm" onClick={onCancel}>{tr('cancel')}</Button>
-        <Button type="button" variant="secondary" size="sm" disabled={q.trim().length < 2}
-          onClick={() => onPick({ person_name: q.trim(), login: login || null })}>
-          {tr('purSeatAddManual')}
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-export default function SubscriptionDetail({ subId, reloadKey, netboxEnabled, onClose, onEdit, onChanged, onToast }) {
+export default function SubscriptionDetail({ subId, reloadKey, onClose, onEdit, onChanged, onToast }) {
   const { lang, t: tr } = useLang();
   const L = useLabels();
   const [sub, setSub] = useState(null);
-  const [picking, setPicking] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(() => api(`/purchases/subscriptions/${subId}`).then(setSub)
@@ -92,13 +38,13 @@ export default function SubscriptionDetail({ subId, reloadKey, netboxEnabled, on
     }
   };
 
-  const addSeat = (seat) => act(async () => {
-    await api(`/purchases/subscriptions/${subId}/seats`, { method: 'POST', body: JSON.stringify(seat) });
-    setPicking(false);
-  });
-  const removeSeat = (seat) => {
-    if (!window.confirm(tr('purSeatRemoveConfirm').replace('{name}', seat.person_name))) return;
-    act(() => api(`/purchases/seats/${seat.id}`, { method: 'DELETE' }));
+  const openInvoice = async (p) => {
+    try {
+      const blob = await apiBlob(`/purchases/payments/${p.id}/invoice`, { method: 'GET' });
+      window.open(URL.createObjectURL(blob), '_blank', 'noopener');
+    } catch (err) {
+      onToast({ message: err.message, type: 'error' });
+    }
   };
   const renew = () => {
     if (!window.confirm(tr('purRenewConfirm').replace('{date}', fmtDate(sub.next_renewal, lang)))) return;
@@ -154,40 +100,25 @@ export default function SubscriptionDetail({ subId, reloadKey, netboxEnabled, on
         </div>
         {sub.notes && <div style={{ fontSize: 13, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>{sub.notes}</div>}
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span className="t-h3">{tr('purSeats')}</span>
-            <SeatsMeter used={sub.seats_used} total={sub.seats_total} />
-            <span style={{ flex: 1 }} />
-            {!picking && <Button size="sm" variant="secondary" icon="plus" onClick={() => setPicking(true)}>{tr('purSeatAdd')}</Button>}
-          </div>
-          {picking && <SeatPicker netboxEnabled={netboxEnabled} onPick={addSeat} onCancel={() => setPicking(false)} />}
-          {sub.seats.length === 0 && !picking && (
-            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{tr('purSeatsEmpty')}</div>
-          )}
-          {sub.seats.map(s => (
-            <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, padding: '6px 0', borderTop: '1px solid var(--border-light)' }}>
-              <span style={{ fontWeight: 600 }}>{s.person_name}</span>
-              {s.person_department && <Badge color="gray">{s.person_department}</Badge>}
-              {!s.netbox_contact_id && <Badge color="yellow">{tr('purNotInNetbox')}</Badge>}
-              <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{s.login || s.person_email}</span>
-              <span style={{ flex: 1 }} />
-              <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{fmtDate(s.assigned_on, lang)}</span>
-              <Button size="sm" variant="ghost" icon="x" onClick={() => removeSeat(s)} title={tr('purSeatRemove')} />
-            </div>
-          ))}
-        </div>
-
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <span className="t-h3">{tr('purPaymentHistory')}</span>
           {sub.payments.length === 0 && <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{tr('purNoPayments')}</div>}
           {sub.payments.map(p => (
-            <div key={p.id} style={{ display: 'flex', gap: 12, fontSize: 13, alignItems: 'center', padding: '5px 0', borderTop: '1px solid var(--border-light)' }}>
-              <span style={{ width: 110 }}>{fmtDate(p.paid_on, lang)}</span>
+            <div key={p.id} style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr 1fr auto', gap: 12, fontSize: 13, alignItems: 'center', padding: '6px 0', borderTop: '1px solid var(--border-light)' }}>
+              <span style={{ minWidth: 0 }}>
+                <div>{p.period_start ? `${fmtDate(p.period_start, lang)} – ${fmtDate(p.period_end, lang)}` : fmtDate(p.paid_on, lang)}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {p.invoice_no ? `#${p.invoice_no}` : tr('purNoInvoiceNo')}
+                </div>
+              </span>
+              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                {p.currency !== 'AED' && <VendorPrice amount={p.amount} currency={p.currency} />}
+              </span>
               <Money aed={p.amount_aed} usd={p.amount_usd} />
-              {p.currency !== 'AED' && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}><VendorPrice amount={p.amount} currency={p.currency} /></span>}
-              <span style={{ flex: 1 }} />
-              {p.status === 'unconfirmed' && <Badge color="yellow">{tr('purUnconfirmed')}</Badge>}
+              <span style={{ display: 'flex', gap: 4, alignItems: 'center', justifyContent: 'flex-end', minWidth: 32 }}>
+                {p.status === 'unconfirmed' && <Badge color="yellow">{tr('purUnconfirmed')}</Badge>}
+                {p.has_invoice && <Button size="sm" variant="ghost" icon="paperclip" onClick={() => openInvoice(p)} title={tr('purInvoiceFile')} />}
+              </span>
             </div>
           ))}
         </div>

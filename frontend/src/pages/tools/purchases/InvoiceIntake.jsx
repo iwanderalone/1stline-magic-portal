@@ -3,7 +3,9 @@ import { api } from '../../../api';
 import { Badge, Button, Overlay } from '../../../components/UI';
 import { Icon } from '../../../components/Icons';
 import { useLang } from '../../../components/LangContext';
-import { fmtDate, periodCheck, planSplits, splitInvoiceFile, subLabel, todayISO, useLabels } from './shared';
+import {
+  CategoryOptions, fmtDate, periodCheck, planSplits, splitInvoiceFile, subLabel, todayISO, useLabels,
+} from './shared';
 
 // "Add by invoice": one invoice in → a payment in Finances, and NetBox devices
 // for the lines marked as equipment (asset tags come from NetBox's own
@@ -241,7 +243,7 @@ export default function InvoiceIntake({ lookups, navigate, onCancel, onDone, onT
         amount: r.total != null ? String(r.total) : p.amount,
         currency: r.currency && lookups.meta.currencies.includes(r.currency) ? r.currency : p.currency,
         paid_on: r.invoice_date || p.paid_on,
-        category: r.items?.some(i => i.is_device) ? '' : 'software',
+        category: r.items?.some(i => i.is_device) ? '' : 'saas',
       }));
       if (r.items?.length) {
         let prev = null;
@@ -490,7 +492,7 @@ export default function InvoiceIntake({ lookups, navigate, onCancel, onDone, onT
             </Sel>
             <Sel label={tr('purCategory')} value={pay.category} onChange={setP('category')}>
               <option value="">{netboxLines.length ? L.category('hardware') : L.category('other')} ({tr('inAuto')})</option>
-              {lookups.meta.categories.map(c => <option key={c} value={c}>{L.category(c)}</option>)}
+              <CategoryOptions current={pay.category} />
             </Sel>
             <Sel label={tr('purMethod')} value={pay.payment_method} onChange={setP('payment_method')}>
               {lookups.meta.payment_methods.map(m => <option key={m} value={m}>{L.method(m)}</option>)}

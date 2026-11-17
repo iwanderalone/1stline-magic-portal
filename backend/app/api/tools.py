@@ -757,13 +757,15 @@ async def parse_invoice(file: UploadFile = File(...), db: AsyncSession = Depends
         raise HTTPException(status_code=exc.status_code, detail=str(exc))
     # Money side: which subscriptions the lines pay, and whether this invoice
     # number is in the log already. Suggestions — the form shows and edits them.
-    from app.models.models import Subscription
+    from app.models.models import Subscription, Vendor
     subs = (await db.execute(select(Subscription).where(Subscription.status == "active"))).unique().scalars().all()
+    aliases = {v.id: ps.vendor_names(v) for v in (await db.execute(select(Vendor))).scalars().all()}
     supplier = parsed.supplier_raw or parsed.supplier
     for item in parsed.items:
         ids = ps.match_subscriptions(
             subs, supplier, " ".join(filter(None, [item.description, item.model])),
             reference=item.reference, period_start=item.period_start, quantity=item.quantity,
+            aliases=aliases,
         )
         if item.is_device:
             # A hosting invoice lists rented hardware ("Dell PowerEdge", "NVMe
@@ -805,6 +807,8 @@ async def run_intake(
             await get_or_404(db, Department, pay.budget_id)
         if pay.card_id is not None:
             await get_or_404(db, PaymentCard, pay.card_id)
+        if pay.category is not None and not await ps.is_category(db, pay.category):
+            raise HTTPException(status_code=422, detail=f"Unknown category '{pay.category}'")
         if pay.amount_aed is None and ps.to_aed(pay.amount, pay.currency) is None:
             raise HTTPException(status_code=422, detail=f"No exchange rate for {pay.currency} — enter the AED amount")
         logged = await ps.invoice_already_logged(db, req.supplier, req.invoice_no)
@@ -865,7 +869,7 @@ async def run_intake(
                 paid_on=pay.paid_on,
                 vendor=supplier,
                 description=(pay.description or "; ".join(sorted({d.label for d in devices})))[:500] or None,
-                category=pay.category or ("hardware" if devices else "other"),
+                category=pay.category or (ps.HARDWARE if devices else ps.OTHER),
                 budget_id=pay.budget_id,
                 payment_method=method,
                 card_id=pay.card_id if method == "card" else None,
@@ -881,6 +885,7 @@ async def run_intake(
             db.add(p)
             booked.append(p)
 
+        await ps.resolve_vendors(db)
         await db.flush()
         _INVOICE_DIR.mkdir(parents=True, exist_ok=True)
         for p in booked:

@@ -2,7 +2,7 @@
 import json as _json
 from pydantic import BaseModel, ConfigDict, Field, model_validator, field_validator
 from datetime import date, time, datetime
-from typing import Optional, Any, Literal
+from typing import Annotated, Optional, Any, Literal
 from uuid import UUID
 from app.models.models import (
     UserRole, ShiftType, WorkLocation, TimeOffStatus,
@@ -1082,7 +1082,8 @@ class SettingsUpdate(BaseModel):
 
 # ─── Subscriptions & Purchases ───────────────────────────
 
-_Category = Literal["software", "cloud", "isp", "telecom", "security", "hardware", "services", "other"]
+# A purchase_categories.key — the API checks it exists (the list is editable).
+_Category = Annotated[str, Field(min_length=1, max_length=30)]
 _PayMethod = Literal["card", "bank_transfer", "paypal", "other"]
 
 
@@ -1156,10 +1157,53 @@ class SeatOut(BaseOrmModel):
     notes: Optional[str] = None
 
 
+class PurchaseCategoryIn(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    name_ru: Optional[str] = Field(default=None, max_length=100)
+    sort: Optional[int] = None
+    is_active: bool = True
+
+
+class PurchaseCategoryOut(BaseOrmModel):
+    key: str
+    name: str
+    name_ru: Optional[str] = None
+    sort: int
+    is_active: bool
+
+
+class VendorIn(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    aliases: list[Annotated[str, Field(min_length=1, max_length=200)]] = Field(default_factory=list, max_length=30)
+    category: Optional[_Category] = None
+    website: Optional[str] = Field(default=None, max_length=1000)
+    notes: Optional[str] = None
+    is_active: bool = True
+
+
+class VendorOut(BaseModel):
+    id: int
+    name: str
+    aliases: list[str] = []
+    category: Optional[str] = None
+    website: Optional[str] = None
+    notes: Optional[str] = None
+    is_active: bool
+    subscriptions: int = 0              # active ones
+    payments: int = 0
+    monthly_aed: float = 0              # run-rate of its active subscriptions
+    monthly_usd: Optional[float] = None
+    last_paid_on: Optional[date] = None
+
+
+class VendorMergeIn(BaseModel):
+    into_id: int
+
+
 class SubscriptionIn(BaseModel):
     vendor: str = Field(min_length=1, max_length=200)
     product: Optional[str] = Field(default=None, max_length=300)
-    category: _Category = "software"
+    category: _Category = "saas"
     seller: Optional[str] = Field(default=None, max_length=200)
     owner_user_ids: list[UUID] = []
     budget_id: Optional[int] = None
@@ -1206,6 +1250,7 @@ class OwnerRef(BaseModel):
 class SubscriptionOut(BaseModel):
     id: int
     vendor: str
+    vendor_id: Optional[int] = None
     product: Optional[str] = None
     category: str
     seller: Optional[str] = None
@@ -1272,6 +1317,7 @@ class PaymentOut(BaseOrmModel):
     subscription_id: Optional[int] = None
     paid_on: date
     vendor: str
+    vendor_id: Optional[int] = None
     description: Optional[str] = None
     category: str
     budget: Optional[DepartmentOut] = None

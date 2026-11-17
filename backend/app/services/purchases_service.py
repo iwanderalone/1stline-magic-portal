@@ -34,14 +34,16 @@ from app.core.config import get_settings
 from app.core.database import AsyncSessionFactory
 from app.core.dynamic_settings import eff
 from app.models.models import (
-    Notification, PurchasePayment, Subscription, User, UserRole, utcnow,
+    Notification, PurchaseCategory, PurchasePayment, Subscription, User, UserRole, Vendor, utcnow,
 )
 
 logger = logging.getLogger(__name__)
 
 AED_PER_USD = 3.6725
 
-CATEGORIES = ["software", "cloud", "isp", "telecom", "security", "hardware", "services", "other"]
+# Categories live in `purchase_categories` (editable); these two keys are
+# what code falls back to and must never be deleted.
+HARDWARE, OTHER = "hardware", "other"
 PAYMENT_METHODS = ["card", "bank_transfer", "paypal", "other"]
 CURRENCIES = ["AED", "USD", "EUR", "GBP", "RUB"]
 
@@ -126,12 +128,9 @@ def owner_ids(sub: Subscription) -> list[str]:
     return out
 
 
-def charge_from_invoices(sub: Subscription, payments) -> tuple[float, str]:
-    """What the next period will most likely cost: the latest invoiced payment
-    that covers a whole cycle (not a proration, credit or one-time top-up),
-    in the currency the vendor bills in. Without one — the subscription's own
-    price. Usage-billed vendors (Zoom, Hetzner, LucidLink) drift every month,
-    so a typed-in price goes stale; the last invoice rarely does."""
+def full_cycle_invoices(sub: Subscription, payments) -> list:
+    """Invoiced payments that cover a whole cycle of the subscription — not a
+    proration, credit-reduced charge or one-time top-up — oldest first."""
     cycle = sub.cycle_months or 1
     full = [
         p for p in payments
@@ -142,10 +141,18 @@ def charge_from_invoices(sub: Subscription, payments) -> tuple[float, str]:
         and "credit" not in (p.description or "").casefold()
         and p.period_end >= cycle_end(p.period_start, cycle) - timedelta(days=3)
     ]
+    return sorted(full, key=lambda p: (p.period_start, p.paid_on))
+
+
+def charge_from_invoices(sub: Subscription, payments) -> tuple[float, str]:
+    """What the next period will most likely cost: the latest full-cycle
+    invoice, in the currency the vendor bills in. Without one — the
+    subscription's own price. Usage-billed vendors (Zoom, Hetzner, LucidLink)
+    drift every month, so a typed-in price goes stale; the last invoice rarely does."""
+    full = full_cycle_invoices(sub, payments)
     if not full:
         return sub.price or 0, sub.currency
-    last = max(full, key=lambda p: (p.period_start, p.paid_on))
-    return last.amount, last.currency
+    return full[-1].amount, full[-1].currency
 
 
 async def last_invoiced_charge(db, sub: Subscription) -> tuple[float, str]:
@@ -167,6 +174,7 @@ def payment_from_subscription(sub: Subscription, period_start: date, *,
         subscription_id=sub.id,
         paid_on=period_start,
         vendor=sub.vendor,
+        vendor_id=sub.vendor_id,
         description=sub.product,
         category=sub.category,
         budget_id=sub.budget_id,
@@ -182,6 +190,89 @@ def payment_from_subscription(sub: Subscription, period_start: date, *,
         status=status,
         created_by=created_by,
     )
+
+
+# ─── Categories & vendors ────────────────────────────────
+
+async def categories(db) -> list[PurchaseCategory]:
+    return (await db.execute(
+        select(PurchaseCategory).order_by(PurchaseCategory.sort, PurchaseCategory.name)
+    )).scalars().all()
+
+
+async def is_category(db, key: Optional[str]) -> bool:
+    return bool(key) and (await db.get(PurchaseCategory, key)) is not None
+
+
+def vendor_aliases(v: Vendor) -> list[str]:
+    try:
+        return [a for a in json.loads(v.aliases or "[]") if isinstance(a, str) and a.strip()]
+    except (TypeError, ValueError):
+        return []
+
+
+def vendor_names(v: Vendor) -> list[str]:
+    return [v.name, *vendor_aliases(v)]
+
+
+def find_vendor(vendors, name: Optional[str]) -> Optional[Vendor]:
+    """The vendor a typed or printed name means: exact name/alias first, then
+    the same name without legal forms, then 'Proxmox' ~ 'Proxmox Server
+    Solutions GmbH' — the last only when exactly one vendor fits."""
+    text = (name or "").strip().casefold()
+    if not text:
+        return None
+    for v in vendors:
+        if text in (n.strip().casefold() for n in vendor_names(v)):
+            return v
+    key = vendor_key(name)
+    for v in vendors:
+        if key and any(vendor_key(n) == key for n in vendor_names(v)):
+            return v
+    loose = [v for v in vendors if any(same_vendor(name, n) for n in vendor_names(v))]
+    return loose[0] if len(loose) == 1 else None
+
+
+def _add_alias(v: Vendor, name: Optional[str]) -> None:
+    name = (name or "").strip()[:200]
+    if not name or any(vendor_key(n) == vendor_key(name) for n in vendor_names(v)):
+        return
+    v.aliases = json.dumps([*vendor_aliases(v), name], ensure_ascii=False)
+
+
+async def resolve_vendors(db) -> None:
+    """Point every new or changed subscription/payment in the session at its
+    vendor row, creating the vendor on first sight, and keep the display name
+    in sync. Call before commit wherever those rows are written."""
+    objs = [o for o in (*db.new, *db.dirty) if isinstance(o, (Subscription, PurchasePayment))]
+    if not objs:
+        return
+    vendors = list((await db.execute(select(Vendor))).scalars().all())
+    by_id = {v.id: v for v in vendors}
+    # Subscriptions first: a payment on one takes the subscription's vendor.
+    for o in sorted(objs, key=lambda o: not isinstance(o, Subscription)):
+        v = None
+        if isinstance(o, PurchasePayment) and o.subscription_id:
+            sub = await db.get(Subscription, o.subscription_id)
+            v = by_id.get(sub.vendor_id) if sub else None
+        if v is None:
+            cur = by_id.get(o.vendor_id)
+            typed = (o.vendor or "").strip().casefold()
+            if cur and typed in (n.strip().casefold() for n in vendor_names(cur)):
+                v = cur
+        if v is None:
+            v = find_vendor(vendors, o.vendor)
+        if v is None:
+            if not (o.vendor or "").strip():
+                continue
+            v = Vendor(name=o.vendor.strip()[:200], category=o.category)
+            db.add(v)
+            await db.flush([v])
+            vendors.append(v)
+            by_id[v.id] = v
+        o.vendor_id, o.vendor = v.id, v.name
+        if isinstance(o, Subscription):
+            _add_alias(v, o.seller)
 
 
 # ─── Invoices ↔ subscriptions ────────────────────────────
@@ -229,7 +320,7 @@ def _compact(text: Optional[str]) -> str:
 
 def match_subscriptions(subs, supplier: Optional[str], text: Optional[str], *,
                         reference: Optional[str] = None, period_start: Optional[date] = None,
-                        quantity: int = 1) -> list[int]:
+                        quantity: int = 1, aliases: Optional[dict] = None) -> list[int]:
     """Which subscription(s) an invoice line pays for. Conservative — an empty
     answer makes a human pick, a wrong one books money on the wrong thing.
 
@@ -245,7 +336,9 @@ def match_subscriptions(subs, supplier: Optional[str], text: Optional[str], *,
     if by_ref:
         return by_ref
 
-    cands = [s for s in subs if same_vendor(supplier, s.vendor) or same_vendor(supplier, s.seller)]
+    aliases = aliases or {}
+    cands = [s for s in subs if same_vendor(supplier, s.vendor) or same_vendor(supplier, s.seller)
+             or any(same_vendor(supplier, a) for a in aliases.get(getattr(s, "vendor_id", None), ()))]
     if len(cands) <= 1:
         return [s.id for s in cands]
 
@@ -403,7 +496,7 @@ async def settle_invoice(db, sub: Subscription, *, paid_on: date, amount: float,
 
     p = expected or PurchasePayment(subscription_id=sub.id, created_by=created_by)
     p.paid_on = paid_on
-    p.vendor = sub.vendor
+    p.vendor, p.vendor_id = sub.vendor, sub.vendor_id
     p.description = (description or sub.product or None)
     p.category = category or sub.category
     p.budget_id = budget_id if budget_id is not None else sub.budget_id

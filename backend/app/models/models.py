@@ -729,14 +729,43 @@ class PaymentCard(Base):
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 
+class PurchaseCategory(Base):
+    """What a payment is for (internet, work software, hardware…). Editable in
+    Finances → Settings; `key` is what subscriptions and payments store."""
+    __tablename__ = "purchase_categories"
+
+    key       = Column(String(30), primary_key=True)
+    name      = Column(String(100), nullable=False)
+    name_ru   = Column(String(100), nullable=True)
+    sort      = Column(Integer, nullable=False, default=0)
+    is_active = Column(Boolean, default=True, nullable=False)
+
+
+class Vendor(Base):
+    """Who we pay: one Etisalat with five lines, one Proxmox with thirteen keys.
+    `aliases` (JSON list) = other spellings and the legal names printed on
+    invoices ("RealtimeBoard Inc. dba Miro") — invoice matching reads them."""
+    __tablename__ = "purchase_vendors"
+
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    name       = Column(String(200), nullable=False, unique=True)
+    aliases    = Column(Text, nullable=True)
+    category   = Column(String(30), nullable=True)      # default for its new subscriptions/payments
+    website    = Column(String(1000), nullable=True)
+    notes      = Column(Text, nullable=True)
+    is_active  = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
 class Subscription(Base):
     """One recurring thing we pay for (a license, a plan, a phone line)."""
     __tablename__ = "subscriptions"
 
     id                 = Column(Integer, primary_key=True, autoincrement=True)
-    vendor             = Column(String(200), nullable=False)
+    vendor             = Column(String(200), nullable=False)   # display name, kept in sync with vendor_id
+    vendor_id          = Column(Integer, ForeignKey("purchase_vendors.id", ondelete="SET NULL"), nullable=True, index=True)
     product            = Column(String(300), nullable=True)
-    category           = Column(String(30), nullable=False, default="software")  # see purchases_service.CATEGORIES
+    category           = Column(String(30), nullable=False, default="saas")  # purchase_categories.key
     seller             = Column(String(200), nullable=True)   # legal entity on the invoice (reseller)
     owner_user_ids     = Column(Text, nullable=True)          # JSON list of portal user UUIDs — who administers it
     budget_id          = Column(Integer, ForeignKey("purchase_departments.id", ondelete="SET NULL"), nullable=True)
@@ -798,8 +827,9 @@ class PurchasePayment(Base):
     subscription_id = Column(Integer, ForeignKey("subscriptions.id", ondelete="SET NULL"), nullable=True, index=True)
     paid_on         = Column(Date, nullable=False, index=True)
     vendor          = Column(String(200), nullable=False)
+    vendor_id       = Column(Integer, ForeignKey("purchase_vendors.id", ondelete="SET NULL"), nullable=True, index=True)
     description     = Column(String(500), nullable=True)
-    category        = Column(String(30), nullable=False, default="software")
+    category        = Column(String(30), nullable=False, default="other")   # purchase_categories.key
     budget_id       = Column(Integer, ForeignKey("purchase_departments.id", ondelete="SET NULL"), nullable=True)
     payment_method  = Column(String(20), nullable=False, default="card")
     card_id         = Column(Integer, ForeignKey("payment_cards.id", ondelete="SET NULL"), nullable=True)

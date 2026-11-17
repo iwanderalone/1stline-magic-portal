@@ -2,14 +2,20 @@ import { useState } from 'react';
 import { api } from '../../../api';
 import { Badge, Button, Card, Input } from '../../../components/UI';
 import { useLang } from '../../../components/LangContext';
+import { categoryColor } from './shared';
 
-// Budgets (departments) and payment cards. Neither is ever deleted — history
-// points at them — they are switched off instead.
+// Fallbacks the server relies on — they can be renamed, never archived.
+const FIXED = ['hardware', 'other'];
+
+// Categories, budgets (departments) and payment cards. None is ever deleted —
+// history points at them — they are switched off instead.
 export default function SettingsTab({ lookups, onChanged, onToast }) {
   const { t: tr } = useLang();
   const [dept, setDept] = useState('');
   const [card, setCard] = useState({ label: '', last4: '', holder: '' });
   const [editingCard, setEditingCard] = useState(null);
+  const [cat, setCat] = useState({ name: '', name_ru: '' });
+  const [editingCat, setEditingCat] = useState(null);
 
   const run = async (fn, ok) => {
     try {
@@ -51,10 +57,49 @@ export default function SettingsTab({ lookups, onChanged, onToast }) {
     method: 'PATCH', body: JSON.stringify({ label: c.label, last4: c.last4, holder: c.holder, notes: c.notes, is_active: !c.is_active }),
   }));
 
+  const saveCat = (e) => {
+    e.preventDefault();
+    const payload = { name: cat.name.trim(), name_ru: cat.name_ru.trim() || null,
+      is_active: editingCat ? editingCat.is_active : true };
+    const req = editingCat
+      ? api(`/purchases/categories/${editingCat.key}`, { method: 'PATCH', body: JSON.stringify(payload) })
+      : api('/purchases/categories', { method: 'POST', body: JSON.stringify(payload) });
+    run(() => req, tr('purSaved')).then(ok => { if (ok) { setCat({ name: '', name_ru: '' }); setEditingCat(null); } });
+  };
+  const toggleCat = (c) => run(() => api(`/purchases/categories/${c.key}`, {
+    method: 'PATCH', body: JSON.stringify({ name: c.name, name_ru: c.name_ru, is_active: !c.is_active }),
+  }));
+
   const row = { display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderTop: '1px solid var(--border-light)', fontSize: 13 };
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', alignItems: 'start', gap: 16 }}>
+      <Card header={tr('purCategories')} padding="12px 18px">
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>{tr('purCategoriesHint')}</div>
+        {lookups.meta.categories.map(c => (
+          <div key={c.key} style={{ ...row, opacity: c.is_active ? 1 : 0.55 }}>
+            <span aria-hidden style={{ width: 10, height: 10, borderRadius: 3, background: categoryColor(c.key), flexShrink: 0 }} />
+            <span style={{ flex: 1 }}>
+              {c.name}{c.name_ru && <span style={{ color: 'var(--text-muted)', fontSize: 12 }}> · {c.name_ru}</span>}
+            </span>
+            {!c.is_active && <Badge color="gray">{tr('purArchived')}</Badge>}
+            <Button size="sm" variant="ghost" icon="edit" title={tr('edit')}
+              onClick={() => { setEditingCat(c); setCat({ name: c.name, name_ru: c.name_ru || '' }); }} />
+            {!FIXED.includes(c.key) && (
+              <Button size="sm" variant="ghost" onClick={() => toggleCat(c)}>{c.is_active ? tr('purArchive') : tr('purRestore')}</Button>
+            )}
+          </div>
+        ))}
+        <form onSubmit={saveCat} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 12 }}>
+          <Input label={tr('purCategoryName')} value={cat.name} onChange={e => setCat(c => ({ ...c, name: e.target.value }))} required placeholder="Internet" />
+          <Input label={tr('purCategoryNameRu')} value={cat.name_ru} onChange={e => setCat(c => ({ ...c, name_ru: e.target.value }))} placeholder="Интернет" />
+          <div style={{ gridColumn: '1 / -1', display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            {editingCat && <Button type="button" variant="ghost" onClick={() => { setEditingCat(null); setCat({ name: '', name_ru: '' }); }}>{tr('cancel')}</Button>}
+            <Button type="submit" variant="secondary" icon={editingCat ? 'check' : 'plus'}>{editingCat ? tr('save') : tr('purAdd')}</Button>
+          </div>
+        </form>
+      </Card>
+
       <Card header={tr('purBudgets')} padding="12px 18px">
         <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>{tr('purBudgetsHint')}</div>
         {lookups.departments.map(d => (

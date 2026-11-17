@@ -44,7 +44,7 @@ def test_add_months_clamps_to_month_end(start, months, expected):
 
 
 def _sub(**kw):
-    base = dict(id=1, vendor="Adobe", product="CC", category="software", seller=None, owner_user_ids=None,
+    base = dict(id=1, vendor="Adobe", vendor_id=None, product="CC", category="software", seller=None, owner_user_ids=None,
                 budget=None, budget_id=None, account_email=None, payment_method="card", card=None, card_id=None,
                 cycle_months=1, price=100.0, currency="AED", seats_total=None, seats=[], next_renewal=None,
                 auto_renew=True, status="active", notify_days_before=None, reference=None, notes=None)
@@ -395,3 +395,26 @@ async def test_invoice_billed_in_arrears_settles_the_cycle_it_is_charged_in(fx):
     assert not merged and p2.period_start == date(2026, 11, 27) and sub.next_renewal == date(2026, 12, 27)
     # A normal prepaid invoice is not touched.
     assert ps.billed_in_arrears(sub, date(2026, 12, 27), date(2027, 1, 26)) is None
+
+
+def _vendor(vid, name, aliases=None):
+    import json as _j
+    return SimpleNamespace(id=vid, name=name, aliases=_j.dumps(aliases) if aliases else None)
+
+
+def test_vendor_is_found_by_name_alias_or_legal_form_but_not_by_a_guess():
+    miro = _vendor(1, "Miro", ["RealtimeBoard Inc. dba Miro"])
+    etisalat = _vendor(2, "Etisalat")
+    proxmox = _vendor(3, "Proxmox")
+    vendors = [miro, etisalat, proxmox]
+    assert ps.find_vendor(vendors, "realtimeboard inc. dba miro") is miro
+    assert ps.find_vendor(vendors, "ETISALAT") is etisalat
+    assert ps.find_vendor(vendors, "Proxmox Server Solutions GmbH") is proxmox
+    assert ps.find_vendor(vendors, "du") is None
+    assert ps.find_vendor(vendors, "") is None
+
+
+def test_invoice_supplier_matches_a_subscription_through_its_vendor_aliases():
+    sub = _sub(id=7, vendor="Kaspersky", vendor_id=5, product="Next EDR Foundations")
+    assert ps.match_subscriptions([sub], "Nexway SASU", "EDR Foundations") == []
+    assert ps.match_subscriptions([sub], "Nexway SASU", "EDR Foundations", aliases={5: ["Kaspersky", "Nexway SASU"]}) == [7]

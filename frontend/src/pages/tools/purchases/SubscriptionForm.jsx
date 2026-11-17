@@ -2,7 +2,9 @@ import { useState } from 'react';
 import { api } from '../../../api';
 import { Button, Input, Overlay, Select } from '../../../components/UI';
 import { useLang } from '../../../components/LangContext';
-import { grid2, textarea, useLabels } from './shared';
+import {
+  CategoryOptions, grid2, textarea, useLabels,
+} from './shared';
 
 const CYCLES = [1, 3, 6, 12, 24, 36];
 
@@ -13,7 +15,7 @@ export default function SubscriptionForm({ sub, lookups, onClose, onSaved }) {
   const [form, setForm] = useState({
     vendor: sub?.vendor || '',
     product: sub?.product || '',
-    category: sub?.category || 'software',
+    category: sub?.category || 'saas',
     seller: sub?.seller || '',
     owner_user_ids: sub?.owners?.map(o => o.id) || [],
     budget_id: sub?.budget?.id ?? (lookups.departments.find(d => d.name === 'IT')?.id || ''),
@@ -35,6 +37,13 @@ export default function SubscriptionForm({ sub, lookups, onClose, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value }));
+  // A known vendor brings its usual category along — only on a new subscription,
+  // an existing one keeps what it was given.
+  const pickVendor = (e) => {
+    const vendor = e.target.value;
+    const known = lookups.vendors.find(v => v.name.toLowerCase() === vendor.trim().toLowerCase());
+    setForm(f => ({ ...f, vendor, ...(!isEdit && known?.category ? { category: known.category } : {}) }));
+  };
   const toggleOwner = (id) => setForm(f => ({
     ...f, owner_user_ids: f.owner_user_ids.includes(id) ? f.owner_user_ids.filter(x => x !== id) : [...f.owner_user_ids, id],
   }));
@@ -73,17 +82,23 @@ export default function SubscriptionForm({ sub, lookups, onClose, onSaved }) {
     }
   };
 
-  const activeCards = lookups.cards.filter(c => c.is_active || c.id === form.card_id);
-  const activeDepts = lookups.departments.filter(d => d.is_active || d.id === form.budget_id);
+  // Select values come back as strings — compare as such, or an archived
+  // card/budget vanishes from the list the moment it is re-picked.
+  const activeCards = lookups.cards.filter(c => c.is_active || String(c.id) === String(form.card_id));
+  const activeDepts = lookups.departments.filter(d => d.is_active || String(d.id) === String(form.budget_id));
 
   return (
     <Overlay title={isEdit ? tr('purEditSub') : tr('purNewSub')} onClose={onClose} maxWidth={760}>
       <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <div style={grid2}>
-          <Input label={tr('purVendor')} value={form.vendor} onChange={set('vendor')} required placeholder="Adobe" />
+          <Input label={tr('purVendor')} value={form.vendor} onChange={pickVendor} required placeholder="Adobe"
+            list="pur-vendors" autoComplete="off" />
+          <datalist id="pur-vendors">
+            {lookups.vendors.filter(v => v.is_active).map(v => <option key={v.id} value={v.name} />)}
+          </datalist>
           <Input label={tr('purProduct')} value={form.product} onChange={set('product')} placeholder="Creative Cloud — 12 seats" />
           <Select label={tr('purCategory')} value={form.category} onChange={set('category')}>
-            {lookups.meta.categories.map(c => <option key={c} value={c}>{L.category(c)}</option>)}
+            <CategoryOptions current={form.category} />
           </Select>
           <Input label={tr('purSeller')} value={form.seller} onChange={set('seller')} placeholder={tr('purSellerHint')} />
         </div>
@@ -135,7 +150,6 @@ export default function SubscriptionForm({ sub, lookups, onClose, onSaved }) {
               {activeCards.map(c => <option key={c.id} value={c.id}>{L.card(c)}</option>)}
             </Select>
           )}
-          <Input label={tr('purSeatsTotal')} type="number" min="0" value={form.seats_total} onChange={set('seats_total')} placeholder={tr('purSeatsTotalHint')} />
           <Input label={tr('purNotifyDays')} type="number" min="0" value={form.notify_days_before} onChange={set('notify_days_before')} placeholder={tr('purNotifyDaysHint')} />
         </div>
         <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', fontSize: 13 }}>

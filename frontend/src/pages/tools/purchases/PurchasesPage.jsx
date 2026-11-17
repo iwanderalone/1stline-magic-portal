@@ -2,17 +2,17 @@ import { useCallback, useEffect, useState } from 'react';
 import { api, apiBlob } from '../../../api';
 import { Button, Input, Overlay, PageHeader, Tabs, Toast } from '../../../components/UI';
 import { useLang } from '../../../components/LangContext';
-import { CurrencyContext, todayISO } from './shared';
+import { CategoryContext, CurrencyContext, todayISO } from './shared';
 import OverviewTab from './OverviewTab';
 import SubscriptionsTab from './SubscriptionsTab';
 import SubscriptionDetail from './SubscriptionDetail';
 import SubscriptionForm from './SubscriptionForm';
 import PaymentsTab from './PaymentsTab';
-import PeopleTab from './PeopleTab';
+import VendorsTab from './VendorsTab';
 import SettingsTab from './SettingsTab';
 import InvoiceBulk from './InvoiceBulk';
 
-const TABS = ['overview', 'subscriptions', 'payments', 'people', 'settings'];
+const TABS = ['overview', 'subscriptions', 'payments', 'vendors', 'settings'];
 
 function ReportModal({ onClose, onToast }) {
   const { t: tr } = useLang();
@@ -66,7 +66,8 @@ export default function PurchasesPage({ subPath, navigate }) {
   const [reloadKey, setReloadKey] = useState(0);
   const [toast, setToast] = useState(null);
   const [lookups, setLookups] = useState(null);
-  const [netboxEnabled, setNetboxEnabled] = useState(false);
+  // Drill-down from the overview / vendors: a filter the target tab starts with.
+  const [filter, setFilter] = useState(null);
   const [cur, setCurState] = useState(() => {
     try { return localStorage.getItem('purchasesCurrency') === 'USD' ? 'USD' : 'AED'; } catch { return 'AED'; }
   });
@@ -74,18 +75,23 @@ export default function PurchasesPage({ subPath, navigate }) {
 
   const loadLookups = useCallback(() => Promise.all([
     api('/purchases/meta'), api('/purchases/departments'), api('/purchases/cards'), api('/users/'),
-  ]).then(([meta, departments, cards, users]) => setLookups({
-    meta, departments, cards,
+    api('/purchases/vendors'),
+  ]).then(([meta, departments, cards, users, vendors]) => setLookups({
+    meta, departments, cards, vendors: vendors || [],
     users: (users || []).filter(u => u.is_active !== false && ['admin', 'manager', 'engineer'].includes(u.role))
       .sort((a, b) => (a.display_name || a.username).localeCompare(b.display_name || b.username)),
   })).catch(err => setToast({ message: err.message, type: 'error' })), []);
 
   useEffect(() => { loadLookups(); }, [loadLookups]);
-  useEffect(() => { api('/tools/status').then(d => setNetboxEnabled(!!d?.netbox)).catch(() => {}); }, []);
 
   const changed = useCallback(() => setReloadKey(k => k + 1), []);
   const showToast = useCallback((t) => setToast(t), []);
-  const go = (t) => { setTab(t); setInvoiceOpen(false); navigate?.(t === 'overview' ? 'purchases' : `purchases/${t}`); };
+  const go = (t, f = null) => {
+    setFilter(f);
+    setTab(t);
+    setInvoiceOpen(false);
+    navigate?.(t === 'overview' ? 'purchases' : `purchases/${t}`);
+  };
   const openInvoice = () => { setInvoiceOpen(true); navigate?.('purchases/invoice'); };
   useEffect(() => { if (['invoice', 'invoices'].includes(first)) setInvoiceOpen(true); }, [first]);
 
@@ -93,10 +99,11 @@ export default function PurchasesPage({ subPath, navigate }) {
 
   return (
     <CurrencyContext.Provider value={{ cur, setCur }}>
+    <CategoryContext.Provider value={lookups.meta.categories}>
       {toast && <Toast {...toast} onClose={() => setToast(null)} />}
       {openSub && (
         <SubscriptionDetail
-          subId={openSub} reloadKey={reloadKey} netboxEnabled={netboxEnabled}
+          subId={openSub} reloadKey={reloadKey}
           onClose={() => setOpenSub(null)}
           onEdit={(s) => setEditing(s)}
           onChanged={changed}
@@ -111,6 +118,7 @@ export default function PurchasesPage({ subPath, navigate }) {
           onSaved={(saved) => {
             setEditing(null);
             changed();
+            loadLookups();  // a new vendor may have been created
             setToast({ message: tr('purSaved'), type: 'success' });
             if (saved?.id) setOpenSub(saved.id);
           }}
@@ -127,7 +135,7 @@ export default function PurchasesPage({ subPath, navigate }) {
           {!invoiceOpen && <Button variant="primary" icon="paperclip" onClick={openInvoice}>{tr('purAddInvoice')}</Button>}
         </>}
       >
-        <Tabs tabs={TABS.map(id => ({ id, label: tr(`purTab_${id}`) }))} active={invoiceOpen ? null : tab} onChange={go} />
+        <Tabs tabs={TABS.map(id => ({ id, label: tr(`purTab_${id}`) }))} active={invoiceOpen ? null : tab} onChange={(t) => go(t)} />
       </PageHeader>
 
       {invoiceOpen && (
@@ -137,11 +145,12 @@ export default function PurchasesPage({ subPath, navigate }) {
         </div>
       )}
 
-      {!invoiceOpen && tab === 'overview' && <OverviewTab reloadKey={reloadKey} netboxEnabled={netboxEnabled} onOpenSub={setOpenSub} onGo={go} />}
-      {!invoiceOpen && tab === 'subscriptions' && <SubscriptionsTab lookups={lookups} reloadKey={reloadKey} onOpen={setOpenSub} onNew={() => setEditing('new')} />}
-      {!invoiceOpen && tab === 'payments' && <PaymentsTab lookups={lookups} reloadKey={reloadKey} onChanged={changed} onToast={showToast} />}
-      {!invoiceOpen && tab === 'people' && <PeopleTab reloadKey={reloadKey} onOpenSub={setOpenSub} onToast={showToast} />}
+      {!invoiceOpen && tab === 'overview' && <OverviewTab reloadKey={reloadKey} onOpenSub={setOpenSub} onGo={go} />}
+      {!invoiceOpen && tab === 'subscriptions' && <SubscriptionsTab key={JSON.stringify(filter)} initial={filter} lookups={lookups} reloadKey={reloadKey} onOpen={setOpenSub} onNew={() => setEditing('new')} />}
+      {!invoiceOpen && tab === 'payments' && <PaymentsTab key={JSON.stringify(filter)} initial={filter} lookups={lookups} reloadKey={reloadKey} onChanged={changed} onToast={showToast} />}
+      {!invoiceOpen && tab === 'vendors' && <VendorsTab lookups={lookups} reloadKey={reloadKey} onGo={go} onChanged={() => { loadLookups(); changed(); }} onToast={showToast} />}
       {!invoiceOpen && tab === 'settings' && <SettingsTab lookups={lookups} onChanged={() => { loadLookups(); changed(); }} onToast={showToast} />}
+    </CategoryContext.Provider>
     </CurrencyContext.Provider>
   );
 }
