@@ -19,7 +19,9 @@ export function Input({ label, style, ...props }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
       {label && <label className="t-eyebrow">{label}</label>}
+      {/* Fixed height: a date input is otherwise taller than a select beside it. */}
       <input style={{
+        height: props.type === 'file' ? undefined : 36, lineHeight: '18px',
         padding: '8px 11px', border: '1px solid var(--border)',
         borderRadius: 'var(--radius-sm)', fontSize: 13,
         background: 'var(--surface-alt)', color: 'var(--text)',
@@ -36,6 +38,7 @@ export function Select({ label, children, style, ...props }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
       {label && <label className="t-eyebrow">{label}</label>}
       <select style={{
+        height: 36, lineHeight: '18px',
         padding: '8px 11px', border: '1px solid var(--border)',
         borderRadius: 'var(--radius-sm)', fontSize: 13,
         background: 'var(--surface-alt)', color: 'var(--text)',

@@ -12,7 +12,10 @@ import VendorsTab from './VendorsTab';
 import SettingsTab from './SettingsTab';
 import InvoiceBulk, { queuedCount } from './InvoiceBulk';
 
-const TABS = ['overview', 'subscriptions', 'payments', 'vendors', 'settings'];
+// Day-to-day views are tabs; Settings (categories, budgets, cards) is set up
+// once and lives behind the gear in the header.
+const TABS = ['overview', 'subscriptions', 'payments', 'vendors'];
+const ROUTES = [...TABS, 'settings'];
 
 function ReportModal({ onClose, onToast }) {
   const { t: tr } = useLang();
@@ -57,7 +60,7 @@ export default function PurchasesPage({ subPath, navigate }) {
   const { t: tr } = useLang();
   // Deep links: #purchases/<tab> or #purchases/sub/<id>.
   const [first, second] = (subPath || '').split('/');
-  const [tab, setTab] = useState(TABS.includes(first) ? first : ['invoice', 'invoices'].includes(first) ? 'payments' : 'overview');
+  const [tab, setTab] = useState(ROUTES.includes(first) ? first : ['invoice', 'invoices'].includes(first) ? 'payments' : 'overview');
   // One screen for invoices: drop one file or a batch (#purchases/invoice).
   const [invoiceOpen, setInvoiceOpen] = useState(['invoice', 'invoices'].includes(first));
   const [openSub, setOpenSub] = useState(first === 'sub' && second ? Number(second) : null);
@@ -135,10 +138,12 @@ export default function PurchasesPage({ subPath, navigate }) {
         actions={<>
           <Tabs tabs={[{ id: 'AED', label: 'AED' }, { id: 'USD', label: 'USD' }]} active={cur} onChange={setCur} />
           <Button variant="secondary" icon="fileText" onClick={() => setReportOpen(true)}>{tr('purReportBtn')}</Button>
+          <Button variant={tab === 'settings' && !invoiceOpen ? 'secondary' : 'ghost'} icon="settings"
+            onClick={() => go('settings')} title={tr('purTab_settings')} aria-label={tr('purTab_settings')} />
           {!invoiceOpen && <Button variant="primary" icon="paperclip" onClick={openInvoice}>{tr('purAddInvoice')}{queued > 0 ? ` · ${tr('purQueued').replace('{n}', queued)}` : ''}</Button>}
         </>}
       >
-        <Tabs tabs={TABS.map(id => ({ id, label: tr(`purTab_${id}`) }))} active={invoiceOpen ? null : tab} onChange={(t) => go(t)} />
+        <Tabs tabs={TABS.map(id => ({ id, label: tr(`purTab_${id}`) }))} active={invoiceOpen || tab === 'settings' ? null : tab} onChange={(t) => go(t)} />
       </PageHeader>
 
       {invoiceOpen && (

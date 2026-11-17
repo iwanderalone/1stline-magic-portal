@@ -193,6 +193,9 @@ export function getGlobalCSS(t) {
       transition: background 0.2s ease, color 0.2s ease;
     }
     input, button, select, textarea { font-family: inherit; }
+    /* Chrome pads the date/time field parts; without this a date input is taller than its neighbours. */
+    input::-webkit-datetime-edit, input::-webkit-datetime-edit-fields-wrapper { padding: 0; }
+    input::-webkit-calendar-picker-indicator { margin: 0; padding: 0; }
     ::selection { background: var(--accent-light); color: var(--accent); }
 
     /* ── Type utility classes ───────────────────────────────── */

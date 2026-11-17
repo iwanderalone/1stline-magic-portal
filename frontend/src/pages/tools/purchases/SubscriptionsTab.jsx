@@ -35,28 +35,30 @@ export default function SubscriptionsTab({ lookups, reloadKey, onOpen, onNew, in
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-        <div style={{ flex: '1 1 220px' }}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <Input label={tr('purSearch')} value={q} onChange={e => setQ(e.target.value)} placeholder={tr('purSearchHint')} />
         </div>
-        <Select label={tr('purVendor')} value={vendor} onChange={e => setVendor(e.target.value)}>
+        <Button variant="primary" icon="plus" onClick={onNew} style={{ height: 36 }}>{tr('purNewSub')}</Button>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 10 }}>
+        <Select label={tr('purVendor')} value={vendor} onChange={e => setVendor(e.target.value)} style={{ width: '100%' }}>
           <option value="">{tr('purAll')}</option>
           {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
         </Select>
-        <Select label={tr('purCategory')} value={category} onChange={e => setCategory(e.target.value)}>
+        <Select label={tr('purCategory')} value={category} onChange={e => setCategory(e.target.value)} style={{ width: '100%' }}>
           <option value="">{tr('purAll')}</option>
           <CategoryOptions current={category} />
         </Select>
-        <Select label={tr('purBudget')} value={budget} onChange={e => setBudget(e.target.value)}>
+        <Select label={tr('purBudget')} value={budget} onChange={e => setBudget(e.target.value)} style={{ width: '100%' }}>
           <option value="">{tr('purAll')}</option>
           {lookups.departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
         </Select>
-        <Select label={tr('purStatus')} value={status} onChange={e => setStatus(e.target.value)}>
+        <Select label={tr('purStatus')} value={status} onChange={e => setStatus(e.target.value)} style={{ width: '100%' }}>
           <option value="active">{tr('purActive')}</option>
           <option value="cancelled">{tr('purCancelled')}</option>
           <option value="all">{tr('purAll')}</option>
         </Select>
-        <Button variant="primary" icon="plus" onClick={onNew}>{tr('purNewSub')}</Button>
       </div>
 
       {items.length === 0 ? (

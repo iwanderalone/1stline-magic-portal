@@ -255,30 +255,33 @@ export default function PaymentsTab({ lookups, reloadKey, onChanged, onToast, in
           onSaved={() => { setEditing(null); load(); onChanged(); onToast({ message: tr('purSaved'), type: 'success' }); }}
         />
       )}
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+      {/* Search + action on one line, the filters as an even grid under it. */}
+      <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <Input label={tr('purSearch')} value={q} onChange={e => setQ(e.target.value)} placeholder={tr('purPaymentSearchHint')} />
+        </div>
+        <Button icon="plus" onClick={() => setEditing('new')} style={{ height: 36 }}>{tr('purNewPayment')}</Button>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 10 }}>
         <Input label={tr('purFrom')} type="date" value={from} onChange={e => setFrom(e.target.value)} />
         <Input label={tr('purTo')} type="date" value={to} onChange={e => setTo(e.target.value)} />
-        <Select label={tr('purStatus')} value={status} onChange={e => setStatus(e.target.value)}>
+        <Select label={tr('purStatus')} value={status} onChange={e => setStatus(e.target.value)} style={{ width: '100%' }}>
           <option value="">{tr('purAll')}</option>
           <option value="unconfirmed">{tr('purUnconfirmed')}</option>
           <option value="confirmed">{tr('purConfirmed')}</option>
         </Select>
-        <Select label={tr('purVendor')} value={vendor} onChange={e => setVendor(e.target.value)}>
+        <Select label={tr('purVendor')} value={vendor} onChange={e => setVendor(e.target.value)} style={{ width: '100%' }}>
           <option value="">{tr('purAll')}</option>
           {lookups.vendors.filter(v => v.payments > 0 || String(v.id) === vendor).map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
         </Select>
-        <Select label={tr('purCategory')} value={category} onChange={e => setCategory(e.target.value)}>
+        <Select label={tr('purCategory')} value={category} onChange={e => setCategory(e.target.value)} style={{ width: '100%' }}>
           <option value="">{tr('purAll')}</option>
           <CategoryOptions current={category} />
         </Select>
-        <Select label={tr('purSubscription')} value={unlinked ? 'none' : ''} onChange={e => setUnlinked(e.target.value === 'none')}>
+        <Select label={tr('purSubscription')} value={unlinked ? 'none' : ''} onChange={e => setUnlinked(e.target.value === 'none')} style={{ width: '100%' }}>
           <option value="">{tr('purAll')}</option>
           <option value="none">{tr('purNoSub')}</option>
         </Select>
-        <div style={{ flex: '1 1 200px' }}>
-          <Input label={tr('purSearch')} value={q} onChange={e => setQ(e.target.value)} placeholder={tr('purPaymentSearchHint')} />
-        </div>
-        <Button icon="plus" onClick={() => setEditing('new')}>{tr('purNewPayment')}</Button>
       </div>
 
       {unlinked && data.items.length > 0 && (
