@@ -418,3 +418,8 @@ def test_invoice_supplier_matches_a_subscription_through_its_vendor_aliases():
     sub = _sub(id=7, vendor="Kaspersky", vendor_id=5, product="Next EDR Foundations")
     assert ps.match_subscriptions([sub], "Nexway SASU", "EDR Foundations") == []
     assert ps.match_subscriptions([sub], "Nexway SASU", "EDR Foundations", aliases={5: ["Kaspersky", "Nexway SASU"]}) == [7]
+
+
+def test_vendor_spelled_with_or_without_spaces_is_one_vendor():
+    ms = _vendor(4, "MicroSpeed Computers")
+    assert ps.find_vendor([ms], "MICRO SPEED COMPUTERS L.L.C") is ms

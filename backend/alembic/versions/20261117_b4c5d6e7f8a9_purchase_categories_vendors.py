@@ -48,14 +48,19 @@ _LEGAL = {"llc", "fze", "fzco", "fz", "co", "ltd", "limited", "inc", "est", "gmb
           "pty", "ag", "sa", "bv", "srl", "sarl", "plc", "llp", "lp", "ooo", "company", "the"}
 
 
-def _key(name):
+def _words(name):
     words = re.sub(r"[^a-z0-9]+", " ", (name or "").casefold()).split()
-    return " ".join(w for w in words if len(w) > 1 and w not in _LEGAL)
+    return [w for w in words if len(w) > 1 and w not in _LEGAL]
+
+
+def _key(name):
+    """'MicroSpeed Computers' and 'micro speed computers LLC' → one key."""
+    return "".join(_words(name))
 
 
 def _new_category(old, vendor):
     if old in ("software", "cloud"):
-        v = _key(vendor).split(" ")[0] if _key(vendor) else ""
+        v = (_words(vendor) or [""])[0]
         if v in _BY_VENDOR:
             return _BY_VENDOR[v]
     return _SIMPLE.get(old, old if old in {k for k, _, _ in CATEGORIES} else "other")

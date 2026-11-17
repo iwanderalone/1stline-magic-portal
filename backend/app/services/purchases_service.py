@@ -225,9 +225,10 @@ def find_vendor(vendors, name: Optional[str]) -> Optional[Vendor]:
     for v in vendors:
         if text in (n.strip().casefold() for n in vendor_names(v)):
             return v
-    key = vendor_key(name)
+    # Without legal forms and spaces: 'MicroSpeed Computers' = 'micro speed computers LLC'.
+    key = "".join(vendor_key(name))
     for v in vendors:
-        if key and any(vendor_key(n) == key for n in vendor_names(v)):
+        if key and any("".join(vendor_key(n)) == key for n in vendor_names(v)):
             return v
     loose = [v for v in vendors if any(same_vendor(name, n) for n in vendor_names(v))]
     return loose[0] if len(loose) == 1 else None
