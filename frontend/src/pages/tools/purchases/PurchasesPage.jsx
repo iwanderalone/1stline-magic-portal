@@ -10,7 +10,7 @@ import SubscriptionForm from './SubscriptionForm';
 import PaymentsTab from './PaymentsTab';
 import VendorsTab from './VendorsTab';
 import SettingsTab from './SettingsTab';
-import InvoiceBulk from './InvoiceBulk';
+import InvoiceBulk, { queuedCount } from './InvoiceBulk';
 
 const TABS = ['overview', 'subscriptions', 'payments', 'vendors', 'settings'];
 
@@ -68,6 +68,7 @@ export default function PurchasesPage({ subPath, navigate }) {
   const [lookups, setLookups] = useState(null);
   // Drill-down from the overview / vendors: a filter the target tab starts with.
   const [filter, setFilter] = useState(null);
+  const [queued, setQueued] = useState(0);
   const [cur, setCurState] = useState(() => {
     try { return localStorage.getItem('purchasesCurrency') === 'USD' ? 'USD' : 'AED'; } catch { return 'AED'; }
   });
@@ -83,6 +84,8 @@ export default function PurchasesPage({ subPath, navigate }) {
   })).catch(err => setToast({ message: err.message, type: 'error' })), []);
 
   useEffect(() => { loadLookups(); }, [loadLookups]);
+  // Invoices left unsaved in this browser's queue (re-counted when leaving the queue).
+  useEffect(() => { if (!invoiceOpen) queuedCount().then(setQueued); }, [invoiceOpen, reloadKey]);
 
   const changed = useCallback(() => setReloadKey(k => k + 1), []);
   const showToast = useCallback((t) => setToast(t), []);
@@ -132,7 +135,7 @@ export default function PurchasesPage({ subPath, navigate }) {
         actions={<>
           <Tabs tabs={[{ id: 'AED', label: 'AED' }, { id: 'USD', label: 'USD' }]} active={cur} onChange={setCur} />
           <Button variant="secondary" icon="fileText" onClick={() => setReportOpen(true)}>{tr('purReportBtn')}</Button>
-          {!invoiceOpen && <Button variant="primary" icon="paperclip" onClick={openInvoice}>{tr('purAddInvoice')}</Button>}
+          {!invoiceOpen && <Button variant="primary" icon="paperclip" onClick={openInvoice}>{tr('purAddInvoice')}{queued > 0 ? ` · ${tr('purQueued').replace('{n}', queued)}` : ''}</Button>}
         </>}
       >
         <Tabs tabs={TABS.map(id => ({ id, label: tr(`purTab_${id}`) }))} active={invoiceOpen ? null : tab} onChange={(t) => go(t)} />
