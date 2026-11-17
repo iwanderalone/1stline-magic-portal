@@ -37,6 +37,23 @@ async function loadQueue() {
     return [];              // private window, storage blocked — the queue just lives in memory
   }
 }
+// How many invoices sit in this browser's queue unsaved — shown on the
+// "Add by invoice" button so a half-finished batch is not forgotten.
+export async function queuedCount() {
+  try {
+    const db = await openQueue();
+    const n = await new Promise((resolve, reject) => {
+      const req = db.transaction('items').objectStore('items').count();
+      req.onsuccess = () => resolve(req.result || 0);
+      req.onerror = () => reject(req.error);
+    });
+    db.close();
+    return n;
+  } catch {
+    return 0;
+  }
+}
+
 async function saveQueue(items) {
   // In-flight states are stored as the step to redo after a reload.
   const still = { reading: 'queued', direct: 'queued', saving: 'read' };
@@ -166,6 +183,9 @@ export default function InvoiceBulk({ lookups, navigate, onCancel, onDone, onToa
   }, [items, subs, lookups.meta]);
 
   const ready = items.filter(it => verdicts[it.id]?.ready);
+  // Read, not ready, not a duplicate: a human has to open these or they are never saved.
+  const toReview = items.filter(it => (it.state === 'read' && verdicts[it.id] && !verdicts[it.id].ready && !verdicts[it.id].logged)
+    || (it.state === 'failed' && it.parsed));
   const reading = cutting > 0 || items.some(it => it.state === 'queued' || it.state === 'reading');
 
   const saveReady = async () => {
@@ -200,7 +220,11 @@ export default function InvoiceBulk({ lookups, navigate, onCancel, onDone, onToa
     }
     await loadSubs();          // renewal dates moved — the remaining rows are judged against the new ones
     setSaving(false);
-    if (saved) { onDone?.(); onToast({ message: tr('bulkSaved').replace('{n}', saved), type: 'success' }); }
+    const left = toReview.length;   // judged before this save; ready ones never count
+    if (saved) {
+      onDone?.();
+      onToast({ message: tr('bulkSaved').replace('{n}', saved) + (left > 0 ? ` ${tr('bulkLeft').replace('{n}', left)}` : ''), type: 'success' });
+    }
   };
 
   if (reviewing) {
@@ -257,6 +281,13 @@ export default function InvoiceBulk({ lookups, navigate, onCancel, onDone, onToa
               {reading ? tr('bulkStillReading') : ready.length ? tr('bulkSaveHint') : ''}
             </span>
           </div>
+          {!reading && toReview.length > 0 && (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '8px 12px', fontSize: 13,
+              border: '1px solid var(--warning)', borderRadius: 'var(--radius-sm)', background: 'var(--warning-light)' }}>
+              <Icon name="alertTriangle" size={16} />
+              {tr('bulkNotSavedYet').replace('{n}', toReview.length)}
+            </div>
+          )}
           <div style={tableBox}>
             <div style={headRow(COLS)}>
               <span>{tr('bulkColInvoice')}</span><span>{tr('purAmount')}</span><span>{tr('bulkColWhat')}</span><span />
@@ -276,6 +307,10 @@ export default function InvoiceBulk({ lookups, navigate, onCancel, onDone, onToa
                   </span>
                   <span style={{ fontSize: 12 }}>{p?.total != null ? <VendorPrice amount={p.total} currency={p.currency || 'AED'} /> : '—'}</span>
                   <span style={{ minWidth: 0, fontSize: 12, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                    {/* Until saved, this is a plan — say so, or it reads as already booked. */}
+                    {v?.splits.length > 0 && it.state !== 'saved' && (
+                      <div style={{ color: 'var(--text-muted)' }}>{tr('bulkWillPay')}</div>
+                    )}
                     {v?.splits.map((sp, i) => (
                       <div key={i} style={{ minWidth: 0 }}>
                         <span style={MONO}>{sp.amount.toFixed(2)}</span> {sp.sub ? subLabel(sp.sub) : `#${sp.subscription_id}`}
