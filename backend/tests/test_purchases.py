@@ -44,7 +44,7 @@ def test_add_months_clamps_to_month_end(start, months, expected):
 
 
 def _sub(**kw):
-    base = dict(id=1, vendor="Adobe", product="CC", category="software", seller=None, owner_user_ids=None,
+    base = dict(id=1, vendor="Adobe", vendor_id=None, product="CC", category="software", seller=None, owner_user_ids=None,
                 budget=None, budget_id=None, account_email=None, payment_method="card", card=None, card_id=None,
                 cycle_months=1, price=100.0, currency="AED", seats_total=None, seats=[], next_renewal=None,
                 auto_renew=True, status="active", notify_days_before=None, reference=None, notes=None)
@@ -77,6 +77,27 @@ def test_generated_payment_covers_one_cycle(fx):
                                      status="unconfirmed", created_by="system")
     assert (p.period_start, p.period_end) == (date(2027, 1, 16), date(2028, 1, 15))
     assert p.amount_aed == 2346 and p.status == "unconfirmed"
+
+
+def test_expected_charge_follows_the_last_full_invoice_not_the_typed_price(fx):
+    fx("EUR=4.12")
+    sub = _sub(vendor="Asana", price=300, currency="AED")
+    pay = lambda start, end, amount, **kw: SimpleNamespace(**{**dict(
+        status="confirmed", invoice_file="x.pdf", invoice_no="INV", period_start=start, period_end=end,
+        amount=amount, currency="EUR", paid_on=start, notes=None, description="Starter"), **kw})
+    rows = [
+        pay(date(2026, 9, 12), date(2026, 10, 11), 120.0),
+        pay(date(2026, 10, 12), date(2026, 11, 11), 134.9),
+        pay(date(2026, 10, 20), date(2026, 11, 11), 40.0),                        # proration: part of a cycle
+        pay(date(2026, 10, 25), date(2026, 11, 24), 20.0, description="Starter; proration credit"),
+        pay(date(2026, 11, 1), date(2026, 11, 30), 50.0, notes="One-time charge on top of the subscription"),
+        pay(date(2026, 11, 12), date(2026, 12, 11), 999.0, status="unconfirmed", invoice_file=None, invoice_no=None),
+    ]
+    assert ps.charge_from_invoices(sub, rows) == (134.9, "EUR")
+    assert ps.charge_from_invoices(sub, []) == (300, "AED")
+    p = ps.payment_from_subscription(sub, date(2026, 11, 12), status="unconfirmed", created_by="system",
+                                     charge=(134.9, "EUR"))
+    assert (p.amount, p.currency, p.amount_aed) == (134.9, "EUR", 555.79)
 
 
 def test_card_last4_rejects_anything_but_four_digits():
@@ -374,3 +395,31 @@ async def test_invoice_billed_in_arrears_settles_the_cycle_it_is_charged_in(fx):
     assert not merged and p2.period_start == date(2026, 11, 27) and sub.next_renewal == date(2026, 12, 27)
     # A normal prepaid invoice is not touched.
     assert ps.billed_in_arrears(sub, date(2026, 12, 27), date(2027, 1, 26)) is None
+
+
+def _vendor(vid, name, aliases=None):
+    import json as _j
+    return SimpleNamespace(id=vid, name=name, aliases=_j.dumps(aliases) if aliases else None)
+
+
+def test_vendor_is_found_by_name_alias_or_legal_form_but_not_by_a_guess():
+    miro = _vendor(1, "Miro", ["RealtimeBoard Inc. dba Miro"])
+    etisalat = _vendor(2, "Etisalat")
+    proxmox = _vendor(3, "Proxmox")
+    vendors = [miro, etisalat, proxmox]
+    assert ps.find_vendor(vendors, "realtimeboard inc. dba miro") is miro
+    assert ps.find_vendor(vendors, "ETISALAT") is etisalat
+    assert ps.find_vendor(vendors, "Proxmox Server Solutions GmbH") is proxmox
+    assert ps.find_vendor(vendors, "du") is None
+    assert ps.find_vendor(vendors, "") is None
+
+
+def test_invoice_supplier_matches_a_subscription_through_its_vendor_aliases():
+    sub = _sub(id=7, vendor="Kaspersky", vendor_id=5, product="Next EDR Foundations")
+    assert ps.match_subscriptions([sub], "Nexway SASU", "EDR Foundations") == []
+    assert ps.match_subscriptions([sub], "Nexway SASU", "EDR Foundations", aliases={5: ["Kaspersky", "Nexway SASU"]}) == [7]
+
+
+def test_vendor_spelled_with_or_without_spaces_is_one_vendor():
+    ms = _vendor(4, "MicroSpeed Computers")
+    assert ps.find_vendor([ms], "MICRO SPEED COMPUTERS L.L.C") is ms

@@ -7,6 +7,26 @@ import { useLang } from '../../../components/LangContext';
 export const CurrencyContext = createContext({ cur: 'AED', setCur: () => {} });
 export const useCur = () => useContext(CurrencyContext);
 
+// Categories are editable (Finances → Settings), so labels come from the
+// server, not from LangContext.
+export const CategoryContext = createContext([]);
+export const useCategories = () => useContext(CategoryContext);
+
+// <select> options: active categories, plus the current value when it is archived.
+export function CategoryOptions({ current }) {
+  const cats = useCategories();
+  const L = useLabels();
+  return cats.filter(c => c.is_active || c.key === current)
+    .map(c => <option key={c.key} value={c.key}>{L.category(c.key)}</option>);
+}
+
+// Chart colour per category. Fixed per entity (never by rank), so a category
+// keeps its colour whatever else is on screen; the slot order is the
+// validated CVD-safe order. Anything without a slot folds into "other" grey.
+const SERIES_SLOT = { internet: 1, saas: 2, hosting: 3, hardware: 4, security: 5, infra_licences: 6, storage: 7 };
+export const categoryColor = (key) => (SERIES_SLOT[key] ? `var(--series-${SERIES_SLOT[key]})` : 'var(--series-other)');
+export const categoryOrder = (key) => SERIES_SLOT[key] || 99;
+
 const nf = (v) => Number(v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 // One amount in the chosen currency, from a {aed, usd} pair.
@@ -36,9 +56,13 @@ export const todayISO = () => {
 };
 
 export function useLabels() {
-  const { t: tr } = useLang();
+  const { lang, t: tr } = useLang();
+  const cats = useContext(CategoryContext);
   return {
-    category: (c) => tr(`purCat_${c}`) || c,
+    category: (k) => {
+      const c = cats.find(x => x.key === k);
+      return c ? ((lang === 'ru' && c.name_ru) || c.name) : k;
+    },
     method: (m) => tr(`purMethod_${m}`) || m,
     cycle: (n) => ({ 1: tr('purCycle1'), 3: tr('purCycle3'), 6: tr('purCycle6'), 12: tr('purCycle12'), 24: tr('purCycle24'), 36: tr('purCycle36') }[n]
       || tr('purCycleN').replace('{n}', n)),
@@ -57,16 +81,6 @@ export function RenewalBadge({ sub }) {
   // Amber only when it is genuinely close; everything further out is plain text.
   if (d <= 3) return <Badge color="yellow">{tr('purInDays').replace('{n}', d)}</Badge>;
   return <span style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{tr('purInDays').replace('{n}', d)}</span>;
-}
-
-export function SeatsMeter({ used, total }) {
-  if (!total && !used) return <span style={{ color: 'var(--text-muted)' }}>—</span>;
-  const over = total && used > total;
-  return (
-    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: over ? 'var(--danger)' : 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
-      {used}{total ? `/${total}` : ''}
-    </span>
-  );
 }
 
 export const tableBox = { display: 'flex', flexDirection: 'column', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', overflow: 'hidden' };

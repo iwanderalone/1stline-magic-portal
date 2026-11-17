@@ -38,6 +38,10 @@ export const lightTheme = {
   shadowMd: '0 2px 6px rgba(15,17,21,0.08), 0 0 0 1px rgba(15,17,21,0.04)',
   shadowLg: '0 8px 24px rgba(15,17,21,0.12)',
 
+  // Chart series (categorical, fixed order, validated for CVD on this surface)
+  series: ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#6250d6'],
+  seriesOther: '#9aa0a6',
+
   // Radii
   radius:     '8px',
   radiusSm:   '6px',
@@ -79,6 +83,10 @@ export const darkTheme = {
   shadow:   '0 1px 3px rgba(0,0,0,0.55)',
   shadowMd: '0 4px 12px rgba(0,0,0,0.55)',
   shadowLg: '0 12px 36px rgba(0,0,0,0.65)',
+
+  // Chart series — the same hues stepped for the dark surface
+  series: ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181', '#008300', '#9085e9'],
+  seriesOther: '#6b7182',
 
   radius:     '8px',
   radiusSm:   '6px',
@@ -126,6 +134,9 @@ export function getGlobalCSS(t) {
       --success-light:    ${t.successLight};
       --warning:          ${t.warning};
       --warning-light:    ${t.warningLight};
+
+      ${(t.series || []).map((c, i) => `--series-${i + 1}: ${c};`).join(' ')}
+      --series-other: ${t.seriesOther};
 
       --shadow-xs: ${t.shadowXs};
       --shadow:    ${t.shadow};

@@ -3,10 +3,10 @@ import { api, apiBlob } from '../../../api';
 import { Badge, Button, Input, Overlay, Select } from '../../../components/UI';
 import { useLang } from '../../../components/LangContext';
 import {
-  Money, VendorPrice, bodyRow, fmtDate, grid2, headRow, tableBox, textarea, todayISO, useLabels,
+  CategoryOptions, Money, VendorPrice, bodyRow, fmtDate, grid2, headRow, tableBox, textarea, todayISO, useLabels,
 } from './shared';
 
-const COLS = '0.9fr 1.8fr 1fr 1.1fr 1.1fr 0.9fr 0.5fr';
+const COLS = '1.3fr 1.8fr 1fr 1.1fr 1.1fr 0.9fr 0.5fr';
 
 function PaymentForm({ payment, lookups, subs, onClose, onSaved }) {
   const { t: tr } = useLang();
@@ -26,6 +26,8 @@ function PaymentForm({ payment, lookups, subs, onClose, onSaved }) {
     currency: payment?.currency || 'AED',
     amount_aed: payment?.amount_aed ?? '',
     invoice_no: payment?.invoice_no || '',
+    period_start: payment?.period_start || '',
+    period_end: payment?.period_end || '',
     notes: payment?.notes || '',
   });
   const [file, setFile] = useState(null);
@@ -69,6 +71,8 @@ function PaymentForm({ payment, lookups, subs, onClose, onSaved }) {
       currency: form.currency,
       amount_aed: num(form.amount_aed),
       invoice_no: form.invoice_no || null,
+      period_start: form.period_start || null,
+      period_end: form.period_end || null,
       notes: form.notes || null,
       status: 'confirmed',
     };
@@ -102,11 +106,11 @@ function PaymentForm({ payment, lookups, subs, onClose, onSaved }) {
           <Input label={tr('purVendor')} value={form.vendor} onChange={set('vendor')} required={!form.subscription_id} />
           <Input label={tr('purDescription')} value={form.description} onChange={set('description')} />
           <Select label={tr('purCategory')} value={form.category} onChange={set('category')}>
-            {lookups.meta.categories.map(c => <option key={c} value={c}>{L.category(c)}</option>)}
+            <CategoryOptions current={form.category} />
           </Select>
           <Select label={tr('purBudget')} value={form.budget_id} onChange={set('budget_id')}>
             <option value="">—</option>
-            {lookups.departments.filter(d => d.is_active || d.id === form.budget_id).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+            {lookups.departments.filter(d => d.is_active || String(d.id) === String(form.budget_id)).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
           </Select>
           <Input label={tr('purAmount')} type="number" step="0.01" min="0" value={form.amount} onChange={set('amount')} required />
           <Select label={tr('purCurrency')} value={form.currency} onChange={set('currency')}>
@@ -120,9 +124,12 @@ function PaymentForm({ payment, lookups, subs, onClose, onSaved }) {
           {form.payment_method === 'card' && (
             <Select label={tr('purCard')} value={form.card_id} onChange={set('card_id')}>
               <option value="">—</option>
-              {lookups.cards.filter(c => c.is_active || c.id === form.card_id).map(c => <option key={c.id} value={c.id}>{L.card(c)}</option>)}
+              {lookups.cards.filter(c => c.is_active || String(c.id) === String(form.card_id)).map(c => <option key={c.id} value={c.id}>{L.card(c)}</option>)}
             </Select>
           )}
+          <Input label={tr('purPeriodFrom')} type="date" value={form.period_start} onChange={set('period_start')} />
+          <Input label={tr('purPeriodTo')} type="date" value={form.period_end} onChange={set('period_end')}
+            min={form.period_start || undefined} />
           <Input label={tr('purInvoiceNo')} value={form.invoice_no} onChange={set('invoice_no')} />
           <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
             <label className="t-eyebrow">{tr('purInvoiceFile')}{payment?.has_invoice ? ` (${tr('purAttached')})` : ''}</label>
@@ -145,13 +152,15 @@ function PaymentForm({ payment, lookups, subs, onClose, onSaved }) {
   );
 }
 
-export default function PaymentsTab({ lookups, reloadKey, onChanged, onToast }) {
+export default function PaymentsTab({ lookups, reloadKey, onChanged, onToast, initial }) {
   const { lang, t: tr } = useLang();
   const L = useLabels();
   const year = new Date().getFullYear();
-  const [from, setFrom] = useState(`${year}-01-01`);
-  const [to, setTo] = useState(todayISO());
-  const [status, setStatus] = useState('');
+  const [from, setFrom] = useState(initial?.from || `${year}-01-01`);
+  const [to, setTo] = useState(initial?.to || todayISO());
+  const [status, setStatus] = useState(initial?.status || '');
+  const [category, setCategory] = useState(initial?.category || '');
+  const [vendor, setVendor] = useState(initial?.vendor_id ? String(initial.vendor_id) : '');
   const [q, setQ] = useState('');
   const [unlinked, setUnlinked] = useState(false);
   const [picked, setPicked] = useState(() => new Set());
@@ -169,8 +178,10 @@ export default function PaymentsTab({ lookups, reloadKey, onChanged, onToast }) 
     if (status) p.set('status', status);
     if (q.trim()) p.set('q', q.trim());
     if (unlinked) p.set('unlinked', 'true');
+    if (category) p.set('category', category);
+    if (vendor) p.set('vendor_id', vendor);
     return api(`/purchases/payments?${p}`).then(d => d && setData(d)).catch(err => onToast({ message: err.message, type: 'error' }));
-  }, [from, to, status, q, unlinked, onToast]);
+  }, [from, to, status, q, unlinked, category, vendor, onToast]);
 
   useEffect(() => {
     const t = setTimeout(load, first.current ? 0 : 250);
@@ -252,6 +263,14 @@ export default function PaymentsTab({ lookups, reloadKey, onChanged, onToast }) 
           <option value="unconfirmed">{tr('purUnconfirmed')}</option>
           <option value="confirmed">{tr('purConfirmed')}</option>
         </Select>
+        <Select label={tr('purVendor')} value={vendor} onChange={e => setVendor(e.target.value)}>
+          <option value="">{tr('purAll')}</option>
+          {lookups.vendors.filter(v => v.payments > 0 || String(v.id) === vendor).map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+        </Select>
+        <Select label={tr('purCategory')} value={category} onChange={e => setCategory(e.target.value)}>
+          <option value="">{tr('purAll')}</option>
+          <CategoryOptions current={category} />
+        </Select>
         <Select label={tr('purSubscription')} value={unlinked ? 'none' : ''} onChange={e => setUnlinked(e.target.value === 'none')}>
           <option value="">{tr('purAll')}</option>
           <option value="none">{tr('purNoSub')}</option>
@@ -306,7 +325,14 @@ export default function PaymentsTab({ lookups, reloadKey, onChanged, onToast }) 
                 onClick={() => setEditing(p)}>
                 <span style={{ fontSize: 12, display: 'flex', gap: 8, alignItems: 'center' }}>
                   {unlinked && <input type="checkbox" checked={picked.has(p.id)} onClick={e => e.stopPropagation()} onChange={() => togglePick(p.id)} />}
-                  {fmtDate(p.paid_on, lang)}
+                  <span>
+                    {fmtDate(p.paid_on, lang)}
+                    {p.period_start && (
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)' }} title={tr('purPeriod')}>
+                        {fmtDate(p.period_start, lang)} – {fmtDate(p.period_end, lang)}
+                      </div>
+                    )}
+                  </span>
                 </span>
                 <span style={{ minWidth: 0 }}>
                   <div style={{ fontWeight: 600 }}>{p.vendor}</div>

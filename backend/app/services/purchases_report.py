@@ -8,6 +8,7 @@ computed — no TEXT()/EDATE() formulas, which broke on a Russian-locale Excel
 import io
 from collections import defaultdict
 from datetime import date
+from typing import Optional
 from typing import Iterable
 
 from openpyxl import Workbook
@@ -26,8 +27,6 @@ _MONEY = "#,##0.00"
 _DATE = "yyyy-mm-dd"
 
 _METHOD = {"card": "Card", "bank_transfer": "Bank transfer", "paypal": "PayPal", "other": "Other"}
-_CATEGORY = {"software": "Software", "cloud": "Cloud & hosting", "isp": "Internet (ISP)", "telecom": "Telecom & SIM",
-             "security": "Security", "hardware": "Hardware", "services": "Services", "other": "Other"}
 
 
 def _cycle(months: int) -> str:
@@ -76,8 +75,10 @@ def _total_row(ws, label_col: int, sum_cols: list[int]):
 
 
 def build_report(subs: list[Subscription], payments: list[PurchasePayment], names: dict[str, str],
-                 date_from: date, date_to: date, leaver_contact_ids: set[int]) -> bytes:
+                 date_from: date, date_to: date, leaver_contact_ids: set[int],
+                 category_names: Optional[dict[str, str]] = None) -> bytes:
     today = date.today()
+    _CATEGORY = category_names or {}
     wb = Workbook()
 
     # ── Summary ─────────────────────────────────────────
