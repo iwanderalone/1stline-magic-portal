@@ -9,8 +9,9 @@ import html as html_mod
 import logging
 import imaplib
 import smtplib
+import time
 from email.message import EmailMessage
-from email.utils import parseaddr, formataddr
+from email.utils import parseaddr, formataddr, formatdate, make_msgid
 
 from app.core.config import get_settings
 from app.core.encryption import decrypt
@@ -67,7 +68,8 @@ def _append_to_sent(login: str, password: str, msg_bytes: bytes) -> None:
             success = False
             for folder in sent_folders:
                 try:
-                    res, _ = imap.append(folder, None, None, msg_bytes)
+                    # Seen: our own sent copy must not show up as unread.
+                    res, _ = imap.append(folder, r"(\Seen)", imaplib.Time2Internaldate(time.time()), msg_bytes)
                     if res == 'OK':
                         logger.info(f"[smtp] Saved sent email to '{folder}' folder for {login}")
                         success = True
@@ -90,6 +92,10 @@ def _send_sync(
     msg["From"] = formataddr((from_name, login))
     msg["To"] = to_addr
     msg["Subject"] = subject
+    # Set here, not by the server: the copy appended to Sent must be the same
+    # message the recipient got (same Message-ID → one thread in clients).
+    msg["Date"] = formatdate(localtime=True)
+    msg["Message-ID"] = make_msgid(domain=login.rsplit("@", 1)[-1])
     if in_reply_to:
         msg["In-Reply-To"] = in_reply_to
         msg["References"] = in_reply_to

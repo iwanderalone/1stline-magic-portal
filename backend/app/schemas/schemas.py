@@ -517,6 +517,14 @@ class EmailLogResponse(BaseOrmModel):
     comment_count: int = 0
     last_comment: Optional[str] = None   # "username: text" preview of the newest comment
     reply_count: int = 0                 # sent SMTP replies (replied marker)
+    triage: Optional[str] = None         # urgent | digest | noise | code (AI triage)
+    triage_topic: Optional[str] = None
+    triage_summary: Optional[str] = None
+    triage_action: Optional[str] = None
+    triage_feedback: Optional[str] = None
+
+class EmailTriageFeedback(BaseModel):
+    feedback: Optional[Literal["urgent", "digest", "noise"]] = None
 
 class EmailLogDetailResponse(EmailLogResponse):
     body: Optional[str] = None

@@ -284,6 +284,16 @@ async def lifespan(app: FastAPI):
         id="mail_reporter_poll", max_instances=1, coalesce=True,
     )
 
+    # Mail triage digest: what the AI held back from Telegram, in one post at
+    # the configured local hours.
+    from app.services.mail_triage import send_digest
+    scheduler.add_job(
+        send_digest, "cron",
+        hour=eff("MAIL_DIGEST_HOURS", settings.MAIL_DIGEST_HOURS) or "10,18", minute=0,
+        timezone=eff("MAIL_DIGEST_TZ", settings.MAIL_DIGEST_TZ) or "UTC",
+        id="mail_digest", max_instances=1, coalesce=True,
+    )
+
     # Shift notification safety-net: fires if a precise 'date' job was missed
     # (e.g. server was down at exact start time). Dedup via ShiftNotificationLog.
     scheduler.add_job(

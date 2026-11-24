@@ -185,6 +185,16 @@ class Settings(BaseSettings):
     MAIL_POLL_INTERVAL: int = 30          # seconds between email checks
     MAIL_DEFAULT_CHAT_ID: str = ""        # fallback Telegram chat_id if mailbox has no target
     MAIL_DEFAULT_THREAD_ID: str = ""      # fallback Telegram thread/topic id
+    # AI triage (app/services/mail_triage.py): the self-hosted model reads each
+    # email; only what needs action goes to Telegram at once, the rest waits
+    # for a digest or stays in the portal. Always the OpenAI-compatible
+    # endpoint (AI_BASE_URL) — mail content never goes to Gemini.
+    MAIL_TRIAGE_ENABLED: bool = False
+    MAIL_TRIAGE_MODEL: str = ""           # empty = AI_MODEL
+    MAIL_TRIAGE_REPEAT_HOURS: int = 12    # same sender + subject again within this = no new alert
+    MAIL_DIGEST_HOURS: str = "10,18"      # local hours the digest goes out
+    MAIL_DIGEST_TZ: str = "Asia/Dubai"
+    MAIL_DIGEST_TARGET: str = ""          # chat:thread; empty = the mailboxes' usual target
 
     # Keycloak SSO (OIDC). Empty CLIENT_ID/SECRET = SSO login hidden/disabled —
     # local username/password + TOTP login is unaffected either way.

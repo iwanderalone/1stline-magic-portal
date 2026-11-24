@@ -369,12 +369,9 @@ def classify_email(sender: str, subject: str, body: str,
             code = _extract_adobe_code_from_text(body)
         if code:
             return "adobe", {"code": code}
-        logger.warning(
-            f"Adobe email detected but no code extracted. "
-            f"Subject: '{subject}' | Sender: '{sender}' | "
-            f"HTML: {len(raw_html)}ch | Text: {len(raw_text)}ch"
-        )
-        return "adobe", {"code": "see email"}
+        # Mentions Adobe but carries no code ("Access to Adobe Premiere Pro"
+        # from a colleague, an Adobe newsletter): not a code — classify on.
+        logger.info("Adobe mention without a code, classified as other mail: %r", subject[:80])
 
     if YANDEX_SUPPORT_SENDER.lower() in sender.lower():
         return "yandex_support", {}
@@ -641,52 +638,68 @@ def _test_imap_connection(email_addr: str, password: str) -> dict:
         return {"success": False, "message": f"Unexpected error: {e}"}
 
 
-def _fetch_imap_emails(email_addr: str, password: str, monitor_since: date) -> list[dict]:
+def _parse_message(raw_bytes: bytes) -> dict:
+    msg = email_lib.message_from_bytes(raw_bytes)
+    msg_id = msg.get("Message-ID", "")
+    if not msg_id:
+        msg_id = f"{msg.get('Date', '')}|{msg.get('Subject', '')}"
+    raw_html, raw_text = _get_raw_parts(msg)
+    try:
+        timestamp = parsedate_to_datetime(msg["Date"])
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=timezone.utc)
+    except Exception:
+        timestamp = datetime.now(timezone.utc)
+    return {
+        "msg_id": msg_id,
+        "subject": safe_decode_header(msg["Subject"]),
+        "sender": safe_decode_header(msg["From"]),
+        "recipient": safe_decode_header(msg["To"]),
+        "body": extract_body(msg), "raw_html": raw_html,
+        "raw_text": raw_text, "timestamp": timestamp,
+    }
+
+
+def _fetch_imap_emails(email_addr: str, password: str, monitor_since: date,
+                       last_uid: Optional[int] = None,
+                       uidvalidity: Optional[int] = None) -> tuple[list[dict], Optional[int]]:
+    """New INBOX messages, oldest first, each with its "uid".
+
+    With a cursor (last_uid under the same UIDVALIDITY) only messages above it
+    are downloaded; without one, everything since monitor_since (the caller
+    dedups). Returns (messages, the folder's UIDVALIDITY). Read-only: nothing
+    is marked seen.
+    """
     mail = None
     try:
         mail = _connect_imap(email_addr, password)
         mail.select("INBOX", readonly=True)
+        try:
+            current_validity = int(mail.response("UIDVALIDITY")[1][0])
+        except (TypeError, ValueError, IndexError):
+            current_validity = None
 
-        since_str = monitor_since.strftime("%d-%b-%Y")
-        status, data = mail.search(None, f"(SINCE {since_str})")
-        if status != "OK" or not data[0]:
-            return []
+        if last_uid and uidvalidity and current_validity == uidvalidity:
+            criteria = f"(UID {last_uid + 1}:*)"
+        else:
+            last_uid = 0
+            criteria = f"(SINCE {monitor_since.strftime('%d-%b-%Y')})"
+        status, data = mail.uid("search", None, criteria)
+        if status != "OK" or not data or not data[0]:
+            return [], current_validity
+        # "N:*" always returns the newest message even when it is below N.
+        uids = sorted(int(u) for u in data[0].split() if int(u) > (last_uid or 0))
 
         results = []
-        for num in data[0].split():
+        for uid in uids:
             try:
-                status, msg_data = mail.fetch(num, "(RFC822)")
-                if status != "OK":
+                status, msg_data = mail.uid("fetch", str(uid), "(RFC822)")
+                if status != "OK" or not msg_data or not isinstance(msg_data[0], tuple):
                     continue
-                msg = email_lib.message_from_bytes(msg_data[0][1])
-
-                msg_id = msg.get("Message-ID", "")
-                if not msg_id:
-                    msg_id = f"{msg.get('Date', '')}|{msg.get('Subject', '')}"
-
-                subject   = safe_decode_header(msg["Subject"])
-                sender    = safe_decode_header(msg["From"])
-                recipient = safe_decode_header(msg["To"])
-                body      = extract_body(msg)
-                raw_html, raw_text = _get_raw_parts(msg)
-
-                try:
-                    timestamp = parsedate_to_datetime(msg["Date"])
-                    if timestamp.tzinfo is None:
-                        timestamp = timestamp.replace(tzinfo=timezone.utc)
-                except Exception:
-                    timestamp = datetime.now(timezone.utc)
-
-                results.append({
-                    "msg_id": msg_id, "subject": subject,
-                    "sender": sender, "recipient": recipient,
-                    "body": body, "raw_html": raw_html,
-                    "raw_text": raw_text, "timestamp": timestamp,
-                })
+                results.append({**_parse_message(msg_data[0][1]), "uid": uid})
             except Exception as e:
-                logger.error(f"Error parsing message {num} from {email_addr}: {e}")
-
-        return results
+                logger.error(f"Error parsing message uid {uid} from {email_addr}: {e}")
+        return results, current_validity
 
     except Exception as e:
         raise RuntimeError(str(e)) from e
@@ -700,17 +713,28 @@ def _fetch_imap_emails(email_addr: str, password: str, monitor_since: date) -> l
 
 # ─── Async Orchestration ─────────────────────────────────────────────
 
+def _local_time(ts: datetime) -> str:
+    from app.core.dynamic_settings import eff
+    try:
+        tz = ZoneInfo(eff("PORTAL_TIMEZONE", get_settings().PORTAL_TIMEZONE))
+    except ZoneInfoNotFoundError:
+        tz = ZoneInfo("UTC")
+    return ts.astimezone(tz).strftime("%Y-%m-%d %H:%M")
+
+
 async def _check_one_mailbox(mb: MailboxConfig, user_rules: list, builtin_map: dict,
-                             custom_builtin_rules: list = None):
+                             custom_builtin_rules: list = None, examples: str = ""):
     """Check a single mailbox using the provided pre-loaded rule sets."""
     from app.services.telegram_service import send_telegram_message
+    from app.services import mail_triage
 
     monitor_since = mb.monitor_since or date.today()
     logger.info(f"[mail-reporter] Checking {mb.email} since {monitor_since}")
 
     try:
-        raw_emails = await asyncio.to_thread(
-            _fetch_imap_emails, mb.email, decrypt(mb.password), monitor_since
+        raw_emails, uidvalidity = await asyncio.to_thread(
+            _fetch_imap_emails, mb.email, decrypt(mb.password), monitor_since,
+            mb.imap_last_uid, mb.imap_uidvalidity,
         )
     except RuntimeError as e:
         logger.error(f"[mail-reporter] IMAP failed for {mb.email}: {e!r}")
@@ -723,7 +747,12 @@ async def _check_one_mailbox(mb: MailboxConfig, user_rules: list, builtin_map: d
                 await db.commit()
         return
 
+    triage_on = mail_triage.enabled()
     sent_count = skipped_filter = skipped_dedup = 0
+    # The cursor only moves past messages that were stored; one that failed
+    # to process is fetched again next poll (dedup keeps the rest single).
+    cursor = mb.imap_last_uid if uidvalidity == mb.imap_uidvalidity else None
+    cursor_blocked = False
 
     async with AsyncSessionFactory() as db:
         for raw in raw_emails:
@@ -736,6 +765,8 @@ async def _check_one_mailbox(mb: MailboxConfig, user_rules: list, builtin_map: d
                 )
                 if existing.scalar_one_or_none():
                     skipped_dedup += 1
+                    if not cursor_blocked:
+                        cursor = max(cursor or 0, raw["uid"])
                     continue
 
                 # Subject filter
@@ -750,6 +781,9 @@ async def _check_one_mailbox(mb: MailboxConfig, user_rules: list, builtin_map: d
                             category="filtered", telegram_sent=False,
                             skip_reason="filter", received_at=raw["timestamp"],
                         ))
+                        await db.commit()
+                        if not cursor_blocked:
+                            cursor = max(cursor or 0, raw["uid"])
                         continue
 
                 # ── Rule matching ───────────────────────────────────
@@ -757,13 +791,11 @@ async def _check_one_mailbox(mb: MailboxConfig, user_rules: list, builtin_map: d
                 category = None
                 extra = {}
 
-                # 1. User rules (non-builtin, ordered by priority)
-                # Filter to rules scoped to this mailbox OR global (mailbox_id is None)
-                mailbox_user_rules = [
-                    r for r in user_rules
-                    if r.mailbox_id is None or r.mailbox_id == mb.id
-                ]
-                for rule in mailbox_user_rules:
+                # 1. User rules (non-builtin, ordered by priority), scoped to
+                #    this mailbox or global (mailbox_id is None)
+                for rule in user_rules:
+                    if rule.mailbox_id not in (None, mb.id):
+                        continue
                     if _rule_matches(rule, raw["sender"], raw["subject"], raw["body"], raw["recipient"]):
                         matched_rule = rule
                         category = rule.name
@@ -799,31 +831,7 @@ async def _check_one_mailbox(mb: MailboxConfig, user_rules: list, builtin_map: d
                     if matched_rule.telegram_target:
                         rule_target = matched_rule.telegram_target
 
-                # ── Format & send ───────────────────────────────────
-                message = format_message(
-                    category, extra,
-                    raw["sender"], raw["recipient"],
-                    raw["subject"], raw["timestamp"],
-                    raw["body"], mb.email,
-                    display=display,
-                )
-
-                effective_target = rule_target or mb.telegram_target
-                chat_id, thread_id = _resolve_target(effective_target)
-
-                sent = False
-                skip_reason = None
-                if not chat_id:
-                    logger.warning(f"[mail-reporter] No Telegram target for {mb.email}")
-                    skip_reason = "no_target"
-                else:
-                    sent = await send_telegram_message(chat_id, message, thread_id or None)
-                    if not sent:
-                        skip_reason = "send_error"
-
-                tg_target_str = f"{chat_id}:{thread_id}" if thread_id else chat_id
-
-                db.add(EmailLog(
+                log = EmailLog(
                     mailbox_id=mb.id,
                     fingerprint=fingerprint,
                     subject=raw["subject"][:500],
@@ -831,33 +839,98 @@ async def _check_one_mailbox(mb: MailboxConfig, user_rules: list, builtin_map: d
                     category=category,
                     rule_id=matched_rule.id if matched_rule else None,
                     body=(raw["body"] or "")[:65536] or None,
-                    telegram_sent=sent,
-                    telegram_target_used=tg_target_str if chat_id else None,
+                    telegram_sent=False,
                     extracted_code=extra.get("code") if category == "adobe" else None,
-                    skip_reason=skip_reason,
                     received_at=raw["timestamp"],
                     # only real RFC Message-IDs (fallback ids are "date|subject" strings)
                     message_id=raw["msg_id"][:500] if raw["msg_id"].startswith("<") else None,
-                ))
+                )
 
-                if matched_rule is not None:
-                    notified = await _notify_rule_users(
-                        db, matched_rule, raw["subject"], raw["sender"], mb.email
-                    )
-                    if notified:
-                        logger.info(
-                            "[mail-reporter] rule '%s' notified %d user(s) directly",
-                            matched_rule.name, notified,
+                # ── Triage: send now, keep for the digest, or keep quiet ──
+                send_now = True
+                urgent_text = None
+                if triage_on:
+                    if category == "adobe" or mail_triage.is_code(raw["subject"]):
+                        log.triage = "code"
+                    elif category == "backup_alerts":
+                        summary = extra.get("summary")
+                        failed = getattr(summary, "status", "") != "successful"
+                        log.triage, log.triage_topic = ("urgent" if failed else "noise"), "services"
+                        send_now = failed
+                    else:
+                        verdict = await mail_triage.classify(
+                            mb.email, raw["sender"], raw["subject"], raw["body"], examples)
+                        if verdict:  # None = model failed → old behaviour, sent as is
+                            log.triage = verdict["verdict"]
+                            log.triage_topic = verdict["topic"]
+                            log.triage_summary = verdict["summary"]
+                            log.triage_action = verdict["action"]
+                            if log.triage != "urgent":
+                                send_now = False
+                            elif await mail_triage.is_repeat(db, raw["sender"], raw["subject"], raw["timestamp"]):
+                                send_now = False
+                                log.skip_reason = "repeat"
+                            else:
+                                urgent_text = True
+                    if log.triage == "noise":
+                        # Nothing to do: straight to the archive, out of the inbox count.
+                        log.status = "solved"
+                        log.solved_at = datetime.now(timezone.utc)
+
+                db.add(log)
+                await db.flush()   # the id goes into the portal link
+
+                effective_target = rule_target or mb.telegram_target
+                chat_id, thread_id = _resolve_target(effective_target)
+                tg_target_str = f"{chat_id}:{thread_id}" if thread_id else chat_id
+                sent = False
+                if send_now:
+                    if urgent_text:
+                        message = mail_triage.format_urgent(log, mb.email, _local_time(raw["timestamp"]), display)
+                    else:
+                        message = format_message(
+                            category, extra,
+                            raw["sender"], raw["recipient"],
+                            raw["subject"], raw["timestamp"],
+                            raw["body"], mb.email,
+                            display=display,
                         )
+                    if not chat_id:
+                        logger.warning(f"[mail-reporter] No Telegram target for {mb.email}")
+                        log.skip_reason = "no_target"
+                    else:
+                        sent = await send_telegram_message(chat_id, message, thread_id or None)
+                        if not sent:
+                            log.skip_reason = "send_error"
+                    log.telegram_sent = sent
+                    log.telegram_target_used = tg_target_str if chat_id else None
+
+                    if matched_rule is not None:
+                        notified = await _notify_rule_users(
+                            db, matched_rule, raw["subject"], raw["sender"], mb.email
+                        )
+                        if notified:
+                            logger.info(
+                                "[mail-reporter] rule '%s' notified %d user(s) directly",
+                                matched_rule.name, notified,
+                            )
+
+                await db.commit()
+                if not cursor_blocked:
+                    cursor = max(cursor or 0, raw["uid"])
 
                 if sent:
                     sent_count += 1
                     logger.info(
-                        f"[mail-reporter] SENT [{category}] '{raw['subject']}' "
+                        f"[mail-reporter] SENT [{category}/{log.triage or '-'}] '{raw['subject']}' "
                         f"from {mb.email} → {tg_target_str}"
                     )
+                elif log.triage:
+                    logger.info(f"[mail-reporter] HELD [{log.triage}] '{raw['subject']}' from {mb.email}")
 
             except Exception as e:
+                cursor_blocked = True
+                await db.rollback()
                 logger.error(f"[mail-reporter] Error processing email from {mb.email}: {e}")
 
         # Update mailbox status
@@ -866,6 +939,9 @@ async def _check_one_mailbox(mb: MailboxConfig, user_rules: list, builtin_map: d
             row.last_poll_at = datetime.now(timezone.utc)
             row.last_error = None
             row.consecutive_failures = 0
+            row.imap_uidvalidity = uidvalidity
+            if cursor:
+                row.imap_last_uid = cursor
 
         await db.commit()
 
@@ -909,8 +985,14 @@ async def _check_all_mailboxes():
         if r.is_builtin and r.builtin_key != "general" and r.match_values and r.enabled
     ]
 
+    examples = ""
+    from app.services import mail_triage
+    if mail_triage.enabled():
+        async with AsyncSessionFactory() as db:
+            examples = await mail_triage.load_examples(db)
+
     for mb in mailboxes:
         try:
-            await _check_one_mailbox(mb, user_rules, builtin_map, custom_builtin_rules)
+            await _check_one_mailbox(mb, user_rules, builtin_map, custom_builtin_rules, examples)
         except Exception:
             logger.exception(f"[mail-reporter] Unhandled error for {mb.email}")
