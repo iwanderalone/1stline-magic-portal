@@ -17,6 +17,68 @@ const EMAIL_STATUS_CONFIG = {
 
 const STATUS_CYCLE = ['unchecked', 'on_pause', 'blocked', 'solved'];
 
+// AI triage verdicts. Colour only where someone must act (urgent); the rest
+// stay muted. "code" is decided without the model (login codes, links).
+const TRIAGE = {
+  urgent: { key: 'mailTriageUrgent', color: 'red' },
+  digest: { key: 'mailTriageDigest', color: 'gray' },
+  noise:  { key: 'mailTriageNoise',  color: 'gray' },
+  code:   { key: 'mailTriageCode',   color: 'gray' },
+};
+
+function TriageBadge({ triage }) {
+  const { t: tr } = useLang();
+  const cfg = TRIAGE[triage];
+  if (!cfg) return null;
+  return <Badge color={cfg.color}>{tr(cfg.key)}</Badge>;
+}
+
+/** What the model decided, and a way to say what it should have been. */
+function TriagePanel({ email, onFeedback }) {
+  const { t: tr } = useLang();
+  const [saving, setSaving] = useState(false);
+  if (!email.triage || email.triage === 'code') return null;
+  const current = email.triage_feedback || email.triage;
+  const pick = async (v) => {
+    if (saving) return;
+    setSaving(true);
+    try { await onFeedback(email, v === email.triage ? null : v); } finally { setSaving(false); }
+  };
+  return (
+    <section style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span className="t-eyebrow" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Icon name="sparkles" size={12} /> {tr('mailTriageTitle')}
+        </span>
+        <TriageBadge triage={email.triage} />
+        <span style={{ flex: 1 }} />
+        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{tr('mailTriageShouldBe')}</span>
+        <div style={{ display: 'flex', background: 'var(--surface-sunken)', padding: 2, borderRadius: 'var(--radius-sm)' }}>
+          {['urgent', 'digest', 'noise'].map(v => {
+            const active = current === v;
+            return (
+              <button key={v} onClick={() => pick(v)} disabled={saving || active}
+                style={{
+                  border: 'none', background: active ? 'var(--surface)' : 'transparent',
+                  color: active ? 'var(--text)' : 'var(--text-muted)', padding: '4px 10px',
+                  fontSize: 11, fontWeight: 700, borderRadius: 'var(--radius-xs)',
+                  cursor: active ? 'default' : 'pointer', boxShadow: active ? 'var(--shadow-xs)' : 'none',
+                }}>
+                {tr(TRIAGE[v].key)}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      {email.triage_summary && <div style={{ fontSize: 14, fontWeight: 600 }}>{email.triage_summary}</div>}
+      {email.triage_action && <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>→ {email.triage_action}</div>}
+      {email.triage_feedback && email.triage_feedback !== email.triage && (
+        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{tr('mailTriageCorrected')}</div>
+      )}
+    </section>
+  );
+}
+
 const MATCH_TYPE_LABELS = {
   keyword: 'Keyword (subject + body)',
   subject_keyword: 'Subject keyword',
@@ -543,6 +605,7 @@ function EmailSidebar({ counts, activeFolder, onSelect, rules, mailboxes }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16, height: '100%' }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
         <Item id="inbox" label={tr('mailInbox')} icon="inbox" count={counts.inbox} />
+        {counts.triaged && <Item id="urgent" label={tr('mailUrgentFolder')} icon="alertTriangle" count={counts.urgent} />}
         <Item id="unrouted" label={tr('mailUnrouted')} icon="filter" count={counts.unrouted} />
         <Item id="archive" label={tr('mailArchive')} icon="archive" />
         <Item id="sent" label={tr('mailSentFolder')} icon="send" />
@@ -619,6 +682,11 @@ function EmailList({ emails, activeId, onSelect, loading, ruleMap, hideStatus })
             <div style={{ fontSize: '12px', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 6 }}>
               {em.sender}
             </div>
+            {em.triage_summary && (
+              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: 6, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                {em.triage_summary}
+              </div>
+            )}
             {em.last_comment && (
               <div style={{
                 display: 'flex', alignItems: 'center', gap: 5, marginBottom: 6,
@@ -640,6 +708,7 @@ function EmailList({ emails, activeId, onSelect, loading, ruleMap, hideStatus })
             )}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               {rule ? <RuleBadge rule={rule} /> : <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{tr('mailGeneral')}</span>}
+              {em.triage && em.triage !== 'code' && <TriageBadge triage={em.triage} />}
               <span style={{ flex: 1 }} />
               {/* In Inbox every row is unchecked — only show a state that differs. */}
               {em.status !== hideStatus && (
@@ -700,7 +769,7 @@ function SentList({ replies, loading, activeId, onSelect }) {
   );
 }
 
-function EmailDetail({ email, ruleMap, onStatusChange, onAddComment, onCommentDeleted, onError, user }) {
+function EmailDetail({ email, ruleMap, onStatusChange, onAddComment, onCommentDeleted, onError, onTriageFeedback, user }) {
   const { t: tr } = useLang();
   const [commentText, setCommentText] = useState('');
   const [comments, setComments] = useState([]);
@@ -806,6 +875,8 @@ function EmailDetail({ email, ruleMap, onStatusChange, onAddComment, onCommentDe
           <span style={{ color: 'var(--text-secondary)' }}>{new Date(email.received_at || email.created_at).toLocaleString()}</span>
         </div>
       </section>
+
+      <TriagePanel email={email} onFeedback={onTriageFeedback} />
 
       {/* Message Body */}
       <section style={{ background: 'var(--surface-alt)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -916,6 +987,7 @@ export default function MailReporterPage({ user, initialEmailId }) {
 
   const filteredEmails = useMemo(() => {
     if (activeFolder === 'inbox') return emails.filter(e => e.status !== 'solved');
+    if (activeFolder === 'urgent') return emails.filter(e => e.triage === 'urgent' && e.status !== 'solved');
     if (activeFolder === 'unrouted') return emails.filter(e => !e.rule_id && e.status !== 'solved');
     if (activeFolder === 'archive') return emails.filter(e => e.status === 'solved');
     if (activeFolder.startsWith('rule:')) {
@@ -926,8 +998,10 @@ export default function MailReporterPage({ user, initialEmailId }) {
   }, [emails, activeFolder]);
 
   const counts = useMemo(() => {
-    const c = { inbox: 0, unrouted: 0 };
+    const c = { inbox: 0, unrouted: 0, urgent: 0, triaged: false };
     emails.forEach(e => {
+      if (e.triage) c.triaged = true;
+      if (e.triage === 'urgent' && e.status !== 'solved') c.urgent++;
       if (e.status !== 'solved') {
         c.inbox++;
         if (!e.rule_id) c.unrouted++;
@@ -992,6 +1066,15 @@ export default function MailReporterPage({ user, initialEmailId }) {
     } catch (e) { showToast(e.message, 'error'); }
   };
 
+  const handleTriageFeedback = async (email, feedback) => {
+    try {
+      const updated = await api(`/mail-reporter/emails/${email.id}/triage`, { method: 'PATCH', body: JSON.stringify({ feedback }) });
+      setEmails(prev => prev.map(e => e.id === updated.id ? { ...e, ...updated } : e));
+      setSelectedEmail(prev => prev?.id === updated.id ? { ...prev, ...updated } : prev);
+      showToast(tr('mailTriageThanks'));
+    } catch (e) { showToast(e.message, 'error'); }
+  };
+
   const handleAddComment = async (email, text) => {
     try {
       const c = await api(`/mail-reporter/emails/${email.id}/comments`, { method: 'POST', body: JSON.stringify({ text }) });
@@ -1035,7 +1118,7 @@ export default function MailReporterPage({ user, initialEmailId }) {
             <SentList replies={sentReplies} loading={sentLoading} activeId={selectedEmail?.id} onSelect={(emailId) => pickEmail({ id: emailId })} />
           ) : (
             <EmailList emails={filteredEmails} activeId={selectedEmail?.id} onSelect={pickEmail} loading={loading} ruleMap={ruleMap}
-              hideStatus={['inbox', 'unrouted'].includes(activeFolder) || activeFolder.startsWith('rule:') ? 'unchecked' : activeFolder === 'archive' ? 'solved' : null} />
+              hideStatus={['inbox', 'unrouted', 'urgent'].includes(activeFolder) || activeFolder.startsWith('rule:') ? 'unchecked' : activeFolder === 'archive' ? 'solved' : null} />
           )}
         </div>
 
@@ -1048,6 +1131,7 @@ export default function MailReporterPage({ user, initialEmailId }) {
             onAddComment={handleAddComment}
             onCommentDeleted={(em) => setEmails(prev => prev.map(e => e.id === em.id ? { ...e, comment_count: Math.max(0, (e.comment_count || 1) - 1) } : e))}
             onError={(m) => showToast(m, 'error')}
+            onTriageFeedback={handleTriageFeedback}
             user={user}
           />
         </div>

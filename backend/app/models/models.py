@@ -331,6 +331,10 @@ class MailboxConfig(Base):
     last_poll_at = Column(DateTime(timezone=True), nullable=True)
     last_error = Column(Text, nullable=True)
     consecutive_failures = Column(Integer, default=0, nullable=False)
+    # IMAP UID cursor: polls fetch only messages above it (reset when the
+    # server's UIDVALIDITY changes or monitor_since is edited)
+    imap_uidvalidity = Column(BigInteger, nullable=True)
+    imap_last_uid = Column(BigInteger, nullable=True)
 
     created_at = Column(DateTime(timezone=True), default=utcnow)
     updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
@@ -438,6 +442,14 @@ class EmailLog(Base):
     solved_at = Column(DateTime(timezone=True), nullable=True)
     solved_by = Column(String(100), nullable=True)   # username that marked it solved — powers per-agent stats
     message_id = Column(String(500), nullable=True)  # RFC 5322 Message-ID — enables In-Reply-To threading
+    # AI triage (services/mail_triage.py): urgent | digest | noise | code; NULL =
+    # not triaged (triage off, or the model failed and the mail went out as before)
+    triage = Column(String(10), nullable=True)
+    triage_topic = Column(String(20), nullable=True)
+    triage_summary = Column(Text, nullable=True)
+    triage_action = Column(Text, nullable=True)
+    triage_feedback = Column(String(10), nullable=True)   # what a person said it should have been
+    digested_at = Column(DateTime(timezone=True), nullable=True)
 
     mailbox = relationship("MailboxConfig", back_populates="logs")
     comments = relationship("EmailComment", back_populates="email_log",

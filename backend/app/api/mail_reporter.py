@@ -15,7 +15,7 @@ from app.models.models import MailboxConfig, EmailLog, EmailComment, EmailReply,
 from app.schemas.schemas import (
     MailboxConfigCreate, MailboxConfigUpdate, MailboxConfigResponse, EmailLogResponse,
     EmailLogDetailResponse, EmailLogUpdate, EmailCommentCreate, EmailCommentResponse,
-    EmailReplyCreate, EmailReplyResponse,
+    EmailReplyCreate, EmailReplyResponse, EmailTriageFeedback,
     MailRoutingRuleCreate, MailRoutingRuleUpdate, MailRoutingRuleResponse,
     MailRuleTestRequest, MailRuleTestResponse,
 )
@@ -76,6 +76,8 @@ async def update_mailbox(
     for field, value in body.model_dump(exclude_unset=True).items():
         if field == "password" and value:
             value = encrypt(value)
+        if field == "monitor_since" and value != mb.monitor_since:
+            mb.imap_last_uid = None   # re-read from the new date
         setattr(mb, field, value)
     mb.updated_at = datetime.now(timezone.utc)
 
@@ -237,6 +239,25 @@ async def update_email_log(
     data = EmailLogResponse.model_validate(log)
     data.mailbox_email = mb.email if mb else "deleted"
     data.comment_count = comment_count
+    return data
+
+
+@router.patch("/emails/{email_id}/triage", response_model=EmailLogResponse)
+async def set_triage_feedback(
+    email_id: int,
+    body: EmailTriageFeedback,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    """Say what the AI triage should have decided. Stored as an example the
+    model sees on later mail; null clears it."""
+    log = await get_or_404(db, EmailLog, email_id)
+    log.triage_feedback = body.feedback
+    await db.commit()
+    await db.refresh(log)
+    mb = await db.get(MailboxConfig, log.mailbox_id)
+    data = EmailLogResponse.model_validate(log)
+    data.mailbox_email = mb.email if mb else "deleted"
     return data
 
 

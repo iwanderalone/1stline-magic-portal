@@ -31,6 +31,12 @@ SETTINGS_REGISTRY = [
     {"key": "MAIL_SIGNATURE_TELEGRAM", "category": "Mail Reporter", "label": "Reply signature: Telegram handle, no @ (empty = omit)", "type": "str"},
     {"key": "MAIL_DEFAULT_CHAT_ID", "category": "Mail Reporter", "label": "Default Telegram chat ID", "type": "str"},
     {"key": "MAIL_DEFAULT_THREAD_ID", "category": "Mail Reporter", "label": "Default Telegram thread/topic ID", "type": "str"},
+    {"key": "MAIL_TRIAGE_ENABLED", "category": "Mail Reporter", "label": "AI triage: only mail that needs action goes to Telegram at once (uses the OpenAI-compatible model)", "type": "bool"},
+    {"key": "MAIL_TRIAGE_MODEL", "category": "Mail Reporter", "label": "AI triage model (empty = the AI Assistant's OpenAI-compatible model)", "type": "str"},
+    {"key": "MAIL_TRIAGE_REPEAT_HOURS", "category": "Mail Reporter", "label": "AI triage: no repeat alert for the same sender + subject within (hours)", "type": "int"},
+    {"key": "MAIL_DIGEST_HOURS", "category": "Mail Reporter", "label": "Digest hours, comma-separated", "type": "str", "requires_restart": True},
+    {"key": "MAIL_DIGEST_TZ", "category": "Mail Reporter", "label": "Digest timezone (IANA name)", "type": "str", "requires_restart": True},
+    {"key": "MAIL_DIGEST_TARGET", "category": "Mail Reporter", "label": "Digest Telegram target chat:thread (empty = the mailboxes' target)", "type": "str"},
 
     # ── Telegram Bot ────────────────────────────────────────────────
     {"key": "TELEGRAM_BOT_TOKEN", "category": "Telegram Bot", "label": "Bot token", "type": "str", "is_secret": True},
