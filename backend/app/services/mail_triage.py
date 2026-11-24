@@ -218,17 +218,19 @@ def build_digest(rows: list[EmailLog], now_local: str) -> list[str]:
     from app.services.mail_reporter_service import escape_html
     groups: dict[tuple, list[EmailLog]] = {}
     for r in sorted(rows, key=lambda r: r.received_at or r.created_at):
-        groups.setdefault(thread_key(r.sender, r.subject), []).append(r)
+        # Held-back repeats of an urgent alert stay apart from ordinary digest
+        # mail with the same subject (Kaspersky uses one subject for all).
+        groups.setdefault(thread_key(r.sender, r.subject) + (r.skip_reason == "repeat",), []).append(r)
     by_topic: dict[str, list[str]] = {}
     for items in groups.values():
         first = items[0]
         text = escape_html(first.triage_summary or first.subject or "(no subject)")
         link = portal_link(first.id)
         line = f'• <a href="{escape_html(link)}">{text}</a>' if link else f"• {text}"
-        if len(items) > 1:
+        if first.skip_reason == "repeat":
+            line += f" <i>— повтор уже отправленного срочного ×{len(items)}</i>"
+        elif len(items) > 1:
             line += f" <b>×{len(items)}</b>"
-        if first.skip_reason == "repeat" or any(i.skip_reason == "repeat" for i in items):
-            line += " <i>(повтор срочного)</i>"
         by_topic.setdefault(first.triage_topic or "other", []).append(line)
 
     header = f"📋 <b>Сводка почты</b> · {now_local} · {len(rows)} писем"

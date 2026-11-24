@@ -45,14 +45,19 @@ def _row(i, subject, summary, topic="security", sender="<a@x.com>", skip=None):
 def test_digest_groups_by_topic_and_counts_repeats(monkeypatch):
     monkeypatch.setattr(mt, "portal_link", lambda i: f"https://p/#mail/{i}")
     rows = [
-        _row(1, "Critical event", "Троян <script> заблокирован"),
-        _row(2, "Critical event", "Троян заблокирован снова", skip="repeat"),
-        _row(3, "Invoice #1", "Счёт Replicate $10", topic="finance", sender="<b@y.com>"),
+        _row(1, "Critical event", "Фишинг <script> заблокирован"),
+        _row(2, "Critical event", "Фишинг заблокирован снова"),
+        _row(3, "Critical event", "Троян не удалён", skip="repeat"),
+        _row(4, "Critical event", "Троян не удалён", skip="repeat"),
+        _row(5, "Invoice #1", "Счёт Replicate $10", topic="finance", sender="<b@y.com>"),
     ]
     [text] = mt.build_digest(rows, "24.11 10:00")
-    assert "3 писем" in text
+    assert "5 писем" in text
     assert text.index("Безопасность") < text.index("Финансы")
-    assert "×2" in text and "повтор срочного" in text
+    # same subject, but a blocked-phishing digest item and the held-back
+    # repeats of an urgent trojan alert are two different lines
+    assert "Фишинг &lt;script&gt; заблокирован</a> <b>×2</b>" in text
+    assert "Троян не удалён</a> <i>— повтор уже отправленного срочного ×2</i>" in text
     assert "&lt;script&gt;" in text and "<script>" not in text
     assert 'href="https://p/#mail/1"' in text
 
