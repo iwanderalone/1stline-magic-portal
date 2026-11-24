@@ -119,3 +119,36 @@ async def test_classify_reads_the_model_answer(model_answer):
 async def test_model_failure_returns_none_so_mail_still_goes_out(model_answer, status, content):
     model_answer(status, content)
     assert await mt.classify("box", "a@b", "s", "body") is None
+
+
+class _FakeImap:
+    """UIDs 1..5; fetching uid 3 drops the connection."""
+    def __init__(self, fail_uid=3):
+        self.fail_uid = fail_uid
+
+    def select(self, *a, **k):
+        return "OK", [b"5"]
+
+    def response(self, name):
+        return name, [b"42"]
+
+    def uid(self, cmd, *args):
+        if cmd == "search":
+            return "OK", [b"1 2 3 4 5"]
+        uid = int(args[0])
+        if uid == self.fail_uid:
+            raise OSError("problems with connection")
+        raw = f"Message-ID: <m{uid}@x>\r\nSubject: s{uid}\r\nFrom: a@b\r\nDate: Tue, 24 Nov 2026 10:00:00 +0000\r\n\r\nbody".encode()
+        return "OK", [(b"1 (RFC822)", raw), b")"]
+
+    def logout(self):
+        pass
+
+
+def test_dropped_connection_stops_before_the_gap(monkeypatch):
+    from datetime import date
+    from app.services import mail_reporter_service as mrs
+    monkeypatch.setattr(mrs, "_connect_imap", lambda *a: _FakeImap())
+    msgs, validity = mrs._fetch_imap_emails("box", "pw", date(2026, 11, 1))
+    # 4 and 5 are not returned: the cursor must stay at 2 so 3 is retried
+    assert [m["uid"] for m in msgs] == [1, 2] and validity == 42

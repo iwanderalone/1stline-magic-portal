@@ -692,12 +692,25 @@ def _fetch_imap_emails(email_addr: str, password: str, monitor_since: date,
 
         results = []
         for uid in uids:
+            # A fetch that fails (Yandex drops long sessions mid-way) ends this
+            # poll: returning only what came before it keeps the cursor below
+            # the gap, so the next poll starts at the missing message instead
+            # of skipping past it.
             try:
                 status, msg_data = mail.uid("fetch", str(uid), "(RFC822)")
-                if status != "OK" or not msg_data or not isinstance(msg_data[0], tuple):
-                    continue
+            except Exception as e:
+                logger.warning(f"[mail-reporter] fetch stopped at uid {uid} for {email_addr}: {e}")
+                break
+            if status != "OK" or not msg_data or not isinstance(msg_data[0], tuple):
+                if status != "OK":
+                    logger.warning(f"[mail-reporter] fetch of uid {uid} for {email_addr} answered {status}")
+                    break
+                continue  # expunged in the meantime: nothing to read
+            try:
                 results.append({**_parse_message(msg_data[0][1]), "uid": uid})
             except Exception as e:
+                # An unreadable message would block the mailbox forever if it
+                # held the cursor — log it and move on.
                 logger.error(f"Error parsing message uid {uid} from {email_addr}: {e}")
         return results, current_validity
 
